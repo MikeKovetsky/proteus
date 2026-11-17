@@ -4,9 +4,16 @@ A programmable protocol-emulator chip for Tiny Tapeout's IHP shuttle, built for 
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/). AI agents
 choose its instruction set in a simulator bake-off, then build the RTL against tests they cannot edit.
 
-The only RTL so far is Tiny Tapeout's placeholder adder, in the IHP template at 8x4 tiles. The bake-off lives in
-[bakeoff/](bakeoff/README.md): 14 protocol benches, and the candidate architectures as Python simulators.
-[CLAUDE.md](CLAUDE.md) holds the requirements, this week's plan by day, the progress so far and every tool it
-uses.
+The chip is a table-driven state machine: a program is a state table, compiled from a small state-machine
+language and held in two IHP SRAMs, and four machines can run protocols at once. It passes Tiny Tapeout's whole
+flow at 8x4 tiles: layout, precheck and gate-level simulation, with timing closed at 60 MHz.
+
+1. [src/](src/) holds the RTL, and [docs/info.md](docs/info.md) its pins, host link and loader.
+2. [test/](test/README.md) holds the tests: through the pins, and clock for clock against the golden model.
+3. [bakeoff/](bakeoff/README.md) holds the architecture bake-off: 14 protocol benches and three candidate
+   architectures as Python simulators. The table-driven one, [bakeoff/cand_table](bakeoff/cand_table/README.md),
+   is the golden model, with its compiler and programs.
+4. [CLAUDE.md](CLAUDE.md) holds the requirements, this week's plan by day, the progress so far and every tool it
+   uses.
 
 Licensed under Apache 2.0, the same license as the Tiny Tapeout template.
