@@ -39,7 +39,27 @@ from . import entry as E
 
 
 class CompileError(Exception):
-    pass
+    """A program the compiler refuses. It prints as `file:line: message`, then the source line, indented."""
+
+    def __init__(self, message: str, line: Optional[int] = None, source: str = "", filename: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.source = source
+        self.filename = filename
+
+    def __str__(self) -> str:
+        if self.filename:
+            where = self.filename if self.line is None else "%s:%d" % (self.filename, self.line)
+        else:
+            where = "" if self.line is None else "line %d" % self.line
+        text = "%s: %s" % (where, self.message) if where else self.message
+        return text + ("\n    " + self.source if self.source else "")
+
+
+# The N field of an entry holds either a change of N or the return code, never both.
+RET_CHANGES_N = ("`ret` and a change of N cannot share a line: the entry's N field holds the return code, so "
+                 "it has no room for N-=1 or N+=1; change N on the line before the `ret`")
 
 
 BUILTIN_CONDS = {
@@ -85,7 +105,7 @@ class State:
         self.targets: Tuple[int, ...] = ()
 
     def fail(self, message: str) -> None:
-        raise CompileError("line %d: %s\n    %s" % (self.line, message, self.text))
+        raise CompileError(message, self.line, self.text)
 
     def use_imm(self, mask: int, value: int, what: str) -> None:
         if value & ~mask:
@@ -164,7 +184,7 @@ class Compiler:
                 body.append(lines[i])
                 i += 1
             if i == len(lines):
-                raise CompileError("line %d: macro %s has no `end`" % (number, head.group(1)))
+                raise CompileError("macro %s has no `end`" % head.group(1), number, line)
             params = [p.strip() for p in head.group(2).split(",") if p.strip()]
             self.macros[head.group(1)] = (params, body)
             i += 1
@@ -183,11 +203,11 @@ class Compiler:
             use = re.match(r"^use\s+(\w+)\s*\((.*)\)$", rest)
             if use:
                 if use.group(1) not in self.macros:
-                    raise CompileError("line %d: no macro named %s" % (number, use.group(1)))
+                    raise CompileError("no macro named %s" % use.group(1), number, line)
                 params, body = self.macros[use.group(1)]
                 args = split_args(use.group(2))
                 if len(args) != len(params):
-                    raise CompileError("line %d: %s takes %d arguments" % (number, use.group(1), len(params)))
+                    raise CompileError("%s takes %d arguments" % (use.group(1), len(params)), number, line)
                 self.uses += 1
                 rename = dict(zip(params, args))
                 for _, body_line in body:
@@ -206,10 +226,9 @@ class Compiler:
 
     def value(self, expr: str, line: int) -> int:
         try:
-            result = arithmetic(expr, self.consts)
+            return int(round(arithmetic(expr, self.consts)))  # inside the try: 1e400 is infinity, no integer
         except Exception as error:
-            raise CompileError("line %d: cannot evaluate `%s`: %s" % (line, expr, error))
-        return int(round(result))
+            raise CompileError("cannot evaluate `%s`: %s" % (expr.strip(), error), line)
 
     # ---- parsing ---------------------------------------------------------------------------------------
 
@@ -220,47 +239,55 @@ class Compiler:
             words = line.split(None, 1)
             key, rest = words[0], (words[1] if len(words) > 1 else "")
             if key == "const":
-                name, expr = [part.strip() for part in rest.split("=", 1)]
-                self.consts[name] = self.value(expr, number)
+                found = re.match(r"^(\w+)\s*=(.*)$", rest)
+                if not found:
+                    raise CompileError("expected `const NAME = expr`", number, line)
+                self.consts[found.group(1)] = self.value(found.group(2), number)
                 continue
             if key == "machine":
                 if pending_labels:
-                    raise CompileError("line %d: label %s has no line after it" % (number, pending_labels[0]))
+                    raise CompileError("label %s has no line after it" % pending_labels[0], number, line)
                 if len(self.machines) == E.MAX_MACHINES:
-                    raise CompileError("line %d: at most %d machines" % (number, E.MAX_MACHINES))
+                    raise CompileError("at most %d machines" % E.MAX_MACHINES, number, line)
                 machine = Machine(rest.strip() or "m%d" % len(self.machines), len(self.machines))
                 self.machines.append(machine)
                 continue
             if machine is None:
-                raise CompileError("line %d: expected `machine NAME` first" % number)
+                raise CompileError("expected `machine NAME` first", number, line)
             if key in ("in", "out"):
                 table, limit = (machine.ins, 3) if key == "in" else (machine.outs, 4)
                 for part in rest.split(","):
                     found = re.match(r"^\s*(\w+)\s*=\s*P([0-7])\s*$", part)
                     if not found:
-                        raise CompileError("line %d: expected NAME=P0..P7, got `%s`" % (number, part.strip()))
+                        raise CompileError("expected NAME=P0..P7, got `%s`" % part.strip(), number, line)
                     if found.group(1) in RESERVED:
-                        raise CompileError("line %d: %s is a reserved word" % (number, found.group(1)))
+                        raise CompileError("%s is a reserved word" % found.group(1), number, line)
                     if len(table) == limit:
-                        raise CompileError("line %d: a machine has at most %d `%s` pins" % (number, limit, key))
+                        raise CompileError("a machine has at most %d `%s` pins" % (limit, key), number, line)
                     index = len(table)
                     table[found.group(1)] = index
                     (machine.cfg.inp if key == "in" else machine.cfg.out)[index] = int(found.group(2))
                 continue
             if key == "order":
                 if rest not in ("lsb", "msb"):
-                    raise CompileError("line %d: order is lsb or msb" % number)
+                    raise CompileError("order is lsb or msb", number, line)
                 machine.cfg.msb = 1 if rest == "msb" else 0
                 continue
             if key == "crc" and re.match(r"^(poly|init|match)\s*=", rest):
-                for name, expr in re.findall(r"(poly|init|match)\s*=\s*(\S+)", rest):
-                    setattr(machine.cfg, name, self.value(expr, number) & 0xFFFFFFFF)
+                # Each value runs to the next `poly=`, `init=` or `match=`, so it may hold spaces: `init = 1 + 2`.
+                parts = re.split(r"\b(poly|init|match)\s*=", rest)
+                for name, expr in zip(parts[1::2], parts[2::2]):
+                    value = self.value(expr, number)
+                    if not 0 <= value <= 0xFFFFFFFF:
+                        raise CompileError("crc %s = %d is outside 0 to 0xFFFFFFFF, the LFSR's 32 bits"
+                                           % (name, value), number, line)
+                    setattr(machine.cfg, name, value)
                 continue
 
             label = LABEL_RE.match(line)
             if label:
                 if label.group(1) in RESERVED or label.group(1) in machine.ins or label.group(1) in machine.outs:
-                    raise CompileError("line %d: `%s` is a reserved word or a pin, not a label" % (number, label.group(1)))
+                    raise CompileError("`%s` is a reserved word or a pin, not a label" % label.group(1), number, line)
                 pending_labels.append(label.group(1))
                 line = label.group(2)
                 if not line:
@@ -268,7 +295,7 @@ class Compiler:
             position = len(machine.items)
             for name in pending_labels:
                 if name in machine.labels:
-                    raise CompileError("line %d: label %s is defined twice" % (number, name))
+                    raise CompileError("label %s is defined twice" % name, number, line)
                 machine.labels[name] = position
             self._parse_step(machine, number, line, pending_labels[0] if pending_labels else "")
             pending_labels = []
@@ -300,6 +327,8 @@ class Compiler:
             elif item.startswith("hold "):
                 hold = self.value(item[5:], number)
             elif item == "ret":
+                if state.fields["nop"] in (E.N_DEC, E.N_INC):
+                    state.fail(RET_CHANGES_N)
                 state.ret = True
                 state.fields["nop"] = E.N_RETURN
             elif item.startswith("call "):
@@ -399,9 +428,11 @@ class Compiler:
         if count:
             reg, sign = count.groups()
             if reg == "N":
+                if state.ret:
+                    state.fail(RET_CHANGES_N)
                 if f["nop"]:
-                    state.fail("N changes once per state, and not in the state that returns")
-                f["nop"] = 1 if sign == "-" else 2
+                    state.fail("N changes once per state")
+                f["nop"] = E.N_DEC if sign == "-" else E.N_INC
             elif sign == "+":
                 state.fail("K and J only count down")
             else:
@@ -572,7 +603,10 @@ class Compiler:
                 return found
 
             if item.ret:
-                continue  # the link register decides: no successors in the table
+                # The link register decides where a return goes, so it has no successors in the table. Its cA
+                # still selects a flag every turn, and a `when` on the line gates the pins with that flag.
+                item.conds = [item.gate[0]] if item.gate is not None else []
+                continue
             if item.call:
                 if following is None:
                     item.fail("nothing follows this call to return to")
@@ -691,12 +725,20 @@ class Compiler:
 def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
     """One listing line for an entry: what it does and where it goes."""
     outs = {index: name for name, index in machine.outs.items()}
+    ins = {E.C_A + index: name for name, index in machine.ins.items()}
+    data = "c" if f["dsel"] else "d"  # the data bit: the shifter's end bit, or LFSR bit 0
+
+    def cond(c: int) -> str:
+        return data if c == E.C_D else ins.get(c, E.CONDS[c])
+
     parts = []
     for slot in ("p0", "p1"):
-        if f[slot + "op"]:
-            parts.append("%s=%s" % (outs.get(f[slot], "O%d" % f[slot]), E.PIN_OPS[f[slot + "op"]]))
+        op = f[slot + "op"]
+        if op:
+            value = {E.P_DATA: data, E.P_NDATA: "!" + data}.get(op, E.PIN_OPS[op])
+            parts.append("%s=%s" % (outs.get(f[slot], "O%d" % f[slot]), value))
     if f["gate"]:
-        parts.append("(pins if %s%s)" % ("" if f["gate"] == 1 else "!", E.CONDS[f["ca"]]))
+        parts.append("(pins if %s%s)" % ("" if f["gate"] == 1 else "!", cond(f["ca"])))
     if f["dst"] == E.DST_LINK:
         parts.append("call, back to %d" % f["imm"])
     elif f["dst"] or f["src"] in (E.SRC_POP0, E.SRC_POP3):
@@ -714,7 +756,7 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
             parts.append("%s-=1" % reg if op == E.DEC else "%s=%d" % (reg, (f["imm"] >> shift) & 15))
     if f["tload"]:
         parts.append("T=%d" % f["imm"])
-    conds = [E.CONDS[c] for c in (f["ca"], f["cb"]) if c]
+    conds = [cond(c) for c in (f["ca"], f["cb"]) if c]
     names = [machine.states[t].name for t in state.targets]
     if state.ret:
         return "%-40s -> link" % (", ".join(parts) or "-")
@@ -787,7 +829,8 @@ def compile_text(text: str, filename: str = "<source>") -> Result:
     try:
         return Compiler(text, filename).compile()
     except CompileError as error:
-        raise CompileError("%s: %s" % (filename, error))
+        error.filename = error.filename or filename
+        raise
 
 
 def compile_file(path: Path) -> Result:
@@ -795,14 +838,26 @@ def compile_file(path: Path) -> Result:
 
 
 def main() -> int:
+    """Print each file's listing. A file that does not compile prints `file:line: message` and the exit
+    status is 1."""
+    status = 0
     for name in sys.argv[1:]:
-        result = compile_file(Path(name))
+        try:
+            result = compile_file(Path(name))
+        except CompileError as error:
+            print(error, file=sys.stderr)
+            status = 1
+            continue
+        except OSError as error:
+            print("%s: %s" % (name, error.strerror or error), file=sys.stderr)
+            status = 1
+            continue
         print("%s: %d states in %d entries (%d unused), image %d bytes"
               % (name, result.states, result.entries, result.unused, len(result.image)))
         print("\n".join(result.listing))
-        for name in result.unreached:
-            print("warning: %s is never reached" % name)
-    return 0
+        for unreached in result.unreached:
+            print("warning: %s is never reached" % unreached)
+    return status
 
 
 if __name__ == "__main__":
