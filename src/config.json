@@ -81,7 +81,7 @@
   "MAGIC_WRITE_LEF_PINONLY": 1,
 
   "//sram": "---- protoemu: two IHP RM_IHPSG13_1P_512x32_c2_bm_bist SRAMs (core.table_ram.ram_a and ram_b in the netlist) ----",
-  "//sram_source": "Taken from Ken Pettit's ihp-um-janestreet-prism (src/config.json, main 2026-10-15), whose two 512x32 SRAMs sit at these same spots and pass precheck, and his walkthrough https://kdp1965.github.io/ihp-um-janestreet-prism/ihp_sram_macro.html. Values checked against the macro's LEF at IHP-Open-PDK 89d42ee6d2fd, the commit Tiny Tapeout's flow installs.",
+  "//sram_source": "Taken from Ken Pettit's ihp-um-janestreet-prism (src/config.json, main 2026-10-15), whose two 512x32 SRAMs pass precheck in the same orientations and on the same stripe grid, and his walkthrough https://kdp1965.github.io/ihp-um-janestreet-prism/ihp_sram_macro.html. protoemu moves the pair 5 grid pitches right and spreads it to the core's top and bottom (see //macros). Values checked against the macro's LEF at IHP-Open-PDK 89d42ee6d2fd, the commit Tiny Tapeout's flow installs.",
 
   "//meta": "The Classic flow plus two steps from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root): after the PDN generator, full-height stripes over each SRAM's Metal4 supply columns; after the post-CTS resizer, an antenna diode on each SRAM input pin (see //antenna).",
   "meta": {
@@ -92,7 +92,7 @@
     }
   },
 
-  "//macros": "Views from the PDK (sg13cmos5l_sram links to sg13g2_sram). The flow's corner names map onto IHP's: the fast lib is characterised at -55 C, not -40 C. 'vh' is a ports-only black box for Verilator lint and Yosys. Locations are the lower-left corners in um. ram_a is flipped (FS) so its pin edge faces up and ram_b's (N) faces down: their address and data pins look at each other across the 145 um gap, where the table logic goes. x = 3.36 puts the first VDD! column centre at 9.03 um, on the stripe grid.",
+  "//macros": "Views from the PDK (sg13cmos5l_sram links to sg13g2_sram). The flow's corner names map onto IHP's: the fast lib is characterised at -55 C, not -40 C. 'vh' is a ports-only black box for Verilator lint and Yosys. Locations are the lower-left corners in um. ram_a is flipped (FS) so its pin edge faces up and ram_b's (N) faces down: their address and data pins look at each other across the channel where the table logic goes. Both pin edges are on Metal2, and Metal3 is the tile's only horizontal routing layer (Metal2 and Metal4 run vertically, TopMetal1 is the harness's), so every wire between the channel and the rest of the chip leaves through the channel's open ends on Metal3. Pettit's spots, flush left at x 3.36 with a 145 um channel, left one open end: 345 Metal3 tracks for this design's 244 crossing nets, and the first layout build (GitHub run 44047118911) routed 25 nets straight over the SRAMs and ended with 382 shorts. Here x = 228.16 = 3.36 + 5 x 44.96 opens both ends and keeps each SRAM column exactly where it was against the stripe grid; ram_a sits on the core's bottom edge and ram_b's top is 1.44 um under its top edge, so the channel is 318.96 um tall (759 Metal3 tracks at each end); ram_b's pin edge is on a row boundary, as Pettit's is; and the left 223 um of rows, under the tile's pins (x 29.6-191.2), have no macro above them.",
   "MACROS": {
     "RM_IHPSG13_1P_512x32_c2_bm_bist": {
       "gds": ["pdk_dir::libs.ref/sg13cmos5l_sram/gds/RM_IHPSG13_1P_512x32_c2_bm_bist.gds"],
@@ -107,8 +107,8 @@
         "nom_slow_1p08V_125C": ["pdk_dir::libs.ref/sg13cmos5l_sram/lib/RM_IHPSG13_1P_512x32_c2_bm_bist_slow_1p08V_125C.lib"]
       },
       "instances": {
-        "core.table_ram.ram_a": {"location": [3.36, 3.78], "orientation": "FS"},
-        "core.table_ram.ram_b": {"location": [3.36, 340.2], "orientation": "N"}
+        "core.table_ram.ram_a": {"location": [228.16, 3.78], "orientation": "FS"},
+        "core.table_ram.ram_b": {"location": [228.16, 514.08], "orientation": "N"}
       }
     }
   },
@@ -117,14 +117,14 @@
   "FP_MACRO_HORIZONTAL_HALO": 2.0,
   "FP_MACRO_VERTICAL_HALO": 0.48,
 
-  "//obstructions": "No signal routing over the SRAMs on Metal2 to Metal4, except a 2.6 um band at each pin edge. The LEF already obstructs most of it; this also keeps the router off the Metal4 supply columns (Pettit).",
+  "//obstructions": "No signal routing over the SRAMs on Metal2 to Metal4, except a 2.6 um band at each pin edge (ram_a's top at y 195.12, ram_b's bottom at y 514.08). The LEF already obstructs most of it; this also keeps the router off the Metal4 supply columns (Pettit).",
   "ROUTING_OBSTRUCTIONS": [
-    "Metal2 3.36 3.78 420.0 192.5",
-    "Metal3 3.36 3.78 420.0 192.5",
-    "Metal4 3.36 3.78 420.0 192.5",
-    "Metal2 3.36 342.8 420.0 531.54",
-    "Metal3 3.36 342.8 420.0 531.54",
-    "Metal4 3.36 342.8 420.0 531.54"
+    "Metal2 228.16 3.78 644.8 192.5",
+    "Metal3 228.16 3.78 644.8 192.5",
+    "Metal4 228.16 3.78 644.8 192.5",
+    "Metal2 228.16 516.68 644.8 705.42",
+    "Metal3 228.16 516.68 644.8 705.42",
+    "Metal4 228.16 516.68 644.8 705.42"
   ],
 
   "//pdn": "The tile grid is vertical Metal4 only. Width 2.1 + spacing 3.52 = 5.62 um, the SRAM's VDD!-to-VSS! column pitch; offset 6.15 centres the first VPWR stripe at 9.03 um (Pettit). pdn_cfg.tcl is LibreLane's without the per-macro grid, which fails on a one-layer grid (PDN-0233).",
@@ -143,7 +143,7 @@
   "//pdn_check": "pdngen's grid check runs before Protoemu.ExtendPowerStripes connects the SRAM columns, so it reports them; LVS and the IR drop report are the verdict (Pettit).",
   "ERROR_ON_PDN_VIOLATIONS": 0,
 
-  "//stripes": "Protoemu.ExtendPowerStripes: each grid stripe crossing an SRAM moves onto its nearest free supply column of the same polarity, each region of the macro gets whole pairs, and each bit-cell array gets a pair on every other column pair. The tile's signal pins are placed after this step, so it cannot steer around them: like the grid's own stripes, the column stripes stop at the core edge (y 706.86), 2.8 um below the pins at the top edge, and the router jogs around them. This is the setting Pettit's submission signed off with.",
+  "//stripes": "Protoemu.ExtendPowerStripes: each grid stripe crossing an SRAM moves onto its nearest free supply column of the same polarity, each region of the macro gets whole pairs, and each bit-cell array gets a pair on every other column pair. The tile's signal pins are placed after this step, so it cannot steer around them; with the SRAMs at x 228.16-644.8 no column stripe runs under them, and the grid's own stripes stop at the core edge (y 706.86), 2.8 um below the pins, as in the template. This is the setting Pettit's submission signed off with.",
   "EXTEND_STRIPES_SRAM_ALL_COLUMNS": false,
   "EXTEND_STRIPES_SRAM_ARRAY_EVERY_OTHER": true,
   "EXTEND_STRIPES_PIN_FACE_MARGIN": 0,
