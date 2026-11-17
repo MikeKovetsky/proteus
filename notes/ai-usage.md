@@ -75,5 +75,12 @@ A dated log, written as the work happens. The verification write-up's AI section
 15. **Integration.** The main session re-ran both builders' checks, then merged the two branches and main on
     the branch `rtl-sram-flow`, following the layout builder's hand-over note, and renamed the SRAM instances in
     the layout config to where the RTL puts them.
-16. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+16. **Review of the merge.** Both branches had their own full reviews, so a fresh Opus 5.5 reviewer at max effort
+    read only what the merge changed and whether the two halves fit. It found that deleting the dummy design had
+    also deleted the only test that both SRAMs' A_DLY pins are tied high: with one tied low, the pin tests still
+    passed 7 of 7. It moved the check into the real pin tests and proved it fails on three bad ties, on RTL and on
+    two gate-level netlists. It also restored a lost note in info.yaml, and checked the renamed SRAM instances
+    against how Yosys, OpenSTA and LibreLane name flattened instances, replaying the power-connection patterns in
+    tclsh. The main session re-ran the pin tests on the reviewed tip before pushing the branch.
+17. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.

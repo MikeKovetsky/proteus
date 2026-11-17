@@ -5,10 +5,11 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-16, 22:50 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
-written. The bake-off is done: all three candidate architectures pass all 14 benches, and Mike picked the
-table-driven one. Its RTL and the SRAM layout setup are being built. Tiny Tapeout's placeholder adder is still the
-only RTL on main. "Progress" below has the detail.
+Status, 2026-11-17, 00:30 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
+written. The bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on
+every clock and is merged with the SRAM layout setup on the branch `rtl-sram-flow`, whose first layout build is
+running in GitHub Actions. `main` still holds the placeholder adder until that build passes. "Progress" below has
+the detail.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -78,17 +79,17 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
 | R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
-| R2 | Reprogrammable after fabrication, within its timing and I/O limits | NOT MET | |
-| R3 | UART, SPI and I2C demonstrated by programs | NOT MET | |
-| R4 | Known state from `rst_n`, with no reliance on power-up values | NOT MET | |
-| R5 | Program reload after deselect works | NOT MET | |
+| R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
+| R3 | UART, SPI and I2C demonstrated by programs | MET in simulation | UART and the SPI target end to end at the pins (`test/test.py`); the SPI controller (modes 0 and 3) and I2C match the golden model on every clock of their benches (`make -C test lockstep`); not yet on silicon |
+| R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
+| R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py` |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | NOT MET | |
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the placeholder; must pass again on the real design | [Run 44025802951](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) on `00bc006`: gds, precheck, gl_test and viewer all pass |
-| R8 | RTL and tests in the public repo | NOT MET | |
+| R8 | RTL and tests in the public repo | MET on branch `rtl-sram-flow` | Pushed 2026-11-17; on `main` once its layout build passes |
 | R9 | Architecture and instruction set documentation | NOT MET | |
-| R10 | Assembler or toolchain with example programs | NOT MET | |
+| R10 | Assembler or toolchain with example programs | MET in content | `bakeoff/cand_table/compiler.py` and 14 programs; all 14 images run identically on the RTL; not yet moved to `asm/` |
 | R11 | Verification write-up, including how AI was used | NOT MET | |
-| R12 | Gate-level simulation passes | NOT MET | |
+| R12 | Gate-level simulation passes | NOT MET | The pin tests pass 7 of 7 on a pre-layout netlist of IHP cells; the post-layout run comes with the layout build |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET | |
 
@@ -121,7 +122,7 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 4. **Mike's parts this week** are three: approve the tool downloads (Monday), pick the architecture (Tuesday), and
    decide what the write-up claims (Sunday).
 
-### Progress, 2026-11-16, 22:50 PST
+### Progress, 2026-11-17, 00:30 PST
 
 1. **Tools.** The OSS CAD Suite is installed. A counter passed Verilator lint, an Icarus simulation, a cocotb test,
    Yosys synthesis and an sby proof.
@@ -143,12 +144,25 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 6. **SRAM timing.** IHP's timing file for the 512x32 SRAM gives 6.4 ns from clock to data out at the slow corner
    (1.08 V, 125 °C) and 3.8 ns at the typical corner. That leaves about 10 ns of a 16.7 ns clock for the decision
    logic. It is a datasheet figure, not synthesis. The CMOS5L SRAM folder in IHP's PDK is a link to these files.
-7. **In progress.** Two agents work in their own git worktrees: the RTL of the table machine with cycle-by-cycle
-   tests against `bakeoff/cand_table`, and the SRAM macros through the layout flow on a dummy design.
-8. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
-   their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
-   14 of 14.
-9. **Not done.** The SRAM macro in GDS, local hardening (it needs a container engine), and every RTL requirement.
+7. **RTL.** The table machine is in Verilog (`src/protoemu_*.v`). It matches the golden model on every clock: 323
+   of 323 traces, 3,051,548 clocks, from all 14 benches and 300 random programs, replayed in Verilator in about 5
+   seconds (`make -C test lockstep`). The suite catches 21 of 21 planted bugs (`make -C test mutants`), and its
+   reviewer planted 64 more in the core and the suite caught every one that changes behaviour. Seven pin-level
+   tests pass, including reset, reload and run again. Yosys gives 1,172 flops (budget 1,202) and about 2,700 logic
+   cells. An estimate on IHP's cells puts the decision loop at 9.3 ns of the 16.6 ns clock before wires; it is not
+   independently confirmed, and the flow's timing report is the real answer.
+8. **SRAM layout setup.** The two SRAMs go through the flow with Ken Pettit's placement, power stripes, antenna
+   diodes and DRC waivers, proven on a dummy design in simulation. The open risk: the power stripes come from a
+   LibreLane plugin, LibreLane's docs say plugins are not supported in its Docker container, and Tiny Tapeout's
+   GDS action runs LibreLane in one. The first layout build settles it.
+9. **Integration.** Both are merged with `main` on the branch `rtl-sram-flow`, reviewed, and pushed. Its first
+   layout build is running in GitHub Actions.
+10. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
+    their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
+    14 of 14.
+11. **Not done.** A layout of the real chip (R6, R7, R12), the architecture and instruction set docs (R9), the
+    SPI controller and I2C end to end at the pins, the sby reset proof, and local hardening, which needs a
+    container engine.
 
 ### Layout (target)
 
