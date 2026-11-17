@@ -145,7 +145,7 @@ It gives up, against the RP2040: 32-bit X, Y and ISR, `wrap`, `out exec`, bit re
 | `onewire` | 41 | 194 | 5 µs ticks, CRC-8 by residue. |
 | `usb_ls_tx` | 38 | 182 | NRZI, stuffing and CRC-16 in the program and the CRC unit. |
 | `usb_ls_rx` | 50 | 230 | Clock recovery, unstuffing, CRC-16 by residue. |
-| `eth10_tx` | 44 | 206 | Six instructions per bit, all six clocks used. |
+| `eth10_tx` | 44 | 206 | Six clocks per bit; the path past a byte's last bit runs an instruction in all six. |
 | `eth10_rx` | 36 | 169 | Waits for each mid-bit edge; the bit is read one clock later. |
 
 ## Failing scenarios

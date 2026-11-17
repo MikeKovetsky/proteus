@@ -20,7 +20,7 @@ from ..harness.sim import MASK, Sim, payload
 from ..run import discover_benches
 from . import candidate as c
 from . import isa
-from .asm import AsmError, assemble
+from .asm import AsmError, Assembler, assemble
 from .chip import PioChip, _SM
 
 NEEDS_60MHZ = {"eth10_tx", "eth10_rx", "usb_ls_rx"}    # README, Concurrency 2
@@ -179,6 +179,8 @@ def budget_against_readme() -> List[str]:
     totals = re.search(r"\*\*Total per machine\*\* \| \*\*(\d+)\*\* \| \*\*Total shared\*\* \| \*\*(\d+)\*\*", text)
     flops = re.search(r"\*\*Flops: ([\d,]+)\*\* \((\d) × (\d+) \+ (\d+)\)", text)
     sram = re.search(r"\*\*SRAM: ([\d,]+) bits\*\*", text)
+    largest = re.search(r"The largest program here is (\d+) words", text)
+    words = max(sum(map(len, Assembler().assemble(path.read_text())[1])) for path in c.PROGRAMS.glob("*.pio"))
     problems = []
     if b["flops"] != isa.N_SM * per_sm + shared:
         problems.append("budget() says %d flops, its tables add up to %d" % (b["flops"], isa.N_SM * per_sm + shared))
@@ -192,6 +194,8 @@ def budget_against_readme() -> List[str]:
         problems.append("the README's flop line is not %d (%d x %d + %d)" % tuple(want))
     if not sram or int(sram.group(1).replace(",", "")) != b["sram_bits"]:
         problems.append("the README's SRAM line is not %d bits" % b["sram_bits"])
+    if not largest or int(largest.group(1)) != words:
+        problems.append("the README's largest program is not %d words" % words)
     return problems
 
 
