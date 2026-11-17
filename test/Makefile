@@ -6,13 +6,19 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v
+PROJECT_SOURCES = project.v protoemu_core.v protoemu_fifo.v protoemu_table.v
+
+# The two table SRAMs are IHP's RM_IHPSG13_1P_512x32_c2_bm_bist macro. Its simulation model is vendored from
+# IHP's open PDK (test/ihp_sram/README.md); FUNCTIONAL selects the model without timing checks.
+SRAM_MODELS = $(PWD)/ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v $(PWD)/ihp_sram/RM_IHPSG13_1P_core_behavioral_bm_bist.v
+VERILOG_SOURCES += $(SRAM_MODELS)
 
 ifneq ($(GATES),yes)
 
 # RTL simulation:
 SIM_BUILD				= sim_build/rtl
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
+COMPILE_ARGS    += -DFUNCTIONAL
 
 else
 
@@ -47,3 +53,24 @@ COCOTB_TEST_MODULES = test
 
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
+
+# ---- protoemu's own targets (after the include, so `make` alone still runs the cocotb test) ------------
+
+.PHONY: lockstep mutants lint synth
+
+# The golden model against the RTL core, clock for clock: 14 benches and 300 random tests (Verilator).
+lockstep:
+	$(MAKE) -C lockstep run
+
+# Plant one bug at a time in the RTL; the lockstep suite must catch every one.
+mutants: lockstep
+	python3 lockstep/mutants.py
+
+# Verilator lint of src/, every warning on. The vendored SRAM model's own warnings are waived.
+lint:
+	verilator --lint-only -Wall --timescale 1ns/1ps -DFUNCTIONAL --top-module tt_um_mikekovetsky_protoemu \
+		lint/waivers.vlt $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES)) $(SRAM_MODELS)
+
+# Yosys synthesis: generic cells with the SRAMs as black boxes, then IHP cells and the decision-loop delay.
+synth:
+	$(MAKE) -C synth

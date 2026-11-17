@@ -18,41 +18,44 @@ project:
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
     - "project.v"
+    - "protoemu_core.v"
+    - "protoemu_fifo.v"
+    - "protoemu_table.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
-# protoemu: these are the pins of the template's placeholder adder (SUM = A + B). They change when the
-# architecture is chosen. Tiny Tapeout's docs check fails if every pin is blank.
+# protoemu: the host (the demo board's RP2350) talks on ui and uo; the protocols run on uio. docs/info.md
+# describes the host link.
 pinout:
-  # Inputs
-  ui[0]: "A0"
-  ui[1]: "A1"
-  ui[2]: "A2"
-  ui[3]: "A3"
-  ui[4]: "A4"
-  ui[5]: "A5"
-  ui[6]: "A6"
-  ui[7]: "A7"
+  # Inputs: the host link
+  ui[0]: "HOST_D0"
+  ui[1]: "HOST_D1"
+  ui[2]: "HOST_D2"
+  ui[3]: "HOST_D3"
+  ui[4]: "PORT0"
+  ui[5]: "PORT1"
+  ui[6]: "WR_STROBE"
+  ui[7]: "RD_STROBE"
 
-  # Outputs
-  uo[0]: "SUM0"
-  uo[1]: "SUM1"
-  uo[2]: "SUM2"
-  uo[3]: "SUM3"
-  uo[4]: "SUM4"
-  uo[5]: "SUM5"
-  uo[6]: "SUM6"
-  uo[7]: "SUM7"
+  # Outputs: the host link
+  uo[0]: "HOST_Q0"
+  uo[1]: "HOST_Q1"
+  uo[2]: "HOST_Q2"
+  uo[3]: "HOST_Q3"
+  uo[4]: "ROOM"
+  uo[5]: "HAS_BYTE"
+  uo[6]: "RUNNING"
+  uo[7]: "OVERFLOW"
 
-  # Bidirectional pins (all inputs)
-  uio[0]: "B0"
-  uio[1]: "B1"
-  uio[2]: "B2"
-  uio[3]: "B3"
-  uio[4]: "B4"
-  uio[5]: "B5"
-  uio[6]: "B6"
-  uio[7]: "B7"
+  # Bidirectional pins: the protocol pins, set per program
+  uio[0]: "P0"
+  uio[1]: "P1"
+  uio[2]: "P2"
+  uio[3]: "P3"
+  uio[4]: "P4"
+  uio[5]: "P5"
+  uio[6]: "P6"
+  uio[7]: "P7"
 
 # Do not change!
 yaml_version: 6
