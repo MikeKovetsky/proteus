@@ -5,9 +5,10 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-16: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was written.
-The architecture bake-off has started. Tiny Tapeout's IHP template is in at 8x4 tiles and 60 MHz, and its
-placeholder adder is the only RTL.
+Status, 2026-11-16, 22:10 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
+written. Tiny Tapeout's IHP template is in at 8x4 tiles and 60 MHz, and its placeholder adder is the only RTL. The
+bake-off's 14 benches are written, and the first of three candidate architectures passes all of them. "Progress"
+below has the detail.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -120,6 +121,27 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 4. **Mike's parts this week** are three: approve the tool downloads (Monday), pick the architecture (Tuesday), and
    decide what the write-up claims (Sunday).
 
+### Progress, 2026-11-16, 22:10 PST
+
+1. **Tools.** The OSS CAD Suite is installed. A counter passed Verilator lint, an Icarus simulation, a cocotb test,
+   Yosys synthesis and an sby proof.
+2. **Template (R1).** It is in at 8x4 tiles and 60 MHz, reviewed and pushed. The review named the placeholder's
+   pins, because Tiny Tapeout's docs check fails on a blank pinout, and widened the test until it failed on seven
+   deliberately broken designs.
+3. **GitHub Actions (R7, not yet met).** The docs and test workflows pass on `00bc006`.
+   [The GDS build](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) had run for 26 minutes when
+   this was written, so GDS, precheck and the gate-level test are not confirmed. GitHub Pages is on, with GitHub
+   Actions as its source, for the layout viewer.
+4. **Benches.** All 14 scenarios have a bench. The self-test passes 180 of 180 checks: each bench passes a
+   hand-written fake chip that does the scenario correctly and fails fakes with one planted fault each, and the
+   reference CRCs match outside vectors.
+5. **Candidates.** `cand_table` passes 14 of 14 benches, re-run by the main session. `cand_pio` and `cand_event`
+   are still being built. The table under "1. Architecture bake-off" has the numbers.
+6. **Not pushed yet.** The bake-off code (`bakeoff/`) is going through its review. The harness and `cand_table`
+   go first, and the other two candidates follow when they are finished.
+7. **Not done.** The bake-off table, Mike's pick, the SRAM macro and dummy design, and local hardening, which
+   needs Docker.
+
 ### Layout (target)
 
 ```
@@ -155,6 +177,18 @@ never listed here, and the worker can never read them.
 6. The table reports, per candidate: benches passed, program sizes, the flop and memory budget, concurrency, and
    what could not be done and why. The budget is self-reported until RTL exists.
 7. Mike picks. The winner's simulator becomes the golden model in `model/`.
+
+Results so far (2026-11-16, 22:10 PST). The budgets are the candidates' own figures, not synthesized.
+
+| Candidate | Benches passed | Flops | SRAM bits | Protocols at once | State |
+|---|---|---|---|---|---|
+| `cand_table` | 14 of 14 | 1,202 | 32,768 | 4, sharing one decision rate | Reported, in review |
+| `cand_pio` | | | | | Being built |
+| `cand_event` | | | | | Being built |
+
+`cand_table`'s open risk, by its author's account: it decides on every clock only if one path (memory output,
+condition select, memory address) closes in 16.7 ns. That is not checked in synthesis. If it fails, decisions drop
+to every second clock and the Ethernet scenarios are lost.
 
 ### 2. Prove the flow
 

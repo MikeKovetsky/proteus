@@ -20,5 +20,17 @@ A dated log, written as the work happens. The verification write-up's AI section
    and CI logs, and found that the docs workflow fails when every pin in `info.yaml` is blank. It also broke the
    design on purpose and found that the template's one-sum test passed on four of seven broken versions. It named
    the placeholder's pins and widened the test until all seven failed.
-5. **What a person decided.** Mike asked for the critique, set the one-week pace, and will pick the architecture
-   from the bake-off table.
+5. **Benches.** One subagent wrote 13 of the 14 benches from the scenario spec, without reading any candidate. For
+   every bench it also wrote fake chips: one that does the scenario correctly and must pass, and several with one
+   planted fault that must fail. The self-test runs 180 checks. The main session re-ran it before trusting the
+   report. The subagent flagged its own weak spot: in the Ethernet receive scenario only the 300-byte frame drifts
+   enough to test clock recovery.
+6. **First candidate.** A second subagent designed the table-driven candidate, its compiler and 14 programs in
+   about 43 minutes, and reported 14 of 14 benches passing. The main session re-ran the benches and got the same.
+   The candidate's hardware budget is its author's estimate. Its author named the top risk itself: one timing
+   path that is not checked in synthesis.
+7. **Tools and CI.** Claude installed the OSS CAD Suite after Mike approved the download, and proved it on a
+   counter. Claude turned on GitHub Pages after Mike approved it. GitHub's docs and test workflows passed on the
+   reviewed template, which confirms the reviewer's pinout fix on an independent run.
+8. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+   GitHub Pages, and will pick the architecture from the bake-off table.
