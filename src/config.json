@@ -23,6 +23,12 @@
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
+  "//repair": "protoemu: a second design repair after global routing, then hold repair on its result. Run 44076197046 ended with 78 max-slew violations (slow corner), every one on an SRAM input pin (limits 0.5952 ns slow, 0.476 typ, 0.38 fast; worst 1.43 ns), and 1 max-cap on an SRAM output (ram_a A_DOUT[29], 0.079 of 0.064 pF). The template's only design repair runs after global placement, so it never sees the hold buffers (five of them drive an address pin on both SRAMs) or Protoemu.DiodesOnSramPins's diodes (which take the byte-mask and data-in nets to fanout 9 to 16); its placement parasitics run low; and it left minimum-size gates (o21ai_1, nand2_1, and2_1, a22oi_1, nand2b_1) driving 1 to 8 SRAM pins across 110-420 um. RepairDesignPostGRT runs on global-route parasitics after both. In that run those were still low on these nets (slews 1.1-1.5x and caps 1.5-1.8x under the extracted ones), and OpenROAD's buffering estimate runs lower still, so the margins (LibreLane's defaults are 10 and 10) aim at 35% of each slew limit and 50% of each cap limit. Standard-cell outputs are the only other pins with limits (2.5 ns, 0.3 pF and up), so few other nets are touched. Sharper edges raise the SRAM's hold requirement (its tables stop at each corner's limit, so those checks were extrapolated), so ResizerTimingPostGRT re-checks hold afterwards with the margin above. LibreLane calls both steps experimental; Pettit's flow runs ResizerTimingPostGRT with the same SRAMs. The 82 max-fanout warnings left on clock leaf buffers (10 to 16 flops against the library's default of 8) stay: the resizer skips clock nets, and their slews are at most 0.09 ns.",
+  "RUN_POST_GRT_DESIGN_REPAIR": 1,
+  "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 65,
+  "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 50,
+  "RUN_POST_GRT_RESIZER_TIMING": 1,
+
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
   "LINTER_INCLUDE_PDK_MODELS": 1,

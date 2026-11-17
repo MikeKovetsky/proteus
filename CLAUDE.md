@@ -170,9 +170,12 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
     their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
     14 of 14.
 11. **Not done.**
-    1. Slew, capacitance and fanout warnings: the flow reports 78 max-slew, 1 max-cap and 97 max-fanout
-       violations at the slow corner. They do not fail the flow, but slow edges into the SRAM inputs exceed the
-       SRAM library's limit, so they need fixing before tape-out.
+    1. Slew, capacitance and fanout warnings: run 44076197046 reports 78 max-slew (slow corner), 1 max-cap and
+       97 max-fanout violations. Every slew violation is on an SRAM input pin, past the range the SRAM's timing
+       tables cover, and the cap violation is on an SRAM output. The fix on branch
+       `worktree-agent-a61dc80b2536b91af` adds a design repair and a hold repair after global routing
+       (`src/config.json`, `//repair`). No layout build has run it yet. The 82 fanout warnings on clock leaf
+       buffers stay, because their slews are at most 0.09 ns.
     2. The architecture and instruction set docs (R9) and the write-up (R11).
     3. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
     4. The sby reset and instruction proofs, an independent decoder check (sigrok), and the stranger test (R14).

@@ -94,5 +94,13 @@ A dated log, written as the work happens. The verification write-up's AI section
     It checked the result against the build's own logs and metrics, not only GitHub's green mark: 0 routing
     violations, LVS "Circuits match uniquely", "Precheck passed", 7 of 7 gate-level tests, and 4.20 ns of
     setup slack. It also recorded the slew, capacitance and fanout warnings the flow does not gate on.
-19. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+19. **Slew and capacitance warnings.** A subagent (Opus 5.5) traced every warning in the second build's STA
+    reports to its net, driver and loads with its own scripts. All 78 slew violations were SRAM input pins: the
+    flow's only design repair runs before the hold buffers and the SRAM pin diodes are added, and its parasitic
+    estimates ran 1.1 to 1.8 times under the extracted ones. It read the OpenROAD resizer and OpenSTA sources at
+    the versions the flow pins, to see which limits the resizer checks and why it left these nets alone, and
+    found that a pin-level SDC limit is not possible there. Its fix is a config change: a design repair and a
+    hold repair after global routing. It left the 82 fanout warnings on clock leaf buffers, whose slews are
+    small, and only a layout build can confirm the fix.
+20. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
