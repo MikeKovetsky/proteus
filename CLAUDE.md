@@ -6,7 +6,8 @@ programmable chip that speaks UART, SPI and I2C, and protocols it was not design
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
 Status, 2026-11-16: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was written.
-The architecture bake-off has started. No RTL exists.
+The architecture bake-off has started. Tiny Tapeout's IHP template is in at 8x4 tiles and 60 MHz, and its
+placeholder adder is the only RTL.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -75,7 +76,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
-| R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | NOT MET | |
+| R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | NOT MET | |
 | R3 | UART, SPI and I2C demonstrated by programs | NOT MET | |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | NOT MET | |

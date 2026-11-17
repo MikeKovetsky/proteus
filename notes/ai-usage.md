@@ -14,5 +14,11 @@ A dated log, written as the work happens. The verification write-up's AI section
    bench scenarios (`bakeoff/README.md`). Four subagents were started in parallel: one writes the benches, and
    three each design one candidate architecture, its assembler and its programs. The candidate agents were told
    not to read each other's directories.
-4. **What a person decided.** Mike asked for the critique, set the one-week pace, and will pick the architecture
+4. **Template and its review.** Claude brought in Tiny Tapeout's IHP Verilog template at 8x4 tiles and 60 MHz,
+   with the template's placeholder adder as the only RTL until the architecture is picked. A fresh Claude reviewer
+   (Opus 5.5) got the diff and the requirements but not the builder's reasoning. It read Tiny Tapeout's check code
+   and CI logs, and found that the docs workflow fails when every pin in `info.yaml` is blank. It also broke the
+   design on purpose and found that the template's one-sum test passed on four of seven broken versions. It named
+   the placeholder's pins and widened the test until all seven failed.
+5. **What a person decided.** Mike asked for the critique, set the one-week pace, and will pick the architecture
    from the bake-off table.
