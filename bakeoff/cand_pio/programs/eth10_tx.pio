@@ -1,0 +1,60 @@
+; 10 Mbit Ethernet transmit, Manchester coded. P0 = TX+, P1 = TX-. Channel 0 gets [len lo][len hi][frame].
+; The timer ticks every half bit (3 clocks) and each half bit is a side-set pinned to a tick. That leaves two
+; free clocks after every tick: one bit costs six clocks and the loop uses all six.
+; Y counts frame bytes. The CRC unit sees every bit shifted out, and its inverted value is sent as the FCS.
+.pads oe=0b11               ; both lines driven low: idle
+.sm 0
+.tick 3
+.shift in=right out=right   ; LSB first
+.side p0:2
+.crc poly=0xEDB88320 tap=out
+.define LO 0b10             ; TX+ low, TX- high
+.define HI 0b01             ; TX+ high, TX- low
+
+main:   mov isr, null
+        pull                    ; length, low byte then high byte
+        in osr, 8
+        pull
+        in osr, 8
+        mov y, isr
+        jmp y--, .+1            ; Y = length - 1
+        pull                    ; first byte of the frame
+        set x, 30               ; preamble and SFD are "1 0" 31 times, then "1 1"
+pre:    nop             side LO @tick
+        nop             side HI @tick
+        nop             side HI @tick
+        jmp x--, pre    side LO @tick
+        nop             side LO @tick
+        nop             side HI @tick
+        nop             side LO @tick
+        crcinit 0xFFFFFFFF side HI @tick
+
+bit:    out x, 1                        ; the next bit, also into the CRC
+        jmp !x, zero
+one:    jmp !osre, one_m  side LO @tick ; a 1 is low then high
+        jmp y--, one_p                  ; byte done: more to come?
+        mov osr, ~crc, 32               ; no: the FCS follows
+        jmp fcs         side HI @tick
+one_p:  pull
+one_m:  jmp bit         side HI @tick
+zero:   jmp !osre, zero_m side HI @tick ; a 0 is high then low
+        jmp y--, zero_p
+        mov osr, ~crc, 32
+        jmp fcs         side LO @tick
+zero_p: pull
+zero_m: jmp bit         side LO @tick
+
+fcs:    out x, 1                        ; the same loop for the 32 FCS bits
+        jmp !x, fzero
+        jmp !osre, fone_m side LO @tick
+        jmp end         side HI @tick
+fone_m: jmp fcs         side HI @tick
+fzero:  jmp !osre, fzero_m side HI @tick
+        jmp end         side LO @tick
+fzero_m: jmp fcs        side LO @tick
+
+end:    nop             side HI @tick [14]  ; after the last bit: TX+ high for 15 clocks,
+        nop             side 0  @tick       ; then idle
+        set x, 200                          ; and 201 ticks (603 clocks) before the next frame
+gap:    jmp x--, gap    @tick
+        jmp main

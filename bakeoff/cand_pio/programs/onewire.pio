@@ -1,0 +1,54 @@
+; 1-Wire controller on P0 (open drain): reset, write 0x33, read 64 bits, check their CRC-8.
+; The timer ticks every 5 us (300 clocks) and every slot is counted in ticks.
+.pads out=0b1 oe=0b1 od=0b1
+.sm 0
+.tick 300
+.shift in=right out=right       ; LSB first
+.autopush                       ; every 8 bits read go to channel 1
+.crc poly=0x8C residue=0 tap=in
+
+        set p0, 0           @tick   ; reset pulse: low for 101 ticks (505 us)
+        set x, 99
+        call ticks
+        set p0, 1           @tick
+        set x, 12
+        call ticks
+        jpin 1, p0, absent  @tick   ; 70 us after the release: a device would be holding the line low
+        set x, 90                   ; let the presence pulse end
+        call ticks
+
+        set x, 0x33
+        mov osr, x, 8
+wbit:   out v0, 1                   ; the next bit, parked on internal pin V0
+        set p0, 0           @tick   ; the slot starts
+        jpin 1, v0, wone
+        set x, 11                   ; a 0: low for 13 ticks (65 us)
+        call ticks
+        set p0, 1           @tick
+        jmp wnext           @tick
+wone:   set p0, 1           @tick   ; a 1: low for one tick (5 us)
+        set x, 11
+        call ticks
+wnext:  jmp !osre, wbit
+
+        crcinit 0
+        set y, 63
+rbit:   set p0, 0           @tick   ; a read slot: low for one tick
+        set p0, 1           @tick
+        nop                 @tick
+        in p0, 1            @tick   ; 15 us into the slot: a device sending 0 still holds the line
+        set x, 9
+        call ticks
+        jmp y--, rbit
+
+        push ch2, #0x00             ; a device was present
+        jmp crcok, good
+        push ch2, #0x01             ; the CRC-8 did not come out to zero
+        halt
+good:   push ch2, #0x00
+        halt
+absent: push ch2, #0x01
+        halt
+
+ticks:  jmp x--, ticks      @tick   ; wait X + 1 ticks
+        ret

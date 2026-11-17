@@ -1,0 +1,22 @@
+; SPI controller, mode 0, 5 MHz. P0 = SCK, P1 = MOSI, P2 = MISO, P3 = CS. Channel 0 gets [n][n bytes].
+; The timer ticks every half period (6 clocks). MOSI changes on the falling tick and MISO is read on the rising
+; tick: the read sees the pad as it was two clocks earlier, which is the bit the target put out on the last fall.
+.pads out=0b1000 oe=0b1011  ; SCK low, CS high, MISO an input
+.sm 0
+.tick 6
+.shift in=left out=left     ; MSB first
+.autopush                   ; every 8 bits read go to channel 1
+.side p0                    ; side-set drives SCK
+next:   pull                ; n
+        out y, 8
+        jmp !y, next
+        jmp y--, .+1        ; Y = n - 1
+        set p3, 0           @tick   ; CS low, 12 clocks before the first rising edge
+byte:   pull
+bit:    out p1, 1   side 0  @tick   ; SCK low, next MOSI bit
+        in p2, 1    side 1  @tick   ; SCK high, read MISO
+        jmp !osre, bit
+        jmp y--, byte
+        nop         side 0  @tick   ; last falling edge
+        set p3, 1           @tick   ; CS high
+        jmp next

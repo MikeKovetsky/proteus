@@ -1,0 +1,11 @@
+; UART transmit, 8N1, 115200 baud, on P0. Bytes come from channel 0.
+; The timer ticks once per bit (520.83 clocks), and every line change is pinned to a tick.
+.pads out=0b1 oe=0b1        ; P0 driven high: the idle level
+.sm 0
+.tick 520.8333
+next:   pull                ; wait for a byte
+        set p0, 0   @tick   ; start bit
+bit:    out p0, 1   @tick   ; eight data bits, LSB first
+        jmp !osre, bit
+        set p0, 1   @tick   ; stop bit
+        jmp next

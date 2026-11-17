@@ -1,0 +1,49 @@
+; Low-speed USB transmit. P0 = D+, P1 = D-. Channel 0 gets [n][PID][n-1 data bytes].
+; The timer ticks once per bit (40 clocks). Every line change is a "toggle" pinned to a tick, so the code
+; between two ticks may take any path it likes and the edges still sit on the grid.
+; X counts 1s for bit stuffing, Y counts data bytes, V0 holds the bit being sent.
+.sm 0
+.tick 40
+.shift in=right out=right       ; LSB first
+.crc poly=0xA001 tap=out        ; CRC-16, fed by every bit shifted out
+
+main:   pull                    ; n
+        out y, 8
+        jmp y--, .+1            ; Y = number of data bytes
+        mov isr, null
+        set x, 0x80             ; SYNC is the byte 0x80: seven 0s and a 1
+        in x, 8
+        pull                    ; PID
+        in osr, 8
+        mov osr, isr, 16        ; SYNC then PID, 16 bits
+        set x, 5
+        set p0:2, 0b10          ; J
+        dir p0:2, 0b11  @tick   ; start driving
+        call send
+        crcinit 0xFFFF          ; the CRC covers the data bytes only
+data:   jmp y--, more
+        mov osr, ~crc, 16       ; inverted CRC, low byte first
+        call send
+        set p0:2, 0     @tick   ; end of packet: SE0 for two bits,
+        nop             @tick
+        set p0:2, 0b10  @tick   ; J for one,
+        dir p0:2, 0     @tick   ; then let go
+        jmp main
+more:   pull
+        call send
+        jmp data
+
+; Send what is in OSR: NRZI (a 0 toggles the lines) with a 0 stuffed after six 1s.
+send:   out v0, 1
+        jpin 0, v0, zero
+        jmp x--, one
+        nop             @tick   ; the sixth 1 in a row,
+        set x, 5
+        toggle p0:2     @tick   ; then the stuffed 0
+        jmp snext
+one:    nop             @tick   ; a 1: no change
+        jmp snext
+zero:   set x, 5
+        toggle p0:2     @tick   ; a 0: both lines change
+snext:  jmp !osre, send
+        ret

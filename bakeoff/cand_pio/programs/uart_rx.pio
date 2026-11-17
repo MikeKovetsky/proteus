@@ -1,0 +1,13 @@
+; UART receive, 8N1, 115200 baud, on P1. Each byte goes to channel 1.
+; The start edge restarts the timer half a bit out of phase, so every tick lands mid-bit.
+.sm 0
+.tick 520.8333
+.autopush
+        nop [3]             ; let the synchroniser settle after reset
+next:   wait 1, p1          ; line idle (or the stop bit)
+        wait 0, p1          ; start edge
+        timer half
+        set x, 7    @tick   ; middle of the start bit
+bit:    in p1, 1    @tick   ; middle of each data bit, LSB first
+        jmp x--, bit
+        jmp next

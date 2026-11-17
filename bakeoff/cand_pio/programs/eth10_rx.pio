@@ -1,0 +1,49 @@
+; 10 Mbit Ethernet receive, Manchester coded, on P2 (idle low).
+; Frame bytes after the SFD go to channel 1, then [0 good / 1 bad FCS][len lo][len hi] to channel 2.
+; Clock recovery is the program's shape: every bit has an edge in its middle, the program waits for that edge
+; (t), reads the bit one clock later, and four clocks later (t+4) looks at the first half of the next bit to
+; learn which edge to wait for. The machine runs alone on its memory, one instruction per clock.
+; Y counts bits. The CRC unit sees every bit shifted in and is compared with the CRC-32 residue.
+.sm 0
+.shift in=right out=right   ; LSB first
+.autopush
+.crc poly=0xEDB88320 residue=0xDEBB20E3 tap=in
+
+        nop [3]                 ; let the synchroniser settle after reset
+p1:     wait 1, p2              ; preamble: a rise in mid-bit is a 1
+        nop [2]
+        jpin 1, p2, p0          ; high at t+4: a 0 follows
+        wait 1, p2              ; low: a second 1 in a row ends the SFD
+        crcinit 0xFFFFFFFF
+        mov y, ~null
+        jmp tail
+p0:     wait 0, p2              ; a fall in mid-bit is a 0
+        nop [2]
+        jpin 0, p2, p1
+        jmp p0
+
+d1:     waitt 1, p2, 3, end     ; t: the mid-bit rise of a 1 (no edge for 4 clocks: the frame is over)
+        in p2, 1                ; t+1: the second half of a bit is its value
+        jmp y--, .+1            ; t+2: count the bit
+        nop                     ; t+3
+tail:   jpin 0, p2, d1          ; t+4: low now means a 1 follows
+d0:     waitt 0, p2, 3, end     ; t: the mid-bit fall of a 0
+        in p2, 1
+        jmp y--, .+1
+        jmp tail
+
+end:    mov isr, ~y             ; bits received,
+        in null, 3              ; as bytes
+        mov x, isr
+        mov isr, null
+        jmp crcok, good
+        push ch2, #0x01
+        jmp len
+good:   push ch2, #0x00
+len:    push ch2, x             ; length, low byte
+        mov osr, x, 16
+        out null, 8
+        out x, 8
+        push ch2, x             ; high byte
+        wait 0, p2              ; the line is idle again
+        jmp p1

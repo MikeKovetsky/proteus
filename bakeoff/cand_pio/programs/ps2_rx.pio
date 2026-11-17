@@ -1,0 +1,26 @@
+; PS/2 receive. P0 = CLK, P1 = DATA, both inputs. Good bytes go to channel 1, 0xFF to channel 2 for a bad frame.
+; Parity is kept by the CRC unit: with the polynomial set to 1 it is a 1-bit register that flips on every 1.
+.sm 0
+.crc poly=1 residue=1 tap=in    ; "crcok" means an odd number of ones so far
+        nop [3]             ; let the synchroniser settle after reset
+frame:  wait 1, p0
+        wait 0, p0          ; falling edge: the start bit
+        crcinit 0
+        set x, 7
+bit:    wait 1, p0
+        wait 0, p0
+        in p1, 1            ; a data bit, LSB first, also into the parity
+        jmp x--, bit
+        wait 1, p0
+        wait 0, p0          ; the parity bit is on DATA now
+        jpin 1, p1, pone
+        jmp crcok, good     ; parity bit 0: the data must have an odd number of ones
+        jmp bad
+pone:   jmp crcok, bad      ; parity bit 1: the data must have an even number
+good:   push                ; the byte goes to channel 1
+        jmp stop
+bad:    push ch2, #0xFF
+        mov isr, null
+stop:   wait 1, p0
+        wait 0, p0          ; the stop bit
+        jmp frame
