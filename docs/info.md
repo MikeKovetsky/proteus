@@ -15,7 +15,9 @@ cd test
 make -B
 ```
 
-It drives `ui_in = 20` and `uio_in = 30` and expects `uo_out = 50`.
+It checks `uo_out = (ui_in + uio_in) mod 256` on six chosen pairs, which drive every output bit low and high and
+carry through every bit, and then on 100 random pairs. It also checks that the design never drives the
+bidirectional pins (`uio_oe = 0` and `uio_out = 0`).
 
 ## External hardware
 
