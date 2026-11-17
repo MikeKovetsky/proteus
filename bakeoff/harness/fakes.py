@@ -186,9 +186,10 @@ class Noise(Chip):
 class FakeUart(Script):
     """8N1 on P0 (TX) and P1 (RX), both at once.
 
-    Options: `tx_bit` and `rx_bit` (bit times in cycles), `tx_msb_first`, `rx_msb_first`, `full_stop` (the
-    receiver waits out a whole stop bit before it looks for the next start), `half_duplex` (the receiver
-    is deaf while the transmitter is busy) and `drive_rx` (the chip drives its own RX pin low).
+    Options: `tx_bit` and `rx_bit` (bit times in cycles), `tx_msb_first`, `rx_msb_first`, `tx_stop` (how
+    long the sent stop bit lasts, in bit times), `full_stop` (the receiver waits out a whole stop bit before
+    it looks for the next start), `half_duplex` (the receiver is deaf while the transmitter is busy) and
+    `drive_rx` (the chip drives its own RX pin low).
     """
 
     name = "fake_uart"
@@ -200,6 +201,7 @@ class FakeUart(Script):
 
     def transmit(self) -> Task:
         bit = float(self.opt("tx_bit", 20))
+        stop = float(self.opt("tx_stop", 1))
         self.drive(self.TX, 1)
         if self.opt("drive_rx"):
             self.drive(self.RX, 0)
@@ -210,7 +212,7 @@ class FakeUart(Script):
             start = self.now
             for k, level in enumerate([0] + [(byte >> b) & 1 for b in order] + [1]):
                 self.drive(self.TX, level)
-                yield from self.until(start + (k + 1) * bit)
+                yield from self.until(start + ((k + 1) if k < 9 else (9 + stop)) * bit)
             self.sending = False
 
     def receive(self) -> Task:
@@ -236,7 +238,8 @@ class FakeSpiController(Script):
     Options: `mode` (0 or 3), `half` (half an SCK period, in cycles), `lead` (cycles from CS falling to
     the first rising edge), `lsb_first`, `sample_delay` (clocks between raising SCK and reading MISO),
     `keep_cs` (CS is never raised), `mosi_on_rise` (MOSI changes together with the rising edge),
-    `byte_gap` (idle clocks after each byte) and `start_delay` (clocks of doing nothing after reset).
+    `byte_gap` (idle clocks after each byte), `start_delay` (clocks of doing nothing after reset) and
+    `reselect` (this many clocks after the transfer, CS falls again for 24 clocks).
     """
 
     name = "fake_spi_controller"
@@ -292,6 +295,11 @@ class FakeSpiController(Script):
         read = [(self.seen[t] >> self.MISO) & 1 for t in sample_at]
         for i in range(0, len(read), 8):
             self.push(CH_RX, sum(bit << (7 - j) for j, bit in enumerate(read[i : i + 8])))
+        if self.opt("reselect"):
+            yield from self.wait(int(self.opt("reselect")))
+            self.drive(self.CS, 0)
+            yield from self.wait(24)
+            self.drive(self.CS, 1)
 
 
 class FakeSpiTarget(Script):
@@ -342,7 +350,9 @@ class FakeI2cController(Script):
     time), `setup` (clocks between changing SDA and releasing SCL), `no_wait` (it does not wait for a
     stretched SCL to rise), `push_pull` (it drives SCL high), `ack_last` (it ACKs the last byte it reads),
     `ignore_nack`, `always_ok` (the status is 0x00 whatever happened), `no_status`, `sda_early` (SDA
-    changes just before SCL falls) and `stop_start` (a STOP and a START where the repeated START belongs).
+    changes just before SCL falls), `stop_start` (a STOP and a START where the repeated START belongs), and
+    `start_setup` and `stop_setup` (clocks between seeing SCL high and moving SDA for a repeated START or a
+    STOP, in place of the high time; the pads add 3).
     """
 
     name = "fake_i2c_controller"
@@ -354,8 +364,11 @@ class FakeI2cController(Script):
         else:
             self.open_drain(self.SCL, level)
 
-    def scl_high(self) -> Task:
-        """Release SCL, wait for it to rise (a target may hold it), and stay high for the high time."""
+    def scl_high(self, high: Optional[object] = None) -> Task:
+        """Release SCL, wait for it to rise (a target may hold it), and stay high for `high` clocks.
+
+        `high` defaults to the high time.
+        """
         self.scl(1)
         if self.opt("no_wait"):
             yield from self.wait(3)
@@ -363,7 +376,7 @@ class FakeI2cController(Script):
             yield
             while not self.pin(self.SCL):
                 yield
-        yield from self.wait(int(self.opt("high", 50)))
+        yield from self.wait(int(self.opt("high", 50) if high is None else high))
 
     def clock_bit(self, level: int) -> Generator[None, None, int]:
         """With SCL low: put `level` on SDA, give one clock pulse and return SDA as it was while SCL was high."""
@@ -386,7 +399,7 @@ class FakeI2cController(Script):
             yield from self.wait(4)
             self.open_drain(self.SDA, 1)
             yield from self.wait(int(self.opt("low", 100)) - 4)
-            yield from self.scl_high()
+            yield from self.scl_high(self.opt("start_setup"))
         self.open_drain(self.SDA, 0)
         yield from self.wait(40)
         self.scl(0)
@@ -395,7 +408,7 @@ class FakeI2cController(Script):
         yield from self.wait(4)
         self.open_drain(self.SDA, 0)
         yield from self.wait(int(self.opt("low", 100)) - 4)
-        yield from self.scl_high()
+        yield from self.scl_high(self.opt("stop_setup"))
         self.open_drain(self.SDA, 1)
         self.open_drain(self.SCL, 1)
 
@@ -564,8 +577,9 @@ class FakeUsbTx(Script):
 
     Options: `bit` (the bit time in cycles), `no_stuff`, `bad_crc`, `crc_high_first`, `msb_first`,
     `bare_handshake` (a packet with no data gets no CRC), `se0_bits` (how long SE0 lasts), `no_j` (it lets
-    go straight after SE0), `keep_driving` (it never lets go), `late_edge` (one edge comes 4 cycles late)
-    and `skew` (D- follows D+ by this many cycles).
+    go straight after SE0), `keep_driving` (it never lets go), `late_edge` (one edge comes 4 cycles late),
+    `skew` (D- follows D+ by this many cycles) and `again` (the packet goes out a second time, this many
+    cycles after the first).
     """
 
     name = "fake_usb_tx"
@@ -588,6 +602,13 @@ class FakeUsbTx(Script):
         order = range(7, -1, -1) if self.opt("msb_first") else range(8)
         bits = USB_SYNC_BITS + [(byte >> b) & 1 for byte in body for b in order]
         levels = nrzi_encode(bits if self.opt("no_stuff") else usb_stuff(bits))
+        yield from self.send(levels, bit)
+        if self.opt("again"):
+            yield from self.wait(int(self.opt("again")))
+            yield from self.send(levels, bit)
+
+    def send(self, levels: List[int], bit: float) -> Task:
+        """Drive one packet's line states, then the end of packet."""
         start = self.now
         skew = int(self.opt("skew", 0))
         for k, level in enumerate(levels):
@@ -662,7 +683,8 @@ class FakeEthTx(Script):
 
     Options: `bad_fcs`, `fcs_high_first`, `preamble` (how many 0x55 bytes), `msb_first`, `stretch` (one
     half bit, 200 bits in, lasts 4 cycles), `tail` (how long TX+ stays high at the end), `gap` (idle cycles
-    between the frames), `single_ended` (TX- stays low) and `one_frame` (it stops after the first frame).
+    between the frames), `single_ended` (TX- stays low), `one_frame` (it stops after the first frame) and
+    `extra_frame` (it sends the second frame twice).
     """
 
     name = "fake_eth_tx"
@@ -679,7 +701,9 @@ class FakeEthTx(Script):
             for _ in range(length):
                 frame.append((yield from self.take()))
             frames.append(bytes(frame))
-        for index, frame in enumerate(frames):
+        if self.opt("extra_frame"):
+            frames.append(frames[-1])
+        for frame in frames:
             fcs = crc32_eth(frame) ^ (1 if self.opt("bad_fcs") else 0)
             wire = b"\x55" * int(self.opt("preamble", 7)) + b"\xd5" + frame
             wire += fcs.to_bytes(4, "big" if self.opt("fcs_high_first") else "little")

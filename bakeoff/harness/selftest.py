@@ -63,14 +63,28 @@ Case = Tuple[str, Bench, Callable[[], Chip], bool, str]
 
 
 class FakeUartTx(Chip):
-    """Sends every byte from channel 0 as 8N1 on P0. `bit` is the bit time in cycles."""
+    """Sends every byte from channel 0 as 8N1 on P0. `bit` is the bit time in cycles.
+
+    Faults: `msb_first`, `stop_level` (the level of the stop bit), `stop_bits` (how long the stop bit lasts,
+    in bit times, before the next start bit may begin) and `start_cycles` (the start bit is low for only this
+    many cycles, then high for the rest of its bit time).
+    """
 
     name = "fake_uart_tx"
 
-    def __init__(self, bit: float, msb_first: bool = False, stop_level: int = 1) -> None:
+    def __init__(
+        self,
+        bit: float,
+        msb_first: bool = False,
+        stop_level: int = 1,
+        stop_bits: float = 1.0,
+        start_cycles: Optional[int] = None,
+    ) -> None:
         self.bit = bit
         self.msb_first = msb_first
         self.stop_level = stop_level
+        self.stop_bits = stop_bits
+        self.start_cycles = start_cycles
         self.reset()
 
     def reset(self) -> None:
@@ -89,11 +103,13 @@ class FakeUartTx(Chip):
             self.elapsed = 0
         level = 1
         if self.frame:
-            index = int(self.elapsed / self.bit)
-            if index >= len(self.frame):
+            if self.elapsed >= (9 + self.stop_bits) * self.bit:
                 self.frame = []
             else:
+                index = min(int(self.elapsed / self.bit), 9)  # a stop bit longer than one bit stays at index 9
                 level = self.frame[index]
+                if index == 0 and self.start_cycles is not None and self.elapsed >= self.start_cycles:
+                    level = 1
                 self.elapsed += 1
         return level, 1
 
@@ -337,6 +353,11 @@ def uart_cases() -> List[Case]:
         ("uart_tx fails a sender 5% slow", UartTx(), lambda: FakeUartTx(bit * 1.05), False, "off bit"),
         ("uart_tx fails MSB-first data", UartTx(), lambda: FakeUartTx(bit, msb_first=True), False, "decoded"),
         ("uart_tx fails a missing stop bit", UartTx(), lambda: FakeUartTx(bit, stop_level=0), False, "stop bit"),
+        ("uart_tx fails a stop bit half a bit long", UartTx(), lambda: FakeUartTx(bit, stop_bits=0.5), False,
+         "the stop bit of the frame at"),
+        ("uart_tx passes a stop bit 0.9 of a bit long", UartTx(), lambda: FakeUartTx(bit, stop_bits=0.9), True, ""),
+        ("uart_tx fails a start bit low for 2 cycles", UartTx(), lambda: FakeUartTx(bit, start_cycles=2), False,
+         "no start bit"),
         ("uart_rx passes a correct receiver", UartRx(), lambda: FakeUart(rx_bit=bit), True, ""),
         ("uart_rx fails a receiver 5% slow", UartRx(), lambda: FakeUart(rx_bit=bit * 1.05), False, "2% fast: "),
         ("uart_rx fails MSB-first data", UartRx(), lambda: FakeUart(rx_bit=bit, rx_msb_first=True), False, "byte 0"),
@@ -349,6 +370,8 @@ def uart_cases() -> List[Case]:
         ("uart_3m fails a receiver 8% slow", Uart3M(), lambda: FakeUart(rx_bit=21.6), False, "RX byte"),
         ("uart_3m fails a half-duplex chip", Uart3M(), lambda: FakeUart(half_duplex=True), False, "RX "),
         ("uart_3m fails MSB-first sending", Uart3M(), lambda: FakeUart(tx_msb_first=True), False, "TX byte"),
+        ("uart_3m fails a stop bit half a bit long", Uart3M(), lambda: FakeUart(tx_stop=0.5), False,
+         "the stop bit of the frame at"),
     ]
 
 
@@ -370,6 +393,8 @@ def spi_cases() -> List[Case]:
         ("spi_ctrl_m0 fails a mode 3 controller", m0, lambda: ctrl(mode=3), False, "mode 0 idles low"),
         ("spi_ctrl_m0 passes a controller that starts 20,000 cycles late", m0, lambda: ctrl(start_delay=20000), True,
          ""),
+        ("spi_ctrl_m0 fails a second select after the transfer", m0, lambda: ctrl(reselect=1000), False,
+         "CS went low 2 times"),
         ("spi_ctrl_m3 passes a correct controller", m3, lambda: ctrl(mode=3), True, ""),
         ("spi_ctrl_m3 fails a mode 0 controller", m3, lambda: ctrl(mode=0), False, "mode 3 idles high"),
         ("spi_ctrl_m3 fails a period of 16", m3, lambda: ctrl(mode=3, half=8), False, "SCK period is 16"),
@@ -402,6 +427,12 @@ def i2c_cases() -> List[Case]:
         ("i2c_ctrl fails a period of 250 cycles", bench, lambda: fake(low=150, high=97), False, "SCL period is 250"),
         ("i2c_ctrl fails 3 cycles of SDA setup", bench, lambda: fake(setup=3), False, "SDA changes 3 cycles before"),
         ("i2c_ctrl fails SDA changing while SCL is high", bench, lambda: fake(sda_early=True), False, "bus event"),
+        ("i2c_ctrl passes START and STOP 6 cycles after SCL rises", bench,
+         lambda: fake(start_setup=3, stop_setup=3), True, ""),
+        ("i2c_ctrl fails a STOP 4 cycles after SCL rises", bench, lambda: fake(stop_setup=1), False,
+         "STOP at cycle"),
+        ("i2c_ctrl fails a repeated START 4 cycles after SCL rises", bench, lambda: fake(start_setup=1), False,
+         "run A: START at cycle"),
         ("i2c_ctrl fails a STOP before the read", bench, lambda: fake(stop_start=True), False,
          "run A: bus event 5: expected START, saw STOP"),
         ("i2c_ctrl fails an ACK on the last byte read", bench, lambda: fake(ack_last=True), False,
@@ -428,6 +459,8 @@ def ws2812_cases() -> List[Case]:
         ("ws2812_tx fails a line that rests high", bench, lambda: fake(idle_high=True), False, "still high at the end"),
         ("ws2812_tx fails a pulse 2,000 cycles after the last bit", bench, lambda: fake(encore=2000), False,
          "low for 20"),
+        ("ws2812_tx fails a pulse 5,000 cycles after the last bit, past the latch", bench, lambda: fake(encore=5000),
+         False, "rises again"),
     ]
 
 
@@ -475,7 +508,9 @@ def usb_cases() -> List[Case]:
     send, listen = FakeUsbTx, FakeUsbRx
     return [
         ("usb_ls_tx passes a correct sender", tx, lambda: send(), True, ""),
-        ("usb_ls_tx passes a bare PID for the packet with no data", tx, lambda: send(bare_handshake=True), True, ""),
+        ("usb_ls_tx fails a bare PID for the packet with no data", tx, lambda: send(bare_handshake=True), False,
+         "no data: no CRC after the data"),
+        ("usb_ls_tx fails the packet sent twice", tx, lambda: send(again=1000), False, "after the packet ended"),
         ("usb_ls_tx passes D- 2 cycles behind D+", tx, lambda: send(skew=2), True, ""),
         ("usb_ls_tx fails D- 5 cycles behind D+", tx, lambda: send(skew=5), False, "D- edge at cycle"),
         ("usb_ls_tx fails a wrong CRC", tx, lambda: send(bad_crc=True), False, "CRC bytes are"),
@@ -518,6 +553,7 @@ def eth_cases() -> List[Case]:
         ("eth10_tx fails frames 400 cycles apart", tx, lambda: send(gap=382), False, "starts 400 cycles after"),
         ("eth10_tx fails TX- held low", tx, lambda: send(single_ended=True), False, "TX- is the complement"),
         ("eth10_tx fails a chip that sends one frame", tx, lambda: send(one_frame=True), False, "1 frames on the wire"),
+        ("eth10_tx fails a third frame", tx, lambda: send(extra_frame=True), False, "3 bursts on the wire"),
         ("eth10_rx passes a correct listener", rx, lambda: listen(), True, ""),
         ("eth10_rx fails a listener that never resynchronises", rx, lambda: listen(free_run=True), False,
          "channel 1"),

@@ -110,8 +110,9 @@ class Eth10Tx(Bench):
     2. Idle is both lines low, whether the chip drives them low or leaves them to the pull-downs.
     3. The 12 to 24 cycles of TX+ high are counted from the end of the last bit. When the last bit is a 1,
        its high half comes before them.
-    4. The chip may start whenever it likes: the run ends when two frames have gone by, or after
-       `patience` cycles.
+    4. The chip may start whenever it likes: the run ends when two frames have gone by and the bus has
+       then been idle for twice the gap (1,152 cycles), or after `patience` cycles. A third burst in that
+       time fails: two frames were asked for.
 
     "Every half bit is exactly 3 cycles" is taken at its word: there is no tolerance.
     """
@@ -138,7 +139,7 @@ class Eth10Tx(Bench):
                 seen[1] = 0
             else:
                 seen[1] += 1
-            return seen[0] >= len(frames) and seen[1] >= 200
+            return seen[0] >= len(frames) and seen[1] >= 2 * FRAME_GAP
 
         seen[1] = 1  # the bus starts idle
         run_until(sim, finished, self.patience)

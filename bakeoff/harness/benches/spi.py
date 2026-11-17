@@ -123,12 +123,14 @@ class SpiController(Bench):
     4. SCK, MOSI and CS are pulled high until the chip drives them, and edges while CS is high are ignored.
        The idle level is judged only where the chip itself holds SCK: in the cycle before CS falls and in
        the last cycle of the run.
-    5. The chip may start whenever it likes within `patience` cycles of reset.
+    5. The chip may start whenever it likes within `patience` cycles of reset. After the transfer the
+       bench watches `quiet` more cycles, so a second fall of CS shows up: one transfer was asked for.
     """
 
     mode = 0
     pins = PINS
     patience = 50000
+    quiet = 2000
     runs = (("16 bytes", 16, 10), ("3 bytes", 3, 12))
 
     def run(self, make_chip: Callable[[], Chip], image: bytes) -> Result:
@@ -141,7 +143,7 @@ class SpiController(Bench):
             sim.send(CH_TX, bytes([n]) + to_target)
             target = SpiTarget(self.pins, self.mode, from_target)
             run_until(sim, lambda s: target.finished and len(s.from_chip[CH_RX]) >= n, self.patience, target)
-            run(sim, 200, target)
+            run(sim, self.quiet, target)
             cycles += sim.cycle
             found: List[str] = []
             on_mosi, timing = check_spi_controller(sim.wave, sim.oe_wave, self.pins, self.mode, n)

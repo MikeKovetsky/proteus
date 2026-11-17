@@ -11,8 +11,10 @@ from ..stim import Stimulus, first_difference, run, run_until
 def decode_uart(wave: List[int], pin: int, bit: float, tolerance: float = 0.02) -> Tuple[bytes, List[str]]:
     """Decode 8N1 frames from `wave`, LSB first, and check where every edge falls.
 
-    Each frame is sampled mid-bit from its own start edge. An edge inside a frame must sit within
-    `tolerance` of a whole number of bit times from that start edge (never tighter than two cycles).
+    Each frame is sampled mid-bit from its own start edge, and its start bit must still be low there. A frame
+    lasts ten bit times, stop bit included. An edge inside it must sit within `tolerance` of a whole number of
+    bit times from that start edge (never tighter than two cycles), so a stop bit cut short by the next start
+    bit fails like any other early edge.
     """
     mask = 1 << pin
     data = bytearray()
@@ -29,14 +31,23 @@ def decode_uart(wave: List[int], pin: int, bit: float, tolerance: float = 0.02) 
             problems.append("frame at cycle %d runs past the end of the capture" % start)
             break
         levels = [1 if wave[start + int((k + 0.5) * bit)] & mask else 0 for k in range(10)]
+        if levels[0] != 0:
+            problems.append("frame at cycle %d has no start bit: the line is high in its middle" % start)
         if levels[9] != 1:
             problems.append("frame at cycle %d has no stop bit" % start)
-        for j in range(start + 1, start + int(9.5 * bit)):
+        for j in range(start + 1, end):
             if (wave[j] ^ wave[j - 1]) & mask:
                 offset = j - start
                 k = round(offset / bit)
                 allowed = max(2.0, tolerance * k * bit)
-                if abs(offset - k * bit) > allowed:
+                if abs(offset - k * bit) <= allowed:
+                    continue
+                if k == 10 and not wave[j] & mask:
+                    problems.append(
+                        "the stop bit of the frame at %d ends at cycle %d, %.1f cycles short of a whole bit"
+                        % (start, j, k * bit - offset)
+                    )
+                else:
                     problems.append(
                         "edge at cycle %d is %.1f cycles off bit %d of the frame at %d" % (j, offset - k * bit, k, start)
                     )

@@ -137,6 +137,11 @@ def check_i2c_timing(wave: List[int], pins: Dict[str, int]) -> List[str]:
             sda_moved = c
             if scl0 and scl1:
                 clock = 0  # START or STOP: the next rising edge opens a new byte
+                if rose is not None and c - rose < 6:
+                    setups.append(
+                        "%s at cycle %d comes %d cycles after SCL rises, needs 6 cycles of setup"
+                        % ("STOP" if wave[c] & sda_mask else "START", c, c - rose)
+                    )
             elif scl1:
                 setups.append("SDA changes in the cycle SCL rises, at %d (needs 6 cycles of setup)" % c)
         if scl1 and not scl0:
@@ -167,7 +172,8 @@ class I2cController(Bench):
        bytes, and around START and STOP, the chip may pause for as long as it likes. Every low time must
        still be at least 78 cycles and every high time at least 36.
     2. SDA may change in the same cycle SCL falls (zero hold). It must then stay put for 6 cycles before
-       SCL rises. START and STOP need SCL high in the cycle before and the cycle of the SDA change.
+       SCL rises. The README's 6 cycles of setup hold for START and STOP too: SCL must have been high for 6
+       cycles when SDA moves. No hold time after a START is asked for.
     3. The stretch comes after the ACK bit of the address-with-read byte: the target holds SCL low for
        1,200 cycles from that falling edge. A chip that pulls SCL low again inside that time did not wait.
     4. The order of the pushes to channels 1 and 2 is not judged, only their contents.

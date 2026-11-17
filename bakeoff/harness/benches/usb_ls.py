@@ -98,8 +98,9 @@ class UsbLsTx(Bench):
 
     Lenient readings, where the README is silent or ambiguous:
     1. "Three packets" are three runs with the same image, one packet each, so the program need not loop.
-    2. The packet with no data is `[1][0xC3]`. The README's rule gives it a CRC-16 of 0x0000, and a
-       handshake packet in real USB has no CRC, so both `C3 00 00` and a bare `C3` pass.
+    2. The packet with no data is `[1][0xC3]`, a DATA0 packet. The README has the chip send the CRC-16 of the
+       data bytes, and over no bytes that is 0x0000, so the packet must be `C3 00 00`, as a zero-length data
+       packet is in real USB. A bare `C3` fails.
     3. The PIDs are real ones (DATA0 0xC3 and DATA1 0x4B), so whether the 1 that ends SYNC counts towards
        the six 1s does not matter.
     4. D+ and D- may move up to 2 cycles apart at a J/K change, as long as each edge is within 2 cycles of
@@ -108,12 +109,14 @@ class UsbLsTx(Bench):
     5. "J for one bit time, then stops driving": the chip must be driving at least one line in the middle
        of that bit, and neither line from one bit time after it should have let go. Before the packet it
        may drive J or leave the pulls to it.
-    6. The chip may start whenever it likes within `patience` cycles of reset.
+    6. The chip may start whenever it likes within `patience` cycles of reset. After the packet the bench
+       watches `quiet` more cycles, and any edge or driven pin in that time fails: one packet was asked for.
     """
 
     name = "usb_ls_tx"
     pins = PINS
     patience = 50000
+    quiet = 50 * BIT
 
     def run(self, make_chip: Callable[[], Chip], image: bytes) -> Result:
         packets = (
@@ -137,15 +140,16 @@ class UsbLsTx(Bench):
                 return se0[1] >= 0 and s.cycle - se0[1] > 6 * BIT
 
             run_until(sim, finished, self.patience)
-            run(sim, 4 * BIT)
+            run(sim, self.quiet)
             cycles += sim.cycle
             body, found = decode_usb_tx(sim.wave, sim.oe_wave)
             if body is not None:
                 want = with_crc(pid, data)
-                accepted = [want] if data else [want, bytes([pid])]
-                if body not in accepted:
+                if body != want:
                     if body[: 1 + len(data)] == want[: 1 + len(data)] and len(body) == len(want):
                         found.append("CRC bytes are %s, expected %s" % (body[-2:].hex(), want[-2:].hex()))
+                    elif body == want[: 1 + len(data)]:
+                        found.append("no CRC after the data: expected it to end %s" % want[-2:].hex())
                     else:
                         found.append(first_difference(want, body, "expected") or "wrong packet")
             if sim.contention:

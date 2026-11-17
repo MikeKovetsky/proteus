@@ -44,7 +44,12 @@ def decode_ws2812(wave: List[int], pin: int) -> Tuple[List[int], List[str]]:
         want_low = T1L if bit else T0L
         if i + 2 < len(changes):
             low = changes[i + 2][0] - fall
-            if abs(low - want_low) > SLACK:
+            if low >= LATCH:
+                problems.append(
+                    "the line rises again at cycle %d, %d cycles after bit %d: the LEDs have latched, and only "
+                    "one frame was asked for" % (changes[i + 2][0], low, index)
+                )
+            elif abs(low - want_low) > SLACK:
                 lows.append(
                     "bit %d (a %d) is low for %d cycles at cycle %d (%d to %d allowed)"
                     % (index, bit, low, fall, want_low - SLACK, want_low + SLACK)
@@ -62,8 +67,9 @@ class Ws2812Tx(Bench):
     Lenient readings, where the README is silent:
     1. P0 has a pull-down in this bench, so the line idles low before the chip drives it.
     2. The chip may start whenever it likes within `patience` cycles of reset.
-    3. The run ends once the line has been low for 3,100 cycles after a pulse, so a pause that long in the
-       middle of the data ends the run early and shows up as missing bits.
+    3. Once the line has been low for 3,100 cycles after a pulse, the bench watches 3,000 more. A pulse
+       after a latch-length low, in the middle of the data or after it, fails: the LEDs take what came
+       before it as the whole frame.
 
     The README gives every high and low time with a tolerance of 9 cycles, so there is no extra slack
     between bytes or pixels: the low time after a byte's last bit is judged like any other.
@@ -90,6 +96,7 @@ class Ws2812Tx(Bench):
                 return last_high[0] >= 0 and s.cycle - 1 - last_high[0] >= LATCH + 100
 
             run_until(sim, latched, self.patience)
+            sim.run(LATCH)  # long enough to see a second frame that should not be there
             cycles += sim.cycle
             bits, found = decode_ws2812(sim.wave, pin)
             if not bits:
