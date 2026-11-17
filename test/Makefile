@@ -67,9 +67,11 @@ mutants: lockstep
 	python3 lockstep/mutants.py
 
 # Verilator lint of src/, every warning on. The vendored SRAM model's own warnings are waived.
+# $(CURDIR), not the template's $(PWD), so that `make -C test lint` works from anywhere.
 lint:
 	verilator --lint-only -Wall --timescale 1ns/1ps -DFUNCTIONAL --top-module tt_um_mikekovetsky_protoemu \
-		lint/waivers.vlt $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES)) $(SRAM_MODELS)
+		$(CURDIR)/lint/waivers.vlt $(addprefix $(CURDIR)/../src/,$(PROJECT_SOURCES)) \
+		$(CURDIR)/ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v $(CURDIR)/ihp_sram/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 
 # Yosys synthesis: generic cells with the SRAMs as black boxes, then IHP cells and the decision-loop delay.
 synth:
