@@ -3,23 +3,26 @@
 protoemu will be a small programmable chip that speaks UART, SPI, I2C and other protocols from programs loaded
 after reset. It is an entry for Jane Street's protocol-emulator ASIC competition.
 
-The architecture is still being chosen in a simulator bake-off. Until it is, `src/project.v` holds Tiny Tapeout's
-template example (`uo_out = ui_in + uio_in`), kept only to prove the build at 8x4 tiles on IHP SG13CMOS5L.
+Until the real RTL lands, the tile holds a flow test (`src/flowtest_top.v`). It proves that Tiny Tapeout's flow
+accepts, places, powers and simulates the two IHP 512 x 32 SRAM macros the chosen architecture keeps its table in.
+The two macros form one 512 x 64 table. After reset a loader writes every entry with a pseudo-random pattern, reads
+it back and reports the result. Then the table drives its own address for 1024 clocks, through the same loop the
+real design uses, and every word read is folded into a signature and into about 1,000 filler flops.
 
 ## How to test
 
-Run the cocotb test of the placeholder design:
+Run the cocotb tests of the flow test:
 
 ```sh
 cd test
 make -B
 ```
 
-It checks `uo_out = (ui_in + uio_in) mod 256` on six chosen pairs, which drive every output bit low and high and
-carry through every bit, and then on 100 random pairs. It also checks that the design never drives the
-bidirectional pins (`uio_oe = 0` and `uio_out = 0`).
+A Python model in `test/test_flowtest.py` computes the self-test result, the walk's signature and the last filler
+lane. The tests check them on `uo_out` and `uio_out`, with the self-test passing, with 16 planted faults, and after
+a reset in the middle of the walk.
 
 ## External hardware
 
-None yet. The pinout in `info.yaml` names the placeholder adder's pins (A, B and SUM). It changes when the
-architecture is chosen.
+None. Hold `ui_in[7:4]` from reset, wait for `uo_out[3]`, then step `ui_in[3:0]` through 0 to 15 to read the 16
+result bytes on `uio_out`.

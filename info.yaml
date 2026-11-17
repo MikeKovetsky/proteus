@@ -16,43 +16,46 @@ project:
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
+  # protoemu: the flow test (two SRAM macros and filler) stands in until the real RTL lands. The SRAM's
+  # black box (RM_IHPSG13_1P_512x32_c2_bm_bist_bb.v) is not listed: src/config.json gives it to the flow.
   source_files:
-    - "project.v"
+    - "flowtest_top.v"
+    - "flowtest_lanes.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
-# protoemu: these are the pins of the template's placeholder adder (SUM = A + B). They change when the
-# architecture is chosen. Tiny Tapeout's docs check fails if every pin is blank.
+# protoemu: these are the pins of the flow test (src/flowtest_top.v). They change when the real RTL lands.
+# Tiny Tapeout's docs check fails if every pin is blank.
 pinout:
   # Inputs
-  ui[0]: "A0"
-  ui[1]: "A1"
-  ui[2]: "A2"
-  ui[3]: "A3"
-  ui[4]: "A4"
-  ui[5]: "A5"
-  ui[6]: "A6"
-  ui[7]: "A7"
+  ui[0]: "SEL0"
+  ui[1]: "SEL1"
+  ui[2]: "SEL2"
+  ui[3]: "SEL3"
+  ui[4]: "COND0"
+  ui[5]: "COND1"
+  ui[6]: "COND2"
+  ui[7]: "COND3"
 
   # Outputs
-  uo[0]: "SUM0"
-  uo[1]: "SUM1"
-  uo[2]: "SUM2"
-  uo[3]: "SUM3"
-  uo[4]: "SUM4"
-  uo[5]: "SUM5"
-  uo[6]: "SUM6"
-  uo[7]: "SUM7"
+  uo[0]: "SELFTEST_DONE"
+  uo[1]: "SELFTEST_PASS"
+  uo[2]: "SELFTEST_FAIL"
+  uo[3]: "WALK_DONE"
+  uo[4]: "MISMATCHES0"
+  uo[5]: "MISMATCHES1"
+  uo[6]: "MISMATCHES2"
+  uo[7]: "MISMATCHES3"
 
-  # Bidirectional pins (all inputs)
-  uio[0]: "B0"
-  uio[1]: "B1"
-  uio[2]: "B2"
-  uio[3]: "B3"
-  uio[4]: "B4"
-  uio[5]: "B5"
-  uio[6]: "B6"
-  uio[7]: "B7"
+  # Bidirectional pins (all outputs)
+  uio[0]: "BYTE0"
+  uio[1]: "BYTE1"
+  uio[2]: "BYTE2"
+  uio[3]: "BYTE3"
+  uio[4]: "BYTE4"
+  uio[5]: "BYTE5"
+  uio[6]: "BYTE6"
+  uio[7]: "BYTE7"
 
 # Do not change!
 yaml_version: 6

@@ -6,7 +6,19 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v
+# The flow test (src/flowtest_*.v) stands in for the real RTL until it lands.
+PROJECT_SOURCES = flowtest_top.v flowtest_lanes.v
+
+# The IHP 512x32 SRAM macro's behavioural model, from the PDK's libs.ref/sg13g2_sram/verilog/ (IHP-Open-PDK
+# 89d42ee6d2fd, the commit Tiny Tapeout's flow installs; Apache-2.0, "Copyright 2023 IHP PDK Authors"). It is
+# vendored in ihp_sram/ because the GitHub test job has no PDK. The gate-level netlist keeps the macro as a
+# black box too, so both builds need it. FUNCTIONAL selects the model's zero-delay behaviour.
+# Ken Pettit's ihp-um-janestreet-prism does the same (test/test_basic.mk).
+SRAM_MODEL_DIR ?= $(PWD)/ihp_sram
+SRAM_MODELS = $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v \
+              $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_512x32_c2_bm_bist.v
+VERILOG_SOURCES += $(SRAM_MODELS)
+COMPILE_ARGS    += -DFUNCTIONAL
 
 ifneq ($(GATES),yes)
 
@@ -19,7 +31,6 @@ else
 # Gate level simulation:
 SIM_BUILD				= sim_build/gl
 COMPILE_ARGS    += -DGL_TEST
-COMPILE_ARGS    += -DFUNCTIONAL
 COMPILE_ARGS    += -DSIM
 # Cell models for the PDK in $(PDK) (ihp-sg13cmos5l or ihp-sg13g2), e.g. sg13cmos5l_stdcell.v
 PDK ?= ihp-sg13cmos5l
@@ -43,7 +54,7 @@ VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tb
 
 # List test modules to run, separated by commas and without the .py suffix:
-COCOTB_TEST_MODULES = test
+COCOTB_TEST_MODULES = test_flowtest
 
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
