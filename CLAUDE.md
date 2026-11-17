@@ -7,9 +7,9 @@ tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
 Status, 2026-11-17, 00:30 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
 written. The bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on
-every clock and is merged with the SRAM layout setup on the branch `rtl-sram-flow`, whose first layout build is
-running in GitHub Actions. `main` still holds the placeholder adder until that build passes. "Progress" below has
-the detail.
+every clock and is merged with the SRAM layout setup on the branch `rtl-sram-flow`. Its first layout build failed
+in detailed routing; a floorplan fix that moves the two SRAMs waits for the next build. `main` still holds the
+placeholder adder until a layout build passes. "Progress" below has the detail.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -152,11 +152,17 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
    cells. An estimate on IHP's cells puts the decision loop at 9.3 ns of the 16.6 ns clock before wires; it is not
    independently confirmed, and the flow's timing report is the real answer.
 8. **SRAM layout setup.** The two SRAMs go through the flow with Ken Pettit's placement, power stripes, antenna
-   diodes and DRC waivers, proven on a dummy design in simulation. The open risk: the power stripes come from a
-   LibreLane plugin, LibreLane's docs say plugins are not supported in its Docker container, and Tiny Tapeout's
-   GDS action runs LibreLane in one. The first layout build settles it.
-9. **Integration.** Both are merged with `main` on the branch `rtl-sram-flow`, reviewed, and pushed. Its first
-   layout build is running in GitHub Actions.
+   diodes and DRC waivers, proven on a dummy design in simulation. The power stripes come from a LibreLane
+   plugin, and LibreLane's docs say plugins are not supported in its Docker container; the first layout build
+   settled it, because both plugin steps ran in Tiny Tapeout's container.
+9. **Integration.** Both are merged with `main` on the branch `rtl-sram-flow`, reviewed, and pushed. Its
+   [first layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44047118911) closed timing (setup
+   slack 1.12 ns at the slow corner), but detailed routing ended with 382 shorts and LVS failed. Pettit's SRAM
+   spots left the channel between the two pin edges open at one end only, and Metal3 is the tile's only
+   horizontal routing layer, so the 244 nets leaving the channel had 345 tracks; global routing overflowed and
+   sent 25 nets straight over the SRAMs. The fix moves both SRAMs to x 273.12 (6 stripe pitches right, so the
+   power stripes land as before) and spreads them to the core's bottom and top edges, which opens the channel
+   at both ends with 759 Metal3 tracks each. It is reviewed and waits for the next layout build.
 10. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
     their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
     14 of 14.

@@ -82,5 +82,13 @@ A dated log, written as the work happens. The verification write-up's AI section
     two gate-level netlists. It also restored a lost note in info.yaml, and checked the renamed SRAM instances
     against how Yosys, OpenSTA and LibreLane name flattened instances, replaying the power-connection patterns in
     tclsh. The main session re-ran the pin tests on the reviewed tip before pushing the branch.
-17. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+17. **First layout build.** It failed in detailed routing, and a subagent (Opus 5.5) diagnosed it from the
+    build's logs, reports and DEFs with its own scripts, since the flow cannot run locally: all 382 shorts came
+    from 11 nets that global routing had laid over the SRAMs, because the one open end of the channel between
+    their pin edges had fewer Metal3 tracks than nets leaving it. It weighed the candidate fixes against that
+    evidence (a pin-edge keepout and tying the byte mask high did not address the channel's exit), moved the
+    SRAMs to open both ends, and checked the new floorplan's geometry against the SRAM LEF. Two fresh Opus 5.5
+    reviewers checked the numbers; the first suggested x 273.12, which keeps the macros on Pettit's site and
+    track grid as well as his stripe grid. Only the next layout build can show that routing converges.
+18. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
