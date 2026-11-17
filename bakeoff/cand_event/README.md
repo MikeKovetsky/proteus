@@ -119,7 +119,7 @@ eof:    crc.lo -> r0                ; then compare with the residue, push status
 | Cross-lane flags | 2 |
 | **Whole chip: 2 × 522 + 252** | **1,296** of about 3,000 |
 
-1. **SRAM:** 32,768 bits, two 512×32 macros, one per lane. The largest program is 76 words (i2c_ctrl).
+1. **SRAM:** 32,768 bits, two 512×32 macros, one per lane. The largest program is 78 words (i2c_ctrl).
 2. **Gates:** about 4,800 combinational cells (2 × 2,015 per lane + 750 shared), itemised in `machine.py`. With
    the flops that is about 6,100 of the 32,000 cells. This is an estimate from mux and adder widths, not synthesis.
 
@@ -175,4 +175,4 @@ phases, ±1.5% and five payloads (800 runs). None fails, and a flipped bit and a
 ## Files
 
 1. `isa.py` holds the encodings; `machine.py` the simulator and budget tables; `asm.py` the assembler.
-2. `programs/<scenario>.s` is one source per scenario (7 to 76 instructions); `demo_two_lanes.s` is the self-check's.
+2. `programs/<scenario>.s` is one source per scenario (7 to 78 instructions); `demo_two_lanes.s` is the self-check's.

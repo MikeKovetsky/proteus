@@ -69,6 +69,8 @@ stop:   pin p1=0                    ; STOP: SDA low while SCL is low,
         goto msg
 
 nack:   fifo0 -> r3                 ; nobody answered: take the rest of the message off the FIFO
+        tst r3, #0xFF
+        br z, nackr                 ; nw = 0: only nr is left
 skip:   fifo0 -> r1
 nackw:  djnz r3, skip
 nackr:  fifo0 -> r1                 ; nr

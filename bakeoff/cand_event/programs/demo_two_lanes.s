@@ -36,6 +36,8 @@ got:    rx -> fifo1
         cfg tmr t0.auto
         #HALF -> t0
 msg:    fifo3 -> r1
+        tst r1, #0xFF
+        br z, msg
         pin p7=0
         fifo3 -> tx
         sub r1, #1

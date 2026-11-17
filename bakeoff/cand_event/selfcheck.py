@@ -10,6 +10,8 @@
 5. The two receivers beyond the benches: eth10_rx over clock phase, +-200 ppm and frame size, and usb_ls_rx
    over phase, +-1.5% and payload, with the benches' own signal generators.
 6. README.md's budget tables say what machine.py counts, and stay inside the bake-off's limits.
+7. A count of zero, which the scenarios allow, sends nothing and leaves the next message intact: SPI with n = 0,
+   WS2812 with no pixels, and I2C with no bytes to write when nobody answers.
 """
 from __future__ import annotations
 
@@ -19,12 +21,14 @@ import sys
 from typing import Dict, List
 
 from ..harness.benches.eth10 import Eth10Rx, send_eth_frame
-from ..harness.benches.spi import SpiTargetMode0
+from ..harness.benches.i2c import I2cTarget
+from ..harness.benches.spi import SpiTarget, SpiTargetMode0, check_spi_controller
 from ..harness.benches.uart import decode_uart
 from ..harness.benches.usb_ls import send_usb_packet, with_crc
+from ..harness.benches.ws2812 import decode_ws2812
 from ..harness.codec import crc32_eth
 from ..harness.sim import MASK, Sim, payload
-from ..harness.stim import Stimulus, run
+from ..harness.stim import Stimulus, bytes_msb_first, run
 from . import candidate, machine
 from .asm import AsmError, assemble, assemble_lanes
 
@@ -200,6 +204,33 @@ def budget() -> List[str]:
     return problems
 
 
+def zero_counts() -> List[str]:
+    """Each program gets a message with a count of 0 and then a normal one. Only the normal one may show."""
+    problems = []
+    spi_pins = {"SCK": 0, "MOSI": 1, "MISO": 2, "CS": 3}
+    sim = Sim(candidate.make_chip(), candidate.program("spi_ctrl_m0"))
+    sim.send(0, bytes([0, 3]) + payload(12, 3))
+    run(sim, 20000, SpiTarget(spi_pins, 0, payload(13, 3)))
+    mosi, timing = check_spi_controller(sim.wave, sim.oe_wave, spi_pins, 0, 3)
+    if mosi != payload(12, 3) or timing or sim.received(1) != payload(13, 3):
+        problems.append("spi_ctrl_m0 after n = 0: MOSI %s, channel 1 %s %s" % (mosi.hex(), sim.received(1).hex(), timing))
+    sim = Sim(candidate.make_chip(), candidate.program("ws2812_tx"), pull=MASK & ~1)
+    sim.send(0, bytes([0, 1]) + payload(14, 3))
+    sim.run(20000)
+    bits, shapes = decode_ws2812(sim.wave, 0)
+    if bytes_msb_first(bits) != payload(14, 3) or len(bits) != 24 or shapes:
+        problems.append("ws2812_tx after 0 pixels: sent %d bits, %s %s" % (len(bits), bytes_msb_first(bits).hex(), shapes))
+    sim = Sim(candidate.make_chip(), candidate.program("i2c_ctrl"))
+    i2c_pins = {"SCL": 0, "SDA": 1}
+    for present in (False, True):
+        sim.send(0, bytes([0x53, 0, 2]))
+        run(sim, 40000, I2cTarget(i2c_pins, 0x53, payload(15, 2), present, 0))
+    if sim.received(2) != b"\x01\x00" or sim.received(1) != payload(15, 2):
+        problems.append("i2c_ctrl with nw = 0, nobody then a target: status %s, channel 1 %s"
+                        % (sim.received(2).hex(), sim.received(1).hex()))
+    return problems
+
+
 def main() -> int:
     failed = 0
     for label, check in (
@@ -209,6 +240,7 @@ def main() -> int:
         ("the SPI target's top clock and the Ethernet sample phase are as README says", limits),
         ("eth10_rx 360 runs and usb_ls_rx 800 runs over phase and rate", sweeps),
         ("README budget matches machine.py", budget),
+        ("a count of zero sends nothing and keeps the next message", zero_counts),
     ):
         problems = check()
         print("%s  %s%s" % ("FAIL" if problems else "ok  ", label, "  (%s)" % "; ".join(problems) if problems else ""))

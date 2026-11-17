@@ -13,6 +13,8 @@
         cfg tmr t0.auto
         #HALF -> t0
 msg:    fifo0 -> r1                 ; n
+        tst r1, #0xFF
+        br z, msg                   ; n = 0: nothing to send
         pin p3=0                    ; select
         fifo0 -> tx                 ; first byte; it starts on the next tick
         sub r1, #1

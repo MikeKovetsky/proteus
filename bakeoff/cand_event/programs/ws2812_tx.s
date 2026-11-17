@@ -6,6 +6,8 @@
         pin p0=0
         cfg tmr t0.auto
 msg:    fifo0 -> r3                 ; pixels
+        tst r3, #0xFF
+        br z, msg                   ; none: nothing to send
         r3 -> r2
         shl r3
         add r3, r2                  ; three bytes each
