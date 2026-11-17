@@ -93,7 +93,9 @@ and receiving at 3 Mbaud at once; `spi_target_m0` trading a byte each way with a
 timing, which the lockstep suite below does not see: a gated pin operation answers a pin on the third clock (two
 synchroniser flops in, one register out, as the golden model's harness has it); port 1 with an echo program and
 the OVERFLOW bit; ROOM and OVERFLOW when the host writes to a full channel 0 or 3, and port 3 taking nothing; and
-reset in the middle of a frame, reload, and running again with the same and another program.
+reset in the middle of a frame, reload, and running again with the same and another program. Every test also checks
+that both SRAM macros have `A_DLY` tied high: IHP's model reports a wrong tie only with a `$stop`, which Icarus
+runs past when nothing answers on its stdin, as in CI.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
 programs with random pins and random host traffic, replays every trace into the RTL core with Verilator, and

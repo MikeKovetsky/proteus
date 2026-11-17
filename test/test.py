@@ -5,7 +5,8 @@
 
 Every test loads a compiled program through the nibble loader (port 2), talks to the machines through the
 nibble host link, and judges the protocol pins with its own decoder, not the golden model's. They use only
-the top-level ports, so they also run on the gate-level netlist (GATES=yes).
+the top-level ports, so they also run on the gate-level netlist (GATES=yes). The one exception is
+check_sram_ties, which looks inside both SRAM macros and finds them in either netlist.
 
 The cycle-by-cycle comparison with the golden model is the lockstep suite in test/lockstep/ (make lockstep).
 """
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
+from cocotb.handle import HierarchyObject
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -116,13 +118,40 @@ class Host:
 
 
 async def start(dut):
-    """Clock at 60 MHz (16 ns here), pins idle high, reset for 10 clocks. Returns the host."""
+    """Clock at 60 MHz (16 ns here), pins idle high, reset for 10 clocks, SRAM ties checked. Returns the host."""
     cocotb.start_soon(Clock(dut.clk, 16, unit="ns").start())
     host = Host(dut)
     dut.ena.value = 1
     dut.uio_in.value = 0xFF
     await reset(dut, host)
+    check_sram_ties(dut)
     return host
+
+
+SRAM = "RM_IHPSG13_1P_512x32_c2_bm_bist"  # the macro the table is built from (src/protoemu_table.v)
+
+
+def table_srams(dut):
+    """The table's two SRAM macros, word A's first. The RTL keeps the hierarchy: core.table_ram.ram_a and
+    ram_b. The gate-level netlist is flat, and cocotb cannot look up its escaped instance names
+    (\\core.table_ram.ram_a) by name, so there the macros are found among the top's instances by module."""
+    top = dut.user_project
+    rams = sorted((h for h in top if isinstance(h, HierarchyObject) and h._def_name == SRAM), key=lambda h: h._name)
+    if not rams:
+        rams = [top.core.table_ram.ram_a, top.core.table_ram.ram_b]
+    assert len(rams) == 2, "found %d %s macros, expected 2" % (len(rams), SRAM)
+    return rams
+
+
+def check_sram_ties(dut):
+    """A_DLY must be tied high on both macros. The PDK's SRAM model checks it, but it only prints an error and
+    calls $stop, which Icarus runs past when nothing answers on its stdin, as in CI. So the test checks it, on
+    RTL and on the gate-level netlist. The pin is found by iterating the macro: the netlist's names do not
+    resolve."""
+    for ram in table_srams(dut):
+        dly = next((pin for pin in ram if pin._name == "A_DLY"), None)
+        assert dly is not None, "%s has no A_DLY pin" % ram._name
+        assert str(dly.value) == "1", "%s.A_DLY is %s; the SRAM needs it tied to 1" % (ram._name, dly.value)
 
 
 async def reset(dut, host):
