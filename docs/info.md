@@ -19,4 +19,5 @@ It drives `ui_in = 20` and `uio_in = 30` and expects `uo_out = 50`.
 
 ## External hardware
 
-None yet. The pinout will be filled in when the architecture is chosen.
+None yet. The pinout in `info.yaml` names the placeholder adder's pins (A, B and SUM). It changes when the
+architecture is chosen.
