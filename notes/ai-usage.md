@@ -47,5 +47,15 @@ A dated log, written as the work happens. The verification write-up's AI section
 11. **Models.** Until the Fable limit, the builders ran on Fable 5.2 and the reviewers on Opus 5.5. From
     2026-11-16, 22:30 PST, Mike switched the session to Opus 5.5, so builders and reviewers now run on the same
     model.
-12. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+12. **RTL of the table machine.** A builder subagent (Opus 5.5) wrote `cand_table` in Verilog (`src/`), with IHP's
+    SRAM simulation model, and a lockstep suite: the golden model records its 14 benches and 300 random programs,
+    and the RTL core replays them in Verilator and must match on every clock (3 million clocks). It also wrote 21
+    planted bugs the suite must catch, cocotb tests through the pins, and a decision-loop delay estimate on IHP
+    cells (9.3 ns of the 16.6 ns clock, before wires). A fresh reviewer (Opus 5.5, max effort) got the diff and the
+    requirements, not the builder's reasoning. It planted 64 more bugs in the core, and the suite caught every one
+    that changes behaviour. In `project.v`, which the lockstep suite does not reach, 7 of 14 planted bugs passed
+    every test, among them a synchroniser stage too few or too many. It added two pin-level tests that catch five
+    of them; the other two are a metastability hazard and a race only a host breaking the protocol can reach. It
+    also ran the pin tests on a netlist of generic gates: 7 of 7 pass.
+13. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
