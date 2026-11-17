@@ -90,5 +90,9 @@ A dated log, written as the work happens. The verification write-up's AI section
     SRAMs to open both ends, and checked the new floorplan's geometry against the SRAM LEF. Two fresh Opus 5.5
     reviewers checked the numbers; the first suggested x 273.12, which keeps the macros on Pettit's site and
     track grid as well as his stripe grid. Only the next layout build can show that routing converges.
-18. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+18. **Second layout build.** The main session pushed the reviewed floorplan fix, and the build passed every job.
+    It checked the result against the build's own logs and metrics, not only GitHub's green mark: 0 routing
+    violations, LVS "Circuits match uniquely", "Precheck passed", 7 of 7 gate-level tests, and 4.20 ns of
+    setup slack. It also recorded the slew, capacitance and fanout warnings the flow does not gate on.
+19. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.

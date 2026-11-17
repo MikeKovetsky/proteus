@@ -5,11 +5,10 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-17, 00:30 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
+Status, 2026-11-17, 07:00 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
 written. The bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on
-every clock and is merged with the SRAM layout setup on the branch `rtl-sram-flow`. Its first layout build failed
-in detailed routing; a floorplan fix that moves the two SRAMs waits for the next build. `main` still holds the
-placeholder adder until a layout build passes. "Progress" below has the detail.
+every clock, and the real chip, with both SRAMs, passes Tiny Tapeout's whole flow: layout, precheck and the
+gate-level test, with timing closed at 60 MHz. "Progress" below has the detail, and "Not done" what is left.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -83,13 +82,13 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R3 | UART, SPI and I2C demonstrated by programs | MET in simulation | UART and the SPI target end to end at the pins (`test/test.py`); the SPI controller (modes 0 and 3) and I2C match the golden model on every clock of their benches (`make -C test lockstep`); not yet on silicon |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py` |
-| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | NOT MET | |
-| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the placeholder; must pass again on the real design | [Run 44025802951](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) on `00bc006`: gds, precheck, gl_test and viewer all pass |
-| R8 | RTL and tests in the public repo | MET on branch `rtl-sram-flow` | Pushed 2026-11-17; on `main` once its layout build passes |
+| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
+| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
+| R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | NOT MET | |
 | R10 | Assembler or toolchain with example programs | MET in content | `bakeoff/cand_table/compiler.py` and 14 programs; all 14 images run identically on the RTL; not yet moved to `asm/` |
 | R11 | Verification write-up, including how AI was used | NOT MET | |
-| R12 | Gate-level simulation passes | NOT MET | The pin tests pass 7 of 7 on a pre-layout netlist of IHP cells; the post-layout run comes with the layout build |
+| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET | |
 
@@ -122,7 +121,7 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 4. **Mike's parts this week** are three: approve the tool downloads (Monday), pick the architecture (Tuesday), and
    decide what the write-up claims (Sunday).
 
-### Progress, 2026-11-17, 00:30 PST
+### Progress, 2026-11-17, 07:00 PST
 
 1. **Tools.** The OSS CAD Suite is installed. A counter passed Verilator lint, an Icarus simulation, a cocotb test,
    Yosys synthesis and an sby proof.
@@ -162,13 +161,22 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
    horizontal routing layer, so the 244 nets leaving the channel had 345 tracks; global routing overflowed and
    sent 25 nets straight over the SRAMs. The fix moves both SRAMs to x 273.12 (6 stripe pitches right, so the
    power stripes land as before) and spreads them to the core's bottom and top edges, which opens the channel
-   at both ends with 759 Metal3 tracks each. It is reviewed and waits for the next layout build.
+   at both ends with 759 Metal3 tracks each.
+   [The second layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) passed every
+   job in 42 minutes: detailed routing reached 0 violations in 8 minutes (2 h 26 min before), LVS matches,
+   precheck passes, and the 7 pin tests pass on the routed netlist. Worst setup slack is 4.20 ns at the slow
+   corner, up from 1.12 ns, because the detour nets went away. Utilisation is 24.6%.
 10. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
     their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
     14 of 14.
-11. **Not done.** A layout of the real chip (R6, R7, R12), the architecture and instruction set docs (R9), the
-    SPI controller and I2C end to end at the pins, the sby reset proof, and local hardening, which needs a
-    container engine.
+11. **Not done.**
+    1. Slew, capacitance and fanout warnings: the flow reports 78 max-slew, 1 max-cap and 97 max-fanout
+       violations at the slow corner. They do not fail the flow, but slow edges into the SRAM inputs exceed the
+       SRAM library's limit, so they need fixing before tape-out.
+    2. The architecture and instruction set docs (R9) and the write-up (R11).
+    3. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
+    4. The sby reset and instruction proofs, an independent decoder check (sigrok), and the stranger test (R14).
+    5. Local hardening, which needs a container engine.
 
 ### Layout (target)
 
