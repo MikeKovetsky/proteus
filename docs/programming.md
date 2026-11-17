@@ -106,7 +106,7 @@ docs/examples/uart_8e1_tx.fsm: 10 states in 13 entries (0 unused), image 123 byt
   4  tx.bit.hold            -                                        -> 4 | tz,kz [bit.hold bit bit.hold parity]
   5  tx.bit                 TX=d, shift 0, crc+=d, K-=1, T=519       -> 4 [bit.hold]
   6  tx.bit.hold            -                                        -> 4 | tz,kz [bit.hold bit bit.hold parity]
-  7  tx.parity              TX=d, T=519                              -> 8 [parity.hold]
+  7  tx.parity              TX=c, T=519                              -> 8 [parity.hold]
   8  tx.parity.hold         -                                        -> 8 | tz [parity.hold line16]
   9  tx.line16              TX=1, T=519                              -> 10 [line16.hold]
  10  tx.line16.hold         -                                        -> 10 | tz [line16.hold idle]
@@ -122,7 +122,10 @@ What it shows:
    "neither", `tz`, `kz`, both: keep waiting, next bit, keep waiting, parity. `bit` and `bit.hold` are copied to
    fit, which is why 10 states take 13 entries.
 3. The image is 123 bytes: 1 for the machine count, 16 of configuration, 2 for the entry count and 8 per entry.
-4. Entry 7 prints `TX=d` for `TX=c`: the listing shows the pin operation, not which data bit it uses.
+4. Entry 7 sends LFSR bit 0, `TX=c`, where `bit` sends the shifter's bit, `TX=d`.
+
+A program the compiler refuses prints `file:line: message` and the line, and the command exits with status 1.
+[isa.md, "Limits and error messages"](isa.md#6-limits-and-error-messages) lists every message.
 
 ## 6. The receiver
 

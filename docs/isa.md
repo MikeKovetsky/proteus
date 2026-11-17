@@ -17,7 +17,6 @@ every clock.
 5. [What the compiler builds](#5-what-the-compiler-builds)
 6. [Limits and error messages](#6-limits-and-error-messages)
 7. [Compile, run on the model, load into the chip](#7-compile-run-on-the-model-load-into-the-chip)
-8. [Compiler quirks](#8-compiler-quirks)
 
 ## 1. How a machine steps
 
@@ -84,8 +83,9 @@ side in the table: a state that tests two conditions owns a block of four entrie
 of 4, and the four successors are, in order, "neither", "cA only", "cB only" and "both". A state that tests one
 condition owns a block of two. A state with no condition (`cA = cB = 0`, constant 0) goes to `base`.
 
-A return (`nop` = 3) ignores `base` and goes to the address in the machine's link register. A call loads the
-link register: `dst` = 7 copies `imm[8:0]` into it.
+A return (`nop` = 3) ignores `base` and goes to the address in the machine's link register. Its `cA` still
+selects a condition, which can gate its pin operations (section 2.3). A call loads the link register: `dst` = 7
+copies `imm[8:0]` into it.
 
 ### 2.2 Conditions
 
@@ -301,7 +301,7 @@ stop:   TX=1, hold BIT => idle
 | `out X=P0, Y=P1` | The machine's outputs, at most 4 in all, in the order logical output 0, 1, 2, 3. Several `out` lines add up. |
 | `in A=P1, B=P2` | The machine's inputs, at most 3 in all: the first is input A, then B, then C. Only A has `edge`, and only A and B can be shifted in. |
 | `order lsb` or `order msb` | Which end of S is the data bit. The default is `lsb`. |
-| `crc poly=v init=v match=v` | The LFSR's values. Any of the three, in any order; the default of each is 0. Each value must be written without spaces (section 8). |
+| `crc poly=v init=v match=v` | The LFSR's values. Any of the three, in any order; the default of each is 0. Each value is an expression (section 4.3) that runs to the next `poly=`, `init=` or `match=`, so `crc init = 0xFF00 + 0xFF` sets 0xFFFF. It must come to 0 to 0xFFFFFFFF. |
 
 A pin name may be any name that is not reserved. One name may be both an `in` and an `out` of the same pin: as
 a condition it reads the input, and on the left of `=` it drives the output.
@@ -374,7 +374,8 @@ rules, in `wait GUARD` and in `when` together. `kz & !tz` and `tz` are two condi
 `X=z when CS` releases X only in a turn where CS is high. The condition is one condition, possibly negated, and
 every pin operation in the state must carry the same `when` or none must. It becomes the state's `cA`, so it
 also counts as one of the state's two conditions, and it acts in the same turn that sees it, which is one turn
-earlier than a rule that moves to a state that sets the pin. Only pin operations can be gated.
+earlier than a rule that moves to a state that sets the pin. Only pin operations can be gated. A `call` or `ret`
+line may gate its pins too: the call or the return happens either way.
 
 ```
 low:    MISO=z when CS, wait => CS: start | SCK: rise      # spi_target_m0.fsm
@@ -439,8 +440,10 @@ The actions on both lines run as usual.
    return address.
 2. A `call` line has no rules, `wait` or `hold`, and nothing else that uses the immediate or the bus (the return
    address travels in `imm`).
-3. A `ret` line has no rules, `wait` or `hold`, and may not change N (the N field holds the return code). See
-   section 8 for two mistakes on a `ret` line that the compiler does not catch.
+3. A `ret` line has no rules, `wait` or `hold`, and may not change N: the N field holds the return code, so the
+   compiler refuses `N-=1` or `N+=1` on a `ret` line, in either order. Change N on the line before.
+4. A `ret` line may gate its pin operations with `when`: `X=1 when A, ret` drives X in a turn where A is high,
+   and returns either way.
 
 The I2C controller ([i2c_ctrl.fsm](../bakeoff/cand_table/programs/i2c_ctrl.fsm)) shares the second half of
 every clock pulse this way, and [usb_ls_tx.fsm](../bakeoff/cand_table/programs/usb_ls_tx.fsm) sends SYNC and the
@@ -514,18 +517,22 @@ bakeoff/cand_table/programs/uart_tx.fsm: 8 states in 11 entries (0 unused), imag
 2. A state is named by its label, or `lineN` after its source line, with `.hold`, `.pad` or `.load` for the
    states a `hold` adds. A `ret` line shows `-> link`.
 3. "Unused" counts the holes block alignment leaves.
-4. The listing shows the pin operation, not which data bit it uses: `TX=c` prints as `TX=d`. An LFSR step with
-   the serial input prints as `crc+=in`.
+4. The data bit prints as the program wrote it: `d` for the shifter and `c` for the LFSR, in pin operations
+   (`TX=c`) and in conditions. An input condition prints as the input's name (`RX`), not as `a`, `b` or `c`. An
+   LFSR step with the serial input prints as `crc+=in`.
 
 ## 6. Limits and error messages
 
-Every message starts with the file name and, for most, the line number, followed by the source line. For a
-file `prog.fsm` whose third line is `X=1, K+=1`:
+Every message has the form `file:line: message`, and most are followed by the source line, indented. A few
+messages are about the whole file or a whole machine and have no line: `file: message`. For a file `prog.fsm`
+whose third line is `X=1, K+=1`:
 
 ```
-prog.fsm: line 3: K and J only count down
+prog.fsm:3: K and J only count down
     X=1, K+=1
 ```
+
+A line inside a macro reports the line of its `use`, and shows the line as the macro pasted it.
 
 | Message | Cause |
 |---|---|
@@ -539,7 +546,9 @@ prog.fsm: line 3: K and J only count down
 | `` `X` is a reserved word or a pin, not a label `` | A label with a reserved word or a pin's name |
 | `label L is defined twice` | Two labels with one name in one machine |
 | `label L has no line after it` | A label at the end of a file or of a machine's section |
-| `` cannot evaluate `E`: ... `` | An expression with an unknown name, `**`, a call other than `round`, `int`, `min` and `max`, or a division by zero |
+| `` expected `const NAME = expr` `` | A `const` line with no `=` or no name |
+| `` cannot evaluate `E`: ... `` | An expression with an unknown name, `**`, a call other than `round`, `int`, `min` and `max`, a division by zero, a number too big for an integer (`1e400`), or words left over after a value (`crc poly=1 x`) |
+| `crc NAME = V is outside 0 to 0xFFFFFFFF, the LFSR's 32 bits` | A negative or too large `poly`, `init` or `match`. Write -1 as `0xFFFFFFFF`. |
 | `X = V does not fit its field` | `T=` above 65,535, `S==` above 255, or a `hold` above 65,537 (it reports `T = n - 2`) |
 | `K holds 0 to 15`, `J holds 0 to 15` | `K=` or `J=` out of range |
 | `the bus carries one byte` | A byte constant outside 0 to 255 |
@@ -563,7 +572,8 @@ prog.fsm: line 3: K and J only count down
 | `K and J only count down` | `K+=1` or `J+=1` |
 | `K changes once per state`, `J changes once per state`, `T is loaded once per state` | Two changes of one register |
 | `K and J cannot both be loaded in one state` | `K=` with `J=` |
-| `N changes once per state, and not in the state that returns` | Two changes of N, or `ret` followed by a change of N |
+| `N changes once per state` | Two changes of N |
+| `` `ret` and a change of N cannot share a line: ... change N on the line before the `ret` `` | `N-=1` or `N+=1` with `ret`, in either order: the entry's N field holds the return code |
 | `A and B need different bits of the one immediate; put them on separate lines` | `T=` with `K=`, `J=` or a byte whose bits differ, or two different byte constants (`S==` counts as one) |
 | `a waiting state repeats its actions every clock, so it may only set pins` | `wait` or `halt` with anything but pin operations, or with `toggle` |
 | `` `hold` and `wait` do not go together `` | Both on one line |
@@ -594,8 +604,9 @@ Print a program's listing:
 python3 -m bakeoff.cand_table.compiler docs/examples/uart_8e1_tx.fsm
 ```
 
-It prints the summary line and the listing of section 5.1. On an error it stops with a Python traceback whose
-last lines are the message of section 6, and exits with status 1.
+It prints the summary line and the listing of section 5.1, and exits with status 0. On an error it prints the
+message of section 6 to standard error, `file:line: message` and the source line, and exits with status 1.
+Given several files, it compiles each one and exits with status 1 if any failed.
 
 Write the image to a file, for a host to load:
 
@@ -605,7 +616,9 @@ python3 -c "import sys; from bakeoff.cand_table.compiler import compile_file; sy
 
 From Python, `compile_file(path)` and `compile_text(text, name)` in
 [compiler.py](../bakeoff/cand_table/compiler.py) return a result with `.image` (bytes), `.listing` (the lines
-above), `.states`, `.entries`, `.unused` and `.unreached`. They raise `CompileError` with the message.
+above), `.states`, `.entries`, `.unused` and `.unreached`. They raise `CompileError`: `str()` of it is the
+message of section 6, and its parts are `.filename`, `.line` (None for a message with no line), `.message` and
+`.source` (the source line, or empty).
 
 ### 7.2 Run on the model
 
@@ -647,15 +660,3 @@ The demo board's RP2350 loads an image through the host pins:
 [info.md](info.md#loading-a-program) the loader's rules: a new program needs a reset, and the chip loses its
 program when it is deselected. The `Host` class in [test/test.py](../test/test.py) (lines 51 to 117) does all of
 this against the RTL, and is the reference for host firmware.
-
-## 8. Compiler quirks
-
-These are in the compiler today. Avoid them.
-
-1. **`N-=1, ret` drops the `N-=1` with no error.** `ret` uses the N field for its return code, and an earlier
-   `N-=1` or `N+=1` on the line is overwritten. (`ret, N-=1` is refused.) Change N on the line before.
-2. **`when` on a `ret` line never fires.** A return has no successors, so the gate's condition is never selected
-   and the pins never change. Put gated pin operations on another line.
-3. **A space inside a `crc` value cuts it short.** `crc init = 1 + 2` sets `init` to 1. Write `init=3`, or use a
-   constant: `crc init=START`.
-4. **The listing prints `d` for `c`** (section 5.1).
