@@ -94,6 +94,24 @@ A dated log, written as the work happens. The verification write-up's AI section
     It checked the result against the build's own logs and metrics, not only GitHub's green mark: 0 routing
     violations, LVS "Circuits match uniquely", "Precheck passed", 7 of 7 gate-level tests, and 4.20 ns of
     setup slack. It also recorded the slew, capacitance and fanout warnings the flow does not gate on.
-19. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+19. **Electrical warnings.** A subagent (Opus 5.5) traced all 78 slew, 1 capacitance and 97 fanout warnings from
+    the layout build's reports: every slew violation is on an SRAM input pin, and 82 of the fanout warnings are
+    clock-leaf buffers with fast edges. It found the cause in the flow's step order (the only design repair ran
+    before hold buffers and antenna diodes doubled the SRAM nets' fanout) and in OpenROAD's and OpenSTA's source,
+    and proposed four LibreLane settings. A light review passed it. The main session checked that each setting
+    exists in LibreLane 3.1.0.dev4 before spending a layout build on it.
+20. **Architecture docs.** A subagent wrote docs/architecture.md, isa.md and programming.md, checked every claim
+    against the code and ran every example. It found eight places where the old bake-off README was wrong (for
+    example 1,202 flops where synthesis gives 1,172) and five compiler bugs, three of which compile a different
+    program from the one written. It was told not to use CAN, JTAG or SWD as examples. A light review found a
+    real bug in the example's own decoder, which ignored the last 11 bits of the capture.
+21. **Compiler fix.** A subagent fixed the five bugs by what one table entry can encode, kept all 19 images
+    byte-identical, and fuzzed 60,000 mutated programs, which found two more crashes. Its full review was stopped
+    when Mike paused the work.
+22. **Held-out benches.** A subagent wrote the stranger test's scenario sheet and benches for CAN, JTAG and SWD
+    outside the repo, from the sheet alone, each proven against faulty fake chips (77 checks). It was stopped at
+    the pause.
+23. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, picked the table-driven architecture from the bake-off table, and chose CAN, JTAG and SWD for
-    the stranger test.
+    the stranger test. On 2026-11-17 at 07:30 PST he paused the work: "pause, document the progress and push
+    everything".

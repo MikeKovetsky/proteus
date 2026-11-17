@@ -5,10 +5,11 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-17, 07:00 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
-written. The bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on
-every clock, and the real chip, with both SRAMs, passes Tiny Tapeout's whole flow: layout, precheck and the
-gate-level test, with timing closed at 60 MHz. "Progress" below has the detail, and "Not done" what is left.
+Status, 2026-11-17, 07:35 PST: **paused by Mike** ("pause, document the progress and push everything"). The
+bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on every clock,
+the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with timing closed at 60 MHz, and the architecture
+and instruction set docs are written. "Progress" below has the detail, and "Paused work, and how to resume" says
+exactly where each open piece stands.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -121,7 +122,7 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 4. **Mike's parts this week** are three: approve the tool downloads (Monday), pick the architecture (Tuesday), and
    decide what the write-up claims (Sunday).
 
-### Progress, 2026-11-17, 07:00 PST
+### Progress, 2026-11-17, 07:35 PST
 
 1. **Tools.** The OSS CAD Suite is installed. A counter passed Verilator lint, an Icarus simulation, a cocotb test,
    Yosys synthesis and an sby proof.
@@ -169,14 +170,46 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 10. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
     their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
     14 of 14.
-11. **Not done.**
-    1. Slew, capacitance and fanout warnings: the flow reports 78 max-slew, 1 max-cap and 97 max-fanout
-       violations at the slow corner. They do not fail the flow, but slow edges into the SRAM inputs exceed the
-       SRAM library's limit, so they need fixing before tape-out.
-    2. The write-up (R11), and five compiler bugs the docs list (three compile the wrong program silently).
-    3. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
-    4. The sby reset and instruction proofs, an independent decoder check (sigrok), and the stranger test (R14).
-    5. Local hardening, which needs a container engine.
+11. **`main`'s own layout build** of the real chip passed all four jobs
+    ([run 44105853045](https://github.com/MikeKovetsky/protoemu/actions/runs/44105853045), 26 minutes).
+12. **Docs (R9).** `docs/architecture.md`, `docs/isa.md` and `docs/programming.md` are on `main`, with a worked 8E1
+    UART in `docs/examples/` that runs on the golden model. A light review fixed the example's decoder, which had
+    stopped looking 11 bits before the end of the capture, and three wrong claims in the guide. The docs name no
+    program for CAN, JTAG or SWD.
+
+### Paused work, and how to resume
+
+Every piece below is committed or saved; nothing is lost. Resume them in this order.
+
+1. **The electrical fix (branch `electrical-fix`, pushed, reviewed at the light tier).** It adds four LibreLane
+   settings to `src/config.json`: design repair after global routing (`RUN_POST_GRT_DESIGN_REPAIR`, with
+   `GRT_DESIGN_REPAIR_MAX_SLEW_PCT` 65 and `GRT_DESIGN_REPAIR_MAX_CAP_PCT` 50) and hold repair after it
+   (`RUN_POST_GRT_RESIZER_TIMING`). All four exist in LibreLane 3.1.0.dev4's source. Its layout build,
+   [run 44111759734](https://github.com/MikeKovetsky/protoemu/actions/runs/44111759734), was still running at the
+   pause. To resume: read that run's `runs/wokwi/final/metrics.json`. It lands only if
+   `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 (they were 78 and 1),
+   `design__max_fanout_violation__count` is about 82 (the clock leaves, which have fast edges), and setup, hold,
+   routing and LVS stay clean. Then merge `main` into the branch (its CLAUDE.md and notes/ai-usage.md edits will
+   conflict with main's), give the merge a conflict-scoped review, and push `main`.
+2. **The compiler fix (local branch `worktree-agent-a4b95512cb9f20160`, not pushed, not reviewed).** Two commits,
+   b51267f and b31c43d, fix the five compiler bugs the docs found: `N-=1, ret` is refused in either order (one
+   entry cannot hold both), `X=1 when A, ret` now compiles its gate, `crc init = 1 + 2` evaluates in full,
+   the listing prints `c` and input names, and compile errors print `file:line: message` and exit 1. All 19
+   images the repo builds stay byte-identical; 23 new tests in `bakeoff/cand_table/test_compiler.py` pass. Its
+   full-tier review was stopped at the pause, before it changed anything, so the review gate blocks the push. To
+   resume: run the full review (`review_pack.py` on that worktree), then push `main`. Still open there:
+   `crc init=1 init=2` silently keeps the last value, and four error messages name no line or the wrong reason.
+3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design).** A scenario sheet
+   (`SCENARIOS.md`) and benches for CAN, JTAG and SWD, with reference codecs, behavioural fakes and `run.py`,
+   which judges a compiled image on the golden model. The self-test passes 77 of 77 checks. The agent was stopped
+   while checking one hex constant in the sheet, so its README may be unfinished. Not reviewed. Before the test:
+   Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches, then the
+   stranger runs with only `SCENARIOS.md`, `docs/` and the compiler.
+4. **Not started.**
+   1. The write-up (R11).
+   2. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
+   3. The sby reset and instruction proofs, and an independent decoder check (sigrok).
+   4. Local hardening, which needs a container engine. CI builds take about 40 minutes, so it is not needed now.
 
 ### Layout (target)
 
