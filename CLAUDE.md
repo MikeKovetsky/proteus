@@ -5,10 +5,10 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-16, 22:10 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
-written. Tiny Tapeout's IHP template is in at 8x4 tiles and 60 MHz, and its placeholder adder is the only RTL. The
-bake-off's 14 benches are written, and the first of three candidate architectures passes all of them. "Progress"
-below has the detail.
+Status, 2026-11-16, 22:50 PST: the plan below replaced the first plan (an RTL hill-climbing loop) on the day it was
+written. The bake-off is done: all three candidate architectures pass all 14 benches, and Mike picked the
+table-driven one. Its RTL and the SRAM layout setup are being built. Tiny Tapeout's placeholder adder is still the
+only RTL on main. "Progress" below has the detail.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -121,26 +121,31 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 4. **Mike's parts this week** are three: approve the tool downloads (Monday), pick the architecture (Tuesday), and
    decide what the write-up claims (Sunday).
 
-### Progress, 2026-11-16, 22:10 PST
+### Progress, 2026-11-16, 22:50 PST
 
 1. **Tools.** The OSS CAD Suite is installed. A counter passed Verilator lint, an Icarus simulation, a cocotb test,
    Yosys synthesis and an sby proof.
 2. **Template (R1).** It is in at 8x4 tiles and 60 MHz, reviewed and pushed. The review named the placeholder's
    pins, because Tiny Tapeout's docs check fails on a blank pinout, and widened the test until it failed on seven
    deliberately broken designs.
-3. **GitHub Actions (R7, not yet met).** The docs and test workflows pass on `00bc006`.
-   [The GDS build](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) had run for 26 minutes when
-   this was written, so GDS, precheck and the gate-level test are not confirmed. GitHub Pages is on, with GitHub
-   Actions as its source, for the layout viewer.
-4. **Benches.** All 14 scenarios have a bench. The self-test passes 180 of 180 checks: each bench passes a
+3. **GitHub Actions (R7, not yet met).** The docs and test workflows pass on `00bc006` and `4d7c9ed`.
+   [The first GDS build](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) had run for 70
+   minutes on the placeholder when this was written. Other 8x4 entries' GDS builds take 2.5 to 3.7 hours, so
+   each layout attempt in CI costs about three hours. GitHub Pages is on, with GitHub Actions as its source, for
+   the layout viewer.
+4. **Benches.** All 14 scenarios have a bench. The self-test passes 191 of 191 checks: each bench passes a
    hand-written fake chip that does the scenario correctly and fails fakes with one planted fault each, and the
-   reference CRCs match outside vectors.
-5. **Candidates.** `cand_table` passes 14 of 14 benches, re-run by the main session. `cand_pio` and `cand_event`
-   are still being built. The table under "1. Architecture bake-off" has the numbers.
-6. **Not pushed yet.** The bake-off code (`bakeoff/`) is going through its review. The harness and `cand_table`
-   go first, and the other two candidates follow when they are finished.
-7. **Not done.** The bake-off table, Mike's pick, the SRAM macro and dummy design, and local hardening, which
-   needs Docker.
+   reference CRCs match outside vectors. The review tightened five benches (UART framing, I2C START and STOP
+   setup, the USB packet with no data, and how long four benches watch after the expected end).
+5. **Bake-off.** All three candidates pass 14 of 14 on the tightened benches, re-run by the main session. The
+   table under "1. Architecture bake-off" has the numbers. Mike picked `cand_table`.
+6. **SRAM timing.** IHP's timing file for the 512x32 SRAM gives 6.4 ns from clock to data out at the slow corner
+   (1.08 V, 125 °C) and 3.8 ns at the typical corner. That leaves about 10 ns of a 16.7 ns clock for the decision
+   logic. It is a datasheet figure, not synthesis. The CMOS5L SRAM folder in IHP's PDK is a link to these files.
+7. **In progress.** Two agents work in their own git worktrees: the RTL of the table machine with cycle-by-cycle
+   tests against `bakeoff/cand_table`, and the SRAM macros through the layout flow on a dummy design.
+8. **Not pushed yet.** `cand_pio` and `cand_event` wait for their review.
+9. **Not done.** The SRAM macro in GDS, local hardening (it needs a container engine), and every RTL requirement.
 
 ### Layout (target)
 
@@ -176,19 +181,31 @@ never listed here, and the worker can never read them.
 5. No hardware block may know a protocol by name. Helpers are generic and configured by the program.
 6. The table reports, per candidate: benches passed, program sizes, the flop and memory budget, concurrency, and
    what could not be done and why. The budget is self-reported until RTL exists.
-7. Mike picks. The winner's simulator becomes the golden model in `model/`.
+7. Mike picks. The winner's simulator becomes the golden model. For now it stays in `bakeoff/cand_table`.
 
-Results so far (2026-11-16, 22:10 PST). The budgets are the candidates' own figures, not synthesized.
+Results (2026-11-16, 22:50 PST, on the tightened benches). The budgets are the candidates' own figures, not
+synthesized.
 
-| Candidate | Benches passed | Flops | SRAM bits | Protocols at once | State |
-|---|---|---|---|---|---|
-| `cand_table` | 14 of 14 | 1,202 | 32,768 | 4, sharing one decision rate | Reported, in review |
-| `cand_pio` | | | | | Being built |
-| `cand_event` | | | | | Being built |
+| | `cand_pio` | `cand_event` | `cand_table` |
+|---|---|---|---|
+| Benches passed | 14 of 14 | 14 of 14 | 14 of 14 |
+| Flops (of about 3,000) | 1,134 | 1,296 | 1,202 |
+| Combinational cells | about 7,000 | about 4,800 | about 2,600 |
+| SRAM bits | 32,768 | 32,768 | 32,768 |
+| Protocols at once | 4 at 30 MHz, or 2 at 60 MHz | 2 at full speed | 4 at 15 MHz, or 1 at 60 MHz |
+| All 14 programs | 1,949 bytes | 1,548 bytes | 4,138 bytes |
+| Receive sweeps beyond the benches | 1,160 runs, 0 failed | none; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (by the reviewer) |
+| Weakest point | Closest to what other entries build | Slow on someone else's clock: its SPI target fails at 5 MHz | Large programs, and 4 protocols share one decision rate |
+
+**Decision.** Mike, 2026-11-16: "Table-driven". The reasons given to him: novelty decides the tape-out and the
+other entries found build PIO-style machines; it decides on every clock; 13 of its 14 programs passed the first
+time they ran; and it has the smallest logic. The alternative offered was `cand_pio`, the most robust and least
+novel.
 
 `cand_table`'s open risk, by its author's account: it decides on every clock only if one path (memory output,
 condition select, memory address) closes in 16.7 ns. That is not checked in synthesis. If it fails, decisions drop
-to every second clock and the Ethernet scenarios are lost.
+to every second clock and the Ethernet scenarios are lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
+for that logic.
 
 ### 2. Prove the flow
 
