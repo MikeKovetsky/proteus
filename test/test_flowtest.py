@@ -93,6 +93,15 @@ async def reset(dut, ui):
     dut.rst_n.value = 1
 
 
+def check_sram_ties(dut):
+    """The datasheet's tie-off rule: A_DLY is high on both macros. The PDK model checks it too, but it only
+    prints an error and calls $stop, which the simulator runs past under cocotb, so the test checks it here.
+    The macros keep their instance names (sram_a, sram_b) in the gate-level netlist too."""
+    for name in ("sram_a", "sram_b"):
+        dly = getattr(dut.user_project, name).A_DLY.value
+        assert str(dly) == "1", f"{name}.A_DLY is {dly}; the datasheet says it must be tied to 1"
+
+
 async def edges_until(dut, flag, limit):
     """Rising edges until the flag shows on uo_out, checked just after each edge."""
     for edge in range(1, limit + 1):
@@ -136,6 +145,7 @@ async def run_and_check(dut, cond_nibble, plant_faults=False):
     s = status(dut)
     assert s == {"done": 0, "pass": 0, "fail": 0, "walk_done": 0, "mismatches": 0}, f"after reset: {s}"
     assert int(dut.uio_oe.value) == 0xFF, f"uio_oe is {dut.uio_oe.value}, expected all outputs"
+    check_sram_ties(dut)
 
     edges = await edges_until(dut, "done", EDGES_TO_WALK_DONE)
     assert edges == EDGES_TO_SELFTEST_DONE, f"self-test done after {edges} clocks, expected {EDGES_TO_SELFTEST_DONE}"
