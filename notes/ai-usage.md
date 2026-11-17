@@ -47,5 +47,12 @@ A dated log, written as the work happens. The verification write-up's AI section
 11. **Models.** Until the Fable limit, the builders ran on Fable 5.2 and the reviewers on Opus 5.5. From
     2026-11-16, 22:30 PST, Mike switched the session to Opus 5.5, so builders and reviewers now run on the same
     model.
-12. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+12. **Review of the other two candidates.** A fresh Opus 5.5 reviewer at max effort was told these candidates had
+    lost the pick, so what mattered was that their reported results were true. It found ten problems: the
+    event-driven model let helpers act one cycle earlier than its own spec and budget allow, its assembler ran
+    `eval()`, and three of its programs hung on a count of zero. The PIO-style candidate's checks always exited 0,
+    and its assembler silently truncated fields that were too wide. Several README numbers were unbacked or wrong.
+    It fixed all ten, held every README number to a check that fails when the number is edited, and proved each
+    new check fails on a broken version. Both candidates still pass 14 of 14. The main session re-ran every check.
+13. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
