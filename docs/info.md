@@ -3,9 +3,14 @@
 protoemu is a programmable protocol emulator: a state table in SRAM that up to four small machines walk, one entry
 per clock, driving and sampling eight protocol pins. A program written in a state-machine language is compiled to
 a table image and loaded through the host pins after reset. It is an entry for Jane Street's protocol-emulator
-ASIC competition. The architecture, its instruction set and its compiler are described in
-`bakeoff/cand_table/README.md`; the cycle-accurate Python model in `bakeoff/cand_table/chip.py` is the golden
-model the RTL is tested against.
+ASIC competition. The cycle-accurate Python model in `bakeoff/cand_table/chip.py` is the golden model the RTL is
+tested against.
+
+1. [architecture.md](architecture.md) explains the machine, its datapath, its budget and its limits.
+2. [isa.md](isa.md) is the programmer's reference: the table entry, the state-machine language, the compiler's
+   messages, and how to run and load a program.
+3. [programming.md](programming.md) writes a new protocol step by step and shows the patterns the bench programs
+   use.
 
 ### The machine
 
