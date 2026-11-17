@@ -83,7 +83,8 @@ class Lane:
         self.z = self.c = 0
         self.r = [0, 0, 0, 0]
         self.pend: List[Tuple[int, int]] = []
-        self.strobes = 0
+        self.raised = 0         # strobes the engine raises this cycle
+        self.strobes = 0        # the strobe register: what the engine raised last cycle, for the helpers now
         # Timers.
         self.t_cnt = [0, 0]
         self.t_lim = [2, 2]
@@ -308,7 +309,7 @@ class Lane:
             if fn < 6:
                 self.r[rd] = res
         elif op == isa.ACT:
-            self.strobes |= pay & 0x1FFF
+            self.raised |= pay & 0x1FFF
         elif op == isa.PIN:
             chip = self.chip
             for pin in range(8):
@@ -573,10 +574,10 @@ class Lane:
             elif armed and self.smp_nrzi and not tick:
                 self.rx_prev = ((pins >> self.smp_data) & 1) ^ self.smp_inv   # remember the idle level
         self.smp_last = cur
-        # Strobes the engine raised in the previous cycle.
+        # Strobes the engine raised in the previous cycle. The register takes this cycle's at the clock edge.
         st = self.strobes
+        self.strobes, self.raised = self.raised, 0
         if st:
-            self.strobes = 0
             if st & 2:
                 self.tx_busy = self.tx_hfull = self.tx_cnt = self.tx_half = 0
                 self.tx_line = self.tx_init

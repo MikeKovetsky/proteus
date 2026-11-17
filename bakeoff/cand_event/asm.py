@@ -6,6 +6,8 @@ The image is `[words in lane 0: u16][words in lane 1: u16]` followed by the 32-b
 """
 from __future__ import annotations
 
+import ast
+import operator
 import re
 import sys
 from typing import Dict, List, Tuple
@@ -17,9 +19,39 @@ class AsmError(Exception):
     pass
 
 
+OPERATORS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.LShift: operator.lshift, ast.RShift: operator.rshift,
+    ast.BitOr: operator.or_, ast.BitAnd: operator.and_, ast.BitXor: operator.xor,
+    ast.USub: operator.neg, ast.UAdd: operator.pos, ast.Invert: operator.invert,
+}
+
+
+def _arithmetic(text: str, defs: Dict[str, int]) -> float:
+    """A number written in a program: literals, `.def` names, brackets and + - * / // % << >> | & ^ ~.
+
+    Nothing else is evaluated, so assembling a program never runs code that the program carries.
+    """
+
+    def walk(node: ast.AST) -> float:
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.Name) and node.id in defs:
+            return defs[node.id]
+        if isinstance(node, ast.BinOp) and type(node.op) in OPERATORS:
+            return OPERATORS[type(node.op)](walk(node.left), walk(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in OPERATORS:
+            return OPERATORS[type(node.op)](walk(node.operand))
+        if isinstance(node, ast.Name):
+            raise ValueError("no .def named %s" % node.id)
+        raise ValueError("only numbers, .def names, brackets and + - * / // % << >> | & ^ ~ are allowed")
+
+    return walk(ast.parse(text.strip(), mode="eval").body)
+
+
 def _expr(text: str, defs: Dict[str, int]) -> int:
     try:
-        return int(round(eval(text, {"__builtins__": {}}, dict(defs))))  # the sources are our own
+        return int(round(_arithmetic(text, defs)))
     except Exception as exc:
         raise AsmError("bad expression %r: %s" % (text, exc))
 
@@ -199,6 +231,8 @@ def assemble_lanes(source: str) -> List[List[int]]:
                 continue
             match = re.match(r"^([a-z_][a-z0-9_]*):(.*)$", text)
             if match and not text.startswith("when "):
+                if match.group(1) in labels[lane]:
+                    raise AsmError("label %s is defined twice" % match.group(1))
                 labels[lane][match.group(1)] = len(lines[lane])
                 text = match.group(2).strip()
             if text:

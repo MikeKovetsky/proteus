@@ -6,7 +6,7 @@ program configures; the program keeps the policy: framing, lengths, errors, what
 
 ```bash
 python3 -m bakeoff.run --candidate cand_event     # 14 of 14 pass
-python3 -m bakeoff.cand_event.selfcheck           # two protocols at once on two lanes; budget adds up
+python3 -m bakeoff.cand_event.selfcheck           # two lanes at once, timing, limits, receive sweeps, budget
 ```
 
 ## The machine
@@ -18,7 +18,8 @@ python3 -m bakeoff.cand_event.selfcheck           # two protocols at once on two
 4. Timing a programmer needs, with T the cycle an instruction fires:
    1. A `pin` change is on the pad at T+1. The pins a program sees are 2 cycles old.
    2. The next instruction can fire at T+2 (one cycle is the SRAM read), or T+3 after `djnz`.
-   3. `#N -> t1` at T makes `when t1` fire at exactly T+N (N ≥ 2). `act` strobes reach a helper at T+1.
+   3. `#N -> t1` at T makes `when t1` fire at exactly T+N (N ≥ 2). `act` strobes go through a register: the
+      helper acts at T+1, so a pin it moves changes on the pad at T+2.
    4. A timer or helper keeps its own time, so program latency never accumulates into the waveform.
 
 ## Instructions (one 32-bit word each: opcode 4, event 6, payload 22)
@@ -50,9 +51,9 @@ python3 -m bakeoff.cand_event.selfcheck           # two protocols at once on two
 
 | Helper | What it does | Scenarios that use it |
 |---|---|---|
-| Timers `t0`, `t1` | 16-bit, one-shot or repeating. A timer can restart on any event (a watchdog). `t0` is also the transmitter's bit clock. | all 14 |
+| Timers `t0`, `t1` | 16-bit, one-shot or repeating. A timer can restart on any event (a watchdog). `t0` is also the transmitter's bit clock. | 11 (not uart_rx, spi_target, ps2) |
 | Sampler | Says *when* to sample: tracks edges on a clock pin and ticks `phase` cycles later; samples a data pin. | uart_rx, uart_3m, spi_target, ps2, usb_rx, eth_rx |
-| Receive shifter | 1 to 16 bits, either order, with a capture register. Decodes NRZ, inverted or NRZI. Clocked by the sampler, by the transmitter (mid-bit or end of bit) or by `act rx.shift`. | 11 (all that receive) |
+| Receive shifter | 1 to 16 bits, either order, with a capture register. Decodes NRZ, inverted or NRZI. Clocked by the sampler, by the transmitter (mid-bit or end of bit) or by `act rx.shift`. | 10 (all that receive) |
 | Transmit shifter and coder | 1 to 16 bits with a holding register. Codes NRZ, NRZI or Manchester; `split` gives two ticks per bit, and a pin can carry the bit clock. | uart, spi, i2c, usb_tx, eth_tx |
 | Run-length unit | Counts equal 1s; after N it inserts a 0 (send) or deletes a bit (receive). | usb_tx, usb_rx |
 | CRC unit | Any polynomial up to 32 bits, either bit order, optional inverted output; one bit per cycle, a byte per feed. With `x+1` it is a parity unit. | onewire, ps2, usb_tx, usb_rx, eth_tx, eth_rx |
@@ -152,8 +153,9 @@ The limits are one receive and one transmit pipeline per lane, and two host chan
 ## Limits found while building it
 
 1. **A program that answers every external clock edge is slow.** `spi_target_m0` shifts MISO from the program.
-   It passes at 2 MHz; my own probe of the same program works up to 3.75 MHz and fails at 5 MHz. The fix is one
-   configuration bit (clock the transmit shifter from the sampler's other edge) and it is not built.
+   It passes at 2 MHz; `selfcheck.py` finds it still passes at 4.3 MHz (14 cycles per SCK period) and fails at
+   4.6 MHz (13). The fix is one configuration bit (clock the transmit shifter from the sampler's other edge) and
+   it is not built.
 2. **Ethernet receive has one valid sample position.** `phase` must be exactly 4: 3 and 5 both fail the bench.
    At 60 MHz a 50 ns half bit is 3 samples, so real line jitter would need a faster or two-phase sampler.
 3. **The configuration surface is wide.** There are 15 registers with bit fields, and a wrong field fails silently.
@@ -166,8 +168,9 @@ The limits are one receive and one transmit pipeline per lane, and two host chan
 
 ## Scenarios that fail
 
-None. All 14 pass, and 28 of 29 faults planted in the programs are caught by the benches (the one that is not,
-sampling SPI MISO mid-bit and not at the end of the bit, is also correct at 5 MHz).
+None. All 14 pass. `selfcheck.py` also runs both receivers beyond the benches, with the benches' own signal
+generators: `eth10_rx` over 24 clock phases, ±200 ppm and three frame sizes (360 runs), and `usb_ls_rx` over 16
+phases, ±1.5% and five payloads (800 runs). None fails, and a flipped bit and a bad CRC are both reported.
 
 ## Files
 
