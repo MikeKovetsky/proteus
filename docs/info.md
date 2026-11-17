@@ -47,8 +47,9 @@ once shows its answer 3 clocks later: two in, one out through the pad register.
    on the pins one clock before its edge and stay four clocks after it, so a byte takes about 10 clocks.
 2. **Check ROOM first.** A byte written to a full channel is dropped and sets OVERFLOW.
 3. **Reading a byte.** Wait for HAS_BYTE, read the low nibble on `uo_out[3:0]`, toggle the read strobe, wait four
-   clocks, read the high nibble, toggle again. The second edge pops the byte. A pop only takes a byte the host was
-   shown, so two edges on an empty channel do nothing.
+   clocks, read the high nibble, toggle again and wait four clocks. The second edge pops the byte; until it has,
+   HAS_BYTE and `uo_out[3:0]` still show the byte just read. The second edge pops only when the channel holds a
+   byte, so edges on an empty channel pop nothing.
 4. **Whole bytes on one port.** The write and read nibble counters are shared by all ports and are cleared only
    by reset, so both nibbles of a byte go through the same port.
 5. **Changing port.** The port is synchronised like the data. Wait four clocks after changing it before trusting
@@ -68,8 +69,9 @@ once shows its answer 3 clocks later: two in, one out through the pad register.
 4. **A new program needs a reset.** Bytes sent to the loader after RUNNING are ignored and set OVERFLOW.
 5. The chip loses its program when it is deselected. Reselect, reset and load again.
 6. Out-of-range images do something defined: a machine count above 4 runs 4 machines and skips the extra
-   configuration bytes; an entry count above 512 loads 512 entries and ignores the rest. A count of 0 machines
-   runs like 1, as in the model.
+   configuration bytes; an entry count above 512 loads the first 512 entries and starts, and the loader takes no
+   more bytes (ROOM stays low, and a byte sent anyway sets OVERFLOW). A count of 0 machines runs like 1, as in
+   the model. The compiler emits neither (at most 4 machines and 512 entries), and no test loads them.
 
 ### OVERFLOW
 
@@ -87,8 +89,11 @@ make -B
 
 It loads compiled programs through the loader and checks, with its own decoders: `uart_tx` sending three bytes as
 115200-baud frames on P0; `uart_rx` returning three frames from P1 to the host; `uart_3m` with two machines sending
-and receiving at 3 Mbaud at once; port 1 with an echo program and the OVERFLOW bit; and reset in the middle of a
-frame, reload, and running again with the same and another program.
+and receiving at 3 Mbaud at once; `spi_target_m0` trading a byte each way with a mode-0 controller, and the pads'
+timing, which the lockstep suite below does not see: a gated pin operation answers a pin on the third clock (two
+synchroniser flops in, one register out, as the golden model's harness has it); port 1 with an echo program and
+the OVERFLOW bit; ROOM and OVERFLOW when the host writes to a full channel 0 or 3, and port 3 taking nothing; and
+reset in the middle of a frame, reload, and running again with the same and another program.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
 programs with random pins and random host traffic, replays every trace into the RTL core with Verilator, and

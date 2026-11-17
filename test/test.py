@@ -15,7 +15,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -36,7 +36,10 @@ idle:   wait rx3
 """
 
 ST_ROOM, ST_HAS, ST_RUNNING, ST_OVERFLOW = 0x10, 0x20, 0x40, 0x80
-PORT_CH0_CH1, PORT_CH3_CH2, PORT_LOADER = 0, 1, 2
+PORT_CH0_CH1, PORT_CH3_CH2, PORT_LOADER, PORT_NONE = 0, 1, 2, 3
+
+SCK, MOSI, MISO, CS = 0, 1, 2, 3  # the pins of spi_target_m0.fsm
+SPI_HALF = 12  # clocks per half period of SCK (2.5 MHz), slow next to the 3-clock pads
 
 
 def program(name):
@@ -134,19 +137,38 @@ async def reset(dut, host):
     await ClockCycles(dut.clk, 5)
 
 
+class Pads:
+    """The far end of the protocol pins: what it drives on uio_in, every pin high to start with. It keeps its
+    own copy of the levels: a write to a cocotb handle lands at the end of the time step, so reading uio_in
+    back would undo a second change made in the same step."""
+
+    def __init__(self, dut):
+        self.dut, self.levels = dut, 0xFF
+        dut.uio_in.value = self.levels
+
+    def set(self, pin, level):
+        self.levels = (self.levels | 1 << pin) if level else (self.levels & ~(1 << pin))
+        self.dut.uio_in.value = self.levels
+
+
+def pin_level(dut, pin):
+    """Protocol pin `pin` as the far end sees it: the chip's level when it drives the pin, else the pull-up's 1."""
+    if int(dut.uio_oe.value) >> pin & 1:
+        return int(dut.uio_out.value) >> pin & 1
+    return 1
+
+
 class Line:
-    """Samples one protocol pin every clock, as the far end sees it: the chip's level when it drives the
-    pin, otherwise the pull-up's 1."""
+    """Samples one protocol pin every clock, as the far end sees it (`pin_level`)."""
 
     def __init__(self, dut, pin):
-        self.dut, self.mask, self.levels = dut, 1 << pin, []
+        self.dut, self.pin, self.levels = dut, pin, []
         self.task = cocotb.start_soon(self._run())
 
     async def _run(self):
         while True:
             await FallingEdge(self.dut.clk)
-            oe = int(self.dut.uio_oe.value)
-            self.levels.append(1 if not oe & self.mask or int(self.dut.uio_out.value) & self.mask else 0)
+            self.levels.append(pin_level(self.dut, self.pin))
 
     def stop(self):
         self.task.cancel()
@@ -174,12 +196,11 @@ def decode_uart(levels, bit):
     return bytes(data)
 
 
-async def drive_uart(dut, pin, data, bit):
+async def drive_uart(pads, pin, data, bit):
     for byte in data:
         for level in [0] + [(byte >> n) & 1 for n in range(8)] + [1]:
-            current = int(dut.uio_in.value)
-            dut.uio_in.value = (current | 1 << pin) if level else (current & ~(1 << pin))
-            await ClockCycles(dut.clk, bit)
+            pads.set(pin, level)
+            await ClockCycles(pads.dut.clk, bit)
 
 
 async def uart_tx_check(dut, host, data, bit):
@@ -204,9 +225,10 @@ async def test_uart_tx(dut):
 async def test_uart_rx(dut):
     """uart_rx: 3 frames at 115200 baud on P1 come back to the host on channel 1."""
     host = await start(dut)
+    pads = Pads(dut)
     await host.load(program("uart_rx"))
     want = bytes([0x3C, 0x00, 0xFF])
-    await drive_uart(dut, 1, want, UART_BIT)
+    await drive_uart(pads, 1, want, UART_BIT)
     got = bytes([await host.read(PORT_CH0_CH1) for _ in want])
     assert got == want, "sent %s on P1, the host read %s" % (want.hex(), got.hex())
     assert int(dut.uio_oe.value) == 0, "the receiver drove a pin"
@@ -216,10 +238,11 @@ async def test_uart_rx(dut):
 async def test_uart_3m_two_machines(dut):
     """uart_3m: two machines share the table, one sending on P0 and one receiving on P1, both at once."""
     host = await start(dut)
+    pads = Pads(dut)
     await host.load(program("uart_3m"))
     to_send, to_receive = bytes([0x12, 0xEF, 0x80, 0x7E]), bytes([0xA5, 0x01, 0xC3, 0x5A])
     line = Line(dut, 0)
-    receiver = cocotb.start_soon(drive_uart(dut, 1, to_receive, UART3M_BIT))
+    receiver = cocotb.start_soon(drive_uart(pads, 1, to_receive, UART3M_BIT))
     await host.send(PORT_CH0_CH1, to_send)
     await receiver
     got = bytes([await host.read(PORT_CH0_CH1) for _ in to_receive])
@@ -227,6 +250,50 @@ async def test_uart_3m_two_machines(dut):
     sent = decode_uart(line.stop(), UART3M_BIT)
     assert sent == to_send, "TX: host gave %s, P0 sent %s" % (to_send.hex(), sent.hex())
     assert got == to_receive, "RX: P1 carried %s, the host read %s" % (to_receive.hex(), got.hex())
+
+
+@cocotb.test()
+async def test_spi_target_and_pad_timing(dut):
+    """spi_target_m0: one mode-0 byte each way through the pins. Then the pads, which the lockstep suite does
+    not see (it drives the core directly): when CS rises, `MISO=z when CS` releases MISO on the third rising
+    edge, two synchroniser flops in and the pad register out. That is the bake-off harness's pad model, and
+    bakeoff/cand_table/selfcheck.py measures the same 3 clocks on the golden model."""
+    host = await start(dut)
+    pads = Pads(dut)  # CS starts high
+    pads.set(SCK, 0)
+    pads.set(MOSI, 0)
+    await host.load(program("spi_target_m0"))
+    await host.send(PORT_CH0_CH1, bytes([0xA5]))  # what the target answers with
+    await ClockCycles(dut.clk, 20)
+    pads.set(CS, 0)
+    await ClockCycles(dut.clk, SPI_HALF)
+    assert int(dut.uio_oe.value) >> MISO & 1, "MISO is not driven while CS is low"
+
+    miso = 0
+    for n in range(7, -1, -1):  # MSB first; MOSI changes while SCK is low, both ends sample as it rises
+        pads.set(MOSI, 0x3C >> n & 1)
+        await ClockCycles(dut.clk, SPI_HALF)
+        pads.set(SCK, 1)
+        miso = miso << 1 | pin_level(dut, MISO)
+        await ClockCycles(dut.clk, SPI_HALF)
+        pads.set(SCK, 0)
+    await ClockCycles(dut.clk, SPI_HALF)
+    assert miso == 0xA5, "the target answered %02x on MISO, expected a5" % miso
+    assert int(dut.uio_oe.value) >> MISO & 1, "MISO was released while CS is low"
+
+    await FallingEdge(dut.clk)
+    pads.set(CS, 1)
+    released = None
+    for edge in range(1, 7):
+        await RisingEdge(dut.clk)
+        await FallingEdge(dut.clk)
+        if not int(dut.uio_oe.value) >> MISO & 1:
+            released = edge
+            break
+    assert released == 3, (
+        "MISO was released on rising edge %s after CS rose (None: not by the 6th); the pads give 3" % released)
+    got = await host.read(PORT_CH0_CH1)
+    assert got == 0x3C, "the controller sent 3c on MOSI, the host read %02x" % got
 
 
 @cocotb.test()
@@ -246,6 +313,26 @@ async def test_port1_echo_and_overflow(dut):
     got = bytes([await host.read(PORT_CH3_CH2) for _ in range(4)])
     assert got == burst[:4], "after the overflow the host read %s" % got.hex()
     assert host.status() & ST_HAS == 0, "a fifth byte was kept"
+
+
+@cocotb.test()
+async def test_host_writes_to_full_channels(dut):
+    """ROOM falls when the selected write channel holds 4 bytes, and only for that channel. A byte the host
+    writes anyway is dropped and sets OVERFLOW, on channel 0 (port 0) and on channel 3 (port 1). Port 3 takes
+    nothing: a byte written there before the load would break the image if it reached the loader."""
+    host = await start(dut)
+    await host.write(PORT_NONE, 0x01)
+    assert host.status() & (ST_ROOM | ST_HAS | ST_OVERFLOW) == 0, "port 3 shows %02x" % host.status()
+    for port, other in ((PORT_CH0_CH1, PORT_CH3_CH2), (PORT_CH3_CH2, PORT_CH0_CH1)):
+        await host.load(program("uart_rx"))  # pops neither channel 0 nor channel 3
+        await host.send(port, bytes([0x40, 0x41, 0x42, 0x43]))  # waits for ROOM before each byte
+        assert host.status() & ST_ROOM == 0, "port %d: ROOM is high with 4 bytes in its channel" % port
+        assert host.status() & ST_OVERFLOW == 0, "port %d: OVERFLOW before a byte was dropped" % port
+        await host.select(other)
+        assert host.status() & ST_ROOM, "port %d: ROOM is low, but only port %d's channel is full" % (other, port)
+        await host.write(port, 0x44)  # a fifth byte, without ROOM
+        assert host.status() & ST_OVERFLOW, "port %d: a byte written to a full channel did not set OVERFLOW" % port
+        await reset(dut, host)  # clears OVERFLOW (reset checks it) for the second channel
 
 
 @cocotb.test()
