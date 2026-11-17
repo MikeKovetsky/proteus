@@ -85,8 +85,8 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
-| R9 | Architecture and instruction set documentation | NOT MET | |
-| R10 | Assembler or toolchain with example programs | MET in content | `bakeoff/cand_table/compiler.py` and 14 programs; all 14 images run identically on the RTL; not yet moved to `asm/` |
+| R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every claim checked against the code, every example run |
+| R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open; not yet moved to `asm/` |
 | R11 | Verification write-up, including how AI was used | NOT MET | |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
@@ -173,7 +173,7 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
     1. Slew, capacitance and fanout warnings: the flow reports 78 max-slew, 1 max-cap and 97 max-fanout
        violations at the slow corner. They do not fail the flow, but slow edges into the SRAM inputs exceed the
        SRAM library's limit, so they need fixing before tape-out.
-    2. The architecture and instruction set docs (R9) and the write-up (R11).
+    2. The write-up (R11), and five compiler bugs the docs list (three compile the wrong program silently).
     3. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
     4. The sby reset and instruction proofs, an independent decoder check (sigrok), and the stranger test (R14).
     5. Local hardening, which needs a container engine.
