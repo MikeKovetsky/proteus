@@ -87,6 +87,7 @@ class TableChip(Chip):
         for addr, (a, b) in enumerate(words):
             self.ram_a[addr] = a
             self.ram_b[addr] = b
+        self._decoded = [None] * E.DEPTH  # the speed-up cache must never outlive the entries it unpacked
         self.loaded = True
 
     # ---- the host link --------------------------------------------------------------------------------

@@ -28,6 +28,8 @@ pack the entries.
 """
 from __future__ import annotations
 
+import ast
+import operator
 import re
 import sys
 from pathlib import Path
@@ -204,7 +206,7 @@ class Compiler:
 
     def value(self, expr: str, line: int) -> int:
         try:
-            result = eval(expr, {"__builtins__": {}}, dict(self.consts, round=round, int=int, min=min, max=max))
+            result = arithmetic(expr, self.consts)
         except Exception as error:
             raise CompileError("line %d: cannot evaluate `%s`: %s" % (line, expr, error))
         return int(round(result))
@@ -718,6 +720,38 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
         return "%-40s -> link" % (", ".join(parts) or "-")
     where = "-> %d" % f["base"] if not conds else "-> %d | %s" % (f["base"], ",".join(conds))
     return "%-40s %s [%s]" % (", ".join(parts) or "-", where, " ".join(names))
+
+
+ARITHMETIC_OPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.USub: operator.neg, ast.UAdd: operator.pos,
+}
+ARITHMETIC_CALLS = {"round": round, "int": int, "min": min, "max": max}
+
+
+def arithmetic(expr: str, names: Dict[str, float]) -> float:
+    """Evaluate a number written in a program: literals, constants, + - * / // %, brackets, round, int, min, max.
+
+    Nothing else is evaluated, so compiling a program never runs code that the program carries.
+    """
+
+    def walk(node: ast.AST) -> float:
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.Name) and node.id in names:
+            return names[node.id]
+        if isinstance(node, ast.BinOp) and type(node.op) in ARITHMETIC_OPS:
+            return ARITHMETIC_OPS[type(node.op)](walk(node.left), walk(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ARITHMETIC_OPS:
+            return ARITHMETIC_OPS[type(node.op)](walk(node.operand))
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ARITHMETIC_CALLS
+                and not node.keywords):
+            return ARITHMETIC_CALLS[node.func.id](*[walk(arg) for arg in node.args])
+        if isinstance(node, ast.Name):
+            raise ValueError("no constant named %s" % node.id)
+        raise ValueError("only numbers, constants, + - * / // %, round, int, min and max are allowed")
+
+    return walk(ast.parse(expr.strip(), mode="eval").body)
 
 
 def split_args(text: str) -> List[str]:

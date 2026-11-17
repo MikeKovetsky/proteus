@@ -5,6 +5,10 @@
 1. Four different protocols run at once, one per machine, and all four are right.
 2. The gated pin release of the SPI target reaches the pad three clocks after CS rises: the floor the
    pads allow (two clocks in, one out).
+3. The compiler only does arithmetic on the numbers a program writes: an expression that would run code is
+   a compile error, not something the compiler executes.
+4. A program loaded over another one runs, even with no reset in between: the simulator's decode cache
+   follows what is in the SRAM.
 """
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ from typing import List
 from ..harness.chip import CLK_HZ
 from ..harness.sim import Sim, payload
 from .candidate import PROGRAMS, make_chip, program
-from .compiler import compile_file
+from .compiler import CompileError, compile_file, compile_text
 
 BIT = CLK_HZ / 115200
 
@@ -107,8 +111,39 @@ def release_latency() -> List[str]:
     return [] if released - rose == 3 else ["release latency is %d clocks, expected 3" % (released - rose)]
 
 
+def numbers_only() -> List[str]:
+    """Constants are arithmetic; anything else in an expression must stop the compile."""
+    template = "machine m\n    out X=P0\n    const A = %s\nidle: X=1, hold A => idle\n"
+    problems = []
+    if compile_text(template % "2 * (3 + 4) - 10 // 3").image != compile_text(template % "11").image:
+        problems.append("compiler: 2 * (3 + 4) - 10 // 3 does not come out as 11")
+    for expr in ("__import__('os').getpid()", "().__class__", "open('x')", "2 ** 8"):
+        try:
+            compile_text(template % expr)
+            problems.append("compiler: `%s` compiled, and only arithmetic should" % expr)
+        except CompileError:
+            pass
+        except Exception as error:  # the expression ran and its result broke the compiler further on
+            problems.append("compiler: `%s` was evaluated (%s), not refused" % (expr, type(error).__name__))
+    return problems
+
+
+def reload() -> List[str]:
+    """Run uart_tx, load ws2812_tx over it without a reset, and see that P0 rests low as ws2812_tx says."""
+    chip = make_chip()
+    chip.load(program("uart_tx"))  # idles with P0 driven high
+    for _ in range(50):
+        chip.step(0xFF)
+    chip.load(program("ws2812_tx"))  # idles with P0 driven low
+    for index, machine in enumerate(chip.mach):
+        machine.state = index  # back to each machine's first entry, where reset would put it
+    chip.q_addr = 0
+    levels = {chip.step(0xFF)[0] & 1 for _ in range(200)}
+    return [] if levels == {0} else ["reload: P0 rests at %s, so the first program still runs" % sorted(levels)]
+
+
 def main() -> int:
-    problems = four_at_once() + release_latency()
+    problems = four_at_once() + release_latency() + numbers_only() + reload()
     for line in problems:
         print("FAIL  " + line)
     print("selfcheck: %s" % ("%d problems" % len(problems) if problems else "ok"))

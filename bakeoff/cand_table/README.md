@@ -16,8 +16,8 @@ python3 -m bakeoff.cand_table.selfcheck
 python3 -m bakeoff.cand_table.compiler bakeoff/cand_table/programs/eth10_rx.fsm
 ```
 
-The first prints the table below, the second checks four protocols at once and the pin reaction time, and the
-third prints a program's listing: every table entry, its state and its successors.
+The first prints the table below. The second checks four protocols at once, the pin reaction time, a reload, and
+that the compiler only does arithmetic. The third prints a program's listing: every entry, its state and successors.
 
 | Scenario | Result | Source lines | States | Table entries | Image bytes |
 |---|---|---|---|---|---|
