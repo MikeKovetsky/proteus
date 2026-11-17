@@ -2,7 +2,8 @@
 
 All 14 scenarios pass (`python3 -m bakeoff.run --candidate cand_pio`). The chip is four small state machines in
 the spirit of the RP2040 PIO, 1,134 flops and two 512×32 program memories. Nothing fails; the limits are listed
-at the end.
+at the end. `python3 -m bakeoff.cand_pio.checks` holds the claims below about receive sweeps, concurrency, clock
+limits, the assembler and the budget to the code, and exits 1 if one does not hold.
 
 The one idea that is not in a PIO: the clock divider does not slow the machine down. It is a metronome. Every
 instruction runs at the full clock, and any instruction can carry `@tick`, which holds it until the machine's
@@ -45,7 +46,7 @@ side-set (one or two pins, written on the instruction's first clock), a delay of
 | `pull [ch3] [noblock]` | A byte from channel 0 or 3 into OSR. |
 | `mov dst, [~]src [, n]` | Between `x`, `y`, `isr`, `osr`; sources also `null`, `pins`, `crc`. |
 | `set x / y, imm13` | Load a constant. |
-| `set`, `dir`, `toggle pin[:n], v` | Write, set the direction of, or invert up to 8 pins. |
+| `set`, `dir`, `toggle pin[:n], v` | Write, set the direction of, or invert up to 6 pins (the value field is 6 bits). |
 | `crcinit v`, `timer restart / half`, `nop`, `halt` | Start a CRC; set the timer's phase. |
 
 Directives: `.sm n`, `.tick period`, `.shift in=left|right out=left|right`, `.autopush [ch2]`,
@@ -155,12 +156,13 @@ None. These are the limits behind the passes:
    its memory, and the transmit loop is written four times (1 or 0, data or FCS) to make every path fit.
    Receive samples one clock after the edge and four clocks after it. That is right for every phase and
    ±200 ppm (360 runs in `checks.py`), but a real line with jitter has less than one clock of margin.
-2. **The 60 MHz claim rests on one unsynthesised path** (next address, above). If it does not close, a jump
-   costs two clocks and both Ethernet loops break. The other twelve scenarios would survive that.
+2. **The 60 MHz claim rests on one unsynthesised path** (next address, above). If it does not close, a taken
+   jump costs two clocks and both Ethernet loops break. The other twelve scenarios still pass (`checks.py`).
 3. **Two scratch registers.** USB and I2C keep state in internal pins and in ISR, and lengths are counted down
    from 0xFFFF and inverted, because there is no adder.
-4. **`usb_ls_rx` is too long for 30 MHz.** A 0 bit costs 19 instructions between edges, and at two clocks each
-   that is 38 of the 39.4 clocks a fast sender leaves. At 60 MHz it passes 800 runs over phase and ±1.5%.
-5. **A wait watches one pin.** The SPI target polls CS between looks at SCK, and lets go of MISO about five
-   clocks after CS rises.
+4. **`usb_ls_rx` is too long for 30 MHz.** A 0 bit runs 14 instructions between edges, 7 of them after the
+   mid-bit tick. At 60 MHz the program is back at its wait at least 3 clocks before it sees the next edge; at 30
+   MHz those 7 instructions alone take 7 clocks more. At 60 MHz it passes 800 runs over phase and ±1.5%.
+5. **A wait watches one pin.** The SPI target polls CS between looks at SCK, and lets go of MISO six clocks
+   after CS rises.
 6. **Not tested here:** the host link and loader, protocols outside the 14 scenarios, and a target-role I2C.

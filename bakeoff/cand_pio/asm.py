@@ -27,6 +27,13 @@ def _is_pin(tok: str) -> bool:
     return re.fullmatch(r"[pv][0-7](?::\d)?", tok) is not None
 
 
+def _fit(value: int, lo: int, hi: int, what: str) -> int:
+    """`value` when it is in lo..hi. Otherwise an error: no field is silently cut to its width."""
+    if not lo <= value <= hi:
+        raise AsmError("%s must be %d to %d, got %d" % (what, lo, hi, value))
+    return value
+
+
 class Assembler:
     def __init__(self) -> None:
         self.defines: Dict[str, int] = {}
@@ -54,13 +61,14 @@ class Assembler:
         name, args = parts[0], parts[1:]
         kv = dict(a.split("=", 1) for a in args if "=" in a)
         if name == ".sm":
-            self.sm = self.num(args[0])
+            self.sm = _fit(self.num(args[0]), 0, isa.N_SM - 1, "machine")
             self._ctrl(0)
             self._ctrl(1, len(self.items[self.sm >> 1]), 9)
         elif name == ".tick":
             period = float(args[0])
-            raw = int(round(period * 256))
-            self.cfg[isa.CFG_TIMER0 + 2 * self.sm] = raw & 0xFFFFFF
+            if not 1 <= period < 65536:
+                raise AsmError("tick period must be 1 to 65535.99 clocks, got %s" % args[0])
+            self.cfg[isa.CFG_TIMER0 + 2 * self.sm] = int(round(period * 256)) & 0xFFFFFF
         elif name == ".shift":
             for key, bit in (("in", 10), ("out", 11)):
                 if key in kv:
@@ -74,17 +82,17 @@ class Assembler:
         elif name == ".side":
             base, count = _pin(args[0])
             self._ctrl(16, base, 4)
-            self._ctrl(20, 1 if count == 2 else 0)
+            self._ctrl(20, 1 if _fit(count, 1, 2, "side-set pin count") == 2 else 0)
             self._ctrl(21, 1 if "dirs" in args else 0)
         elif name == ".pads":
             cur = self.cfg.get(isa.CFG_PADS, 0)
             for key, shift in (("out", 0), ("oe", 8), ("od", 16)):
                 if key in kv:
-                    cur = (cur & ~(0xFF << shift)) | (self.num(kv[key]) << shift)
+                    cur = (cur & ~(0xFF << shift)) | (_fit(self.num(kv[key]), 0, 0xFF, ".pads " + key) << shift)
             self.cfg[isa.CFG_PADS] = cur
         elif name == ".crc":
-            self.cfg[isa.CFG_POLY] = self.num(kv["poly"])
-            self.cfg[isa.CFG_RESIDUE] = self.num(kv.get("residue", "0"))
+            self.cfg[isa.CFG_POLY] = _fit(self.num(kv["poly"]), 0, 0xFFFFFFFF, "crc polynomial")
+            self.cfg[isa.CFG_RESIDUE] = _fit(self.num(kv.get("residue", "0")), 0, 0xFFFFFFFF, "crc residue")
             tap = 8 | (4 if kv.get("tap", "in") == "out" else 0) | self.sm
             self.cfg[isa.CFG_PADS] = (self.cfg.get(isa.CFG_PADS, 0) & 0x00FFFFFF) | (tap << 24)
         elif name == ".define":
@@ -120,7 +128,7 @@ class Assembler:
                 side: Optional[int] = None
                 m = re.search(r"\bside\s+(\S+)", line)
                 if m:
-                    side, line = self.num(m.group(1)), line[:m.start()] + line[m.end():]
+                    side, line = _fit(self.num(m.group(1)), 0, 3, "side-set value"), line[:m.start()] + line[m.end():]
                 if not 0 <= delay <= 255:
                     raise AsmError("delay out of range")
                 self.items[self.sm >> 1].append((lineno, line.strip(), t, side, delay))
@@ -161,7 +169,7 @@ class Assembler:
         if mn == "halt":
             return w(isa.JMP, here)
         if mn in ("jpin", "wait", "waitt"):
-            level, (pin, _) = self.num(ops[0]), _pin(ops[1])
+            level, (pin, _) = _fit(self.num(ops[0]), 0, 1, "pin level"), _pin(ops[1])
             arg = (level << 15) | (pin << 11)
             if mn == "jpin":
                 return w(isa.JPIN, arg | self.target(ops[2], mem, here))
@@ -172,7 +180,7 @@ class Assembler:
             arg |= self.target(ops[3], mem, here)
             if ops[2] == "tick":
                 return w(isa.WAITT, arg, 1, 0)
-            return w(isa.WAITT, arg, 0, self.num(ops[2]))
+            return w(isa.WAITT, arg, 0, _fit(self.num(ops[2]), 0, 255, "waitt time-out"))
         if mn in ("in", "out", "outdir"):
             count = self.num(ops[1])
             if mn == "in":
@@ -200,7 +208,7 @@ class Assembler:
                 elif o in ("isr", "x", "y"):
                     src = {"isr": isa.P_ISR, "x": isa.P_X, "y": isa.P_Y}[o]
                 elif o.startswith("#"):
-                    src, imm = isa.P_IMM, self.num(o[1:]) & 0xFF
+                    src, imm = isa.P_IMM, _fit(self.num(o[1:]), 0, 0xFF, "push constant")
                 else:
                     raise AsmError("bad push operand %r" % o)
             return w(isa.PUSH, (ch << 15) | (block << 14) | (src << 12) | imm)
@@ -214,7 +222,8 @@ class Assembler:
             if dst > isa.R_OSR:
                 raise AsmError("mov cannot write %s" % ops[0])
             count = self.num(ops[2]) if len(ops) > 2 else (32 if src in (isa.R_CRC, isa.R_OSR) else 16)
-            return w(isa.MOV, (dst << 12) | (inv << 11) | (src << 7) | (count if dst == isa.R_OSR else 0))
+            count = _fit(count, 0, 32, "mov osr bit count") if dst == isa.R_OSR else 0
+            return w(isa.MOV, (dst << 12) | (inv << 11) | (src << 7) | count)
         if mn in ("set", "dir", "toggle"):
             if mn == "set" and ops[0] in ("x", "y"):
                 value = self.num(ops[1])
@@ -222,7 +231,9 @@ class Assembler:
                     raise AsmError("set takes 0..8191")
                 return w(isa.SET, ((isa.T_X if ops[0] == "x" else isa.T_Y) << 13) | value)
             base, count = _pin(ops[0])
+            _fit(count, 1, 6, "pin count")    # the word has a 6-bit value field
             value = self.num(ops[1]) if len(ops) > 1 else (1 << count) - 1
+            _fit(value, 0, (1 << count) - 1, "value for %d pins" % count)
             dst = {"set": isa.T_PINS, "dir": isa.T_DIRS, "toggle": isa.T_TOGGLE}[mn]
             return w(isa.SET, (dst << 13) | (base << 9) | ((count - 1) << 6) | (value & 63))
         if mn == "crcinit":
