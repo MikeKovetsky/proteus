@@ -1,0 +1,16 @@
+# UART transmitter, 8E1: a start bit, 8 data bits LSB first, an even parity bit and a stop bit, at 115200
+# baud on P0. The bytes to send come from channel 0. No bake-off bench uses this framing; it is the worked
+# example of docs/programming.md.
+
+machine tx
+    out   TX=P0
+    order lsb                        # the data bit d is S[0], so a byte goes out LSB first
+    crc   poly=1                     # a 1-bit LFSR: each step XORs one bit into bit 0, the running parity
+    const BIT = 60000000 / 115200    # clocks per bit; the compiler rounds it to 521
+
+idle:   TX=1, wait rx0               # the line idles high until the host has given a byte
+        S=pop0, K=8, crc=0           # the byte, 8 bits to go, parity 0
+        TX=0, hold BIT               # start bit
+bit:    TX=d, shift, crc+=d, K-=1, hold BIT => kz: parity | bit
+parity: TX=c, hold BIT               # even parity: the XOR of the 8 data bits, read from the LFSR
+        TX=1, hold BIT => idle       # stop bit

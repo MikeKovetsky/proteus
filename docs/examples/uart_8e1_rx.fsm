@@ -1,0 +1,21 @@
+# UART receiver, 8E1, 115200 baud on P1. A byte with good parity goes to channel 1. A byte whose parity is
+# wrong goes to channel 2 instead, so the host sees both. The worked example of docs/programming.md.
+
+machine rx
+    in    RX=P1
+    order lsb                        # bits enter at S[7] and move down: the first one ends in S[0]
+    crc   poly=1 match=0             # the running parity; data and parity bit XOR to 0 when they agree
+    const BIT = 60000000 / 115200    # 521 clocks per bit
+
+idle:   wait !RX                     # the start bit's falling edge
+        K=8, crc=0
+        hold BIT + BIT/2 - 2         # to the middle of data bit 0
+bit:    shift RX, crc+=RX, K-=1      # take one bit into the shifter and into the parity
+        => kz: parity                # a rule sees K as the clock began, so test it one line later
+        hold BIT - 2 => bit          # a bit is BIT clocks: 1 + 1 + (BIT - 2)
+parity: hold BIT - 2                 # to the middle of the parity bit
+        crc+=RX                      # the parity bit joins the sum
+        wait RX                      # the stop bit; the crc flag lags one clock, and this line covers it
+        => crc: good
+        push2=S => idle              # parity error: the byte goes to channel 2
+good:   push1=S => idle
