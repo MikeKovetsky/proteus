@@ -2,21 +2,24 @@
 # SPDX-FileCopyrightText: © 2026 Ken Pettit (ihp-um-janestreet-prism, Apache-2.0)
 # SPDX-License-Identifier: Apache-2.0
 """
-LibreLane plugin for protoemu: power the two IHP SRAM macros on the Tiny Tapeout CMOS5L tile.
+LibreLane plugin for protoemu: power the two IHP SRAM macros on the Tiny Tapeout CMOS5L tile, and protect
+their inputs from the antenna effect.
 
 Adapted from Ken Pettit's librelane_plugin_prism_pdn.py in https://github.com/kdp1965/ihp-um-janestreet-prism
-(main, 2026-10-15), which hardens two of these macros at 8x4 and passes precheck. Only the two pieces this
-design needs are kept: the stripe step and the Netgen report fix.
+(main, 2026-10-15), which hardens two of these macros at 8x4 and passes precheck. Only the three pieces this
+design needs are kept: the stripe step, the diodes on the SRAM inputs, and the Netgen report fix.
 
 How it gets loaded: LibreLane imports every module on the Python path whose name starts with
 ``librelane_plugin_`` (librelane/plugins.py), and ``python3 -m librelane`` puts the current directory first on
 that path. Tiny Tapeout's GDS action runs ``tt_tool.py --harden``, which runs LibreLane from the repository
 root, on the host and again inside LibreLane's container (same working directory), so this package is found
-both times without installing anything. src/config.json then adds the step after the PDN generator:
+both times without installing anything. src/config.json then adds the two steps to the Classic flow:
 
-    "meta": {"flow": "Classic", "substituting_steps": {"+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes"}}
+    "meta": {"flow": "Classic", "substituting_steps": {
+        "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes",
+        "+OpenROAD.ResizerTimingPostCTS": "Protoemu.DiodesOnSramPins"}}
 
-Nothing here may import ``odb``: that module exists only inside OpenROAD, where odb_stripes.py runs.
+Nothing here may import ``odb``: that module exists only inside OpenROAD, where the odb_*.py scripts run.
 """
 import json as _json
 import os
@@ -27,6 +30,8 @@ from decimal import Decimal
 from librelane.config import Variable
 from librelane.steps import Step
 from librelane.steps.odb import OdbpyStep
+from librelane.steps.openroad import DetailedPlacement
+from librelane.steps.step import CompositeStep
 
 import librelane.steps.netgen as _netgen
 
@@ -112,6 +117,38 @@ class ExtendPowerStripes(OdbpyStep):
         if self.config["EXTEND_STRIPES_SRAM_ARRAY_EVERY_OTHER"]:
             cmd += ["--sram-array-every-other"]
         return cmd
+
+
+@Step.factory.register()
+class SramPinDiodePlacement(OdbpyStep):
+    """One DIODE_CELL on every signal input pin of the IHP SRAMs (odb_sram_diodes.py), from Pettit's plugin."""
+
+    id = "Protoemu.SramPinDiodePlacement"
+    name = "Diodes on SRAM Input Pins"
+
+    def get_script_path(self):
+        return os.path.join(HERE, "odb_sram_diodes.py")
+
+    def get_command(self):
+        cell, pin = self.config["DIODE_CELL"].split("/")
+        return super().get_command() + ["--diode-cell", cell, "--diode-pin", pin, "--macro-prefix", "RM_IHPSG13"]
+
+
+@Step.factory.register()
+class DiodesOnSramPins(CompositeStep):
+    """
+    Puts an antenna diode beside every input pin of the IHP SRAMs, then legalises them with detailed placement.
+
+    The flow's rule-based repair (OpenROAD.RepairAntennas) should cover these nets, since the SRAM LEF carries
+    antenna data, but Pettit found it did not always do so in his flow and added this step as cheap insurance:
+    about 312 diode cells for the two macros. It runs before global routing (after
+    OpenROAD.ResizerTimingPostCTS), so that one routing pass includes the diodes, and the rule-based repair
+    still runs afterwards for every other net. From Pettit's plugin, unchanged in substance.
+    """
+
+    id = "Protoemu.DiodesOnSramPins"
+    name = "Diodes on SRAM Pins"
+    Steps = [SramPinDiodePlacement, DetailedPlacement]
 
 
 # Netgen writes the IHP SRAM's power pin names (VDD!, VSS!, VDDARRAY!) into its LVS JSON report with a stray

@@ -83,11 +83,12 @@
   "//sram": "---- protoemu: two IHP RM_IHPSG13_1P_512x32_c2_bm_bist SRAMs (sram_a, sram_b in the netlist) ----",
   "//sram_source": "Taken from Ken Pettit's ihp-um-janestreet-prism (src/config.json, main 2026-10-15), whose two 512x32 SRAMs sit at these same spots and pass precheck, and his walkthrough https://kdp1965.github.io/ihp-um-janestreet-prism/ihp_sram_macro.html. Values checked against the macro's LEF at IHP-Open-PDK 89d42ee6d2fd, the commit Tiny Tapeout's flow installs.",
 
-  "//meta": "The Classic flow plus one step after the PDN generator, from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root). It runs full-height stripes over each SRAM's Metal4 supply columns.",
+  "//meta": "The Classic flow plus two steps from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root): after the PDN generator, full-height stripes over each SRAM's Metal4 supply columns; after the post-CTS resizer, an antenna diode on each SRAM input pin (see //antenna).",
   "meta": {
     "flow": "Classic",
     "substituting_steps": {
-      "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes"
+      "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes",
+      "+OpenROAD.ResizerTimingPostCTS": "Protoemu.DiodesOnSramPins"
     }
   },
 
@@ -142,7 +143,7 @@
   "//pdn_check": "pdngen's grid check runs before Protoemu.ExtendPowerStripes connects the SRAM columns, so it reports them; LVS and the IR drop report are the verdict (Pettit).",
   "ERROR_ON_PDN_VIOLATIONS": 0,
 
-  "//stripes": "Protoemu.ExtendPowerStripes: each grid stripe crossing an SRAM moves onto its nearest free supply column of the same polarity, each region of the macro gets whole pairs, and each bit-cell array gets a pair on every other column pair. No stripe lands on a tile pin's x range. This is the setting Pettit's submission signed off with.",
+  "//stripes": "Protoemu.ExtendPowerStripes: each grid stripe crossing an SRAM moves onto its nearest free supply column of the same polarity, each region of the macro gets whole pairs, and each bit-cell array gets a pair on every other column pair. The tile's signal pins are placed after this step, so it cannot steer around them: like the grid's own stripes, the column stripes stop at the core edge (y 706.86), 2.8 um below the pins at the top edge, and the router jogs around them. This is the setting Pettit's submission signed off with.",
   "EXTEND_STRIPES_SRAM_ALL_COLUMNS": false,
   "EXTEND_STRIPES_SRAM_ARRAY_EVERY_OTHER": true,
   "EXTEND_STRIPES_PIN_FACE_MARGIN": 0,
@@ -152,6 +153,6 @@
   "//overlap": "Magic's extraction sees the SRAM LEF's Metal4 obstruction bar at the VDD!/VDDARRAY! break (LEF y 39.1-45.2) under every stripe that bridges the two; the GDS has no metal there and both pins are VPWR. Pettit counted 22 such overlaps with clean KLayout DRC and LVS, and waived the check.",
   "ERROR_ON_ILLEGAL_OVERLAPS": 0,
 
-  "//antenna": "LibreLane wants DIODE_CELL as cell/pin; the PDK default lacks the pin. The SRAM LEF at 89d42ee carries antenna data, so the flow's own antenna repair covers its inputs (Pettit's extra diode step was for an older LEF without it).",
+  "//antenna": "Protoemu.DiodesOnSramPins puts one diode beside each of the 156 input pins of each SRAM, as Pettit's flow does; the flow's rule-based repair (RUN_ANTENNA_REPAIR) still covers every other net. The SRAM LEF carries antenna data on every input, but Pettit found the rule-based repair did not always protect the nets driving the macro, and calls the diodes cheap insurance. The step reads DIODE_CELL as cell/pin, LibreLane's documented format; the PDK default lacks the pin.",
   "DIODE_CELL": "sg13cmos5l_antennanp/A"
 }
