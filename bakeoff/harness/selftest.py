@@ -282,7 +282,7 @@ class AnyFake(Chip):
 
 
 def check_runner() -> List[str]:
-    """`bakeoff.run` must find all 14 scenarios by name, and a candidate made of the correct fakes must pass each."""
+    """`bakeoff.run` must find all 14 scenarios by name, refuse a name no bench has, and pass the correct fakes."""
     from .. import run as runner
 
     module = types.ModuleType("bakeoff.cand_selftest.candidate")
@@ -296,6 +296,13 @@ def check_runner() -> List[str]:
         problems = ["no bench is named %s" % name for name in SCENARIOS if name not in names]
         problems += ["bench %s is not a scenario in the README" % name for name in names if name not in SCENARIOS]
         problems += ["two benches are named %s" % name for name in set(names) if names.count(name) > 1]
+        try:
+            runner.select_benches(benches, ["uart_tx", "no_such_bench"])
+            problems.append("--bench accepts a name no bench has, so --strict could pass on nothing")
+        except ValueError:
+            pass
+        if [bench.name for bench in runner.select_benches(benches, ["uart_rx", "ps2_rx"])] != ["ps2_rx", "uart_rx"]:
+            problems.append("--bench does not pick exactly the benches it names")
         report = runner.run_candidate("cand_selftest", benches)
         failed = [row for row in report["rows"] if row["status"] != "pass"]
         problems += ["%s through the runner: %s" % (row["bench"], row["detail"]) for row in failed]
@@ -542,13 +549,14 @@ def main() -> int:
         ("peek agrees with tick", check_peek),
         ("the stimulus lands on the clock grid", check_stimulus),
         ("the reference CRCs and line codes match known vectors", check_codecs),
-        ("the runner finds all 14 scenarios and passes a candidate made of the correct fakes", check_runner),
+        ("the runner finds all 14 scenarios, refuses an unknown name and passes the correct fakes", check_runner),
     ):
         found = check()
         shown = "  (%s)" % "; ".join(found[:3]) if found else ""
         print("%s  %s%s" % ("FAIL" if found else "ok  ", name, shown))
         checks += 1
-        failures += found
+        if found:
+            failures.append(name)  # one failed check, however many problems it names
     for label, bench, make_chip, should_pass, expect in cases:
         result = bench.run(make_chip, b"")
         ok = result.passed == should_pass and expect in result.detail

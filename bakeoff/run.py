@@ -15,7 +15,8 @@ import pkgutil
 import sys
 import traceback
 from pathlib import Path
-from typing import Dict, List
+from types import ModuleType
+from typing import Dict, List, Optional
 
 from .harness import benches as benches_pkg
 from .harness.sim import Bench, Result
@@ -33,6 +34,27 @@ def discover_benches() -> List[Bench]:
 
 def discover_candidates() -> List[str]:
     return sorted(p.name for p in HERE.glob("cand_*") if (p / "candidate.py").exists())
+
+
+def select_benches(benches: List[Bench], names: Optional[List[str]]) -> List[Bench]:
+    """The benches `names` asks for, in discovery order, or all of them when it is empty.
+
+    A name that no bench has is an error, so a typo cannot leave nothing to run and `--strict` pass.
+    """
+    if not names:
+        return benches
+    unknown = sorted(set(names) - {bench.name for bench in benches})
+    if unknown:
+        raise ValueError("no bench named %s" % ", ".join(unknown))
+    return [bench for bench in benches if bench.name in names]
+
+
+def read_budget(module: ModuleType) -> Dict[str, object]:
+    """The candidate's budget, or the error its `budget()` raised: one broken candidate does not stop the table."""
+    try:
+        return module.make_chip().budget()
+    except Exception:
+        return {"error": traceback.format_exc(limit=3).strip().splitlines()[-1]}
 
 
 def run_candidate(name: str, benches: List[Bench]) -> Dict[str, object]:
@@ -61,7 +83,7 @@ def run_candidate(name: str, benches: List[Bench]) -> Dict[str, object]:
                 "cycles": result.cycles,
             }
         )
-    return {"candidate": name, "budget": module.make_chip().budget(), "rows": rows}
+    return {"candidate": name, "budget": read_budget(module), "rows": rows}
 
 
 def main() -> int:
@@ -72,8 +94,13 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="exit 1 unless every bench passes")
     args = parser.parse_args()
 
-    benches = [b for b in discover_benches() if not args.bench or b.name in args.bench]
+    try:
+        benches = select_benches(discover_benches(), args.bench)
+    except ValueError as error:
+        parser.error(str(error))
     candidates = args.candidate or discover_candidates()
+    if not candidates:
+        parser.error("no candidate: no bakeoff/cand_*/candidate.py exists")
     reports = [run_candidate(name, benches) for name in candidates]
     all_pass = all(row["status"] == "pass" for report in reports for row in report["rows"])
     exit_code = 1 if args.strict and not all_pass else 0
