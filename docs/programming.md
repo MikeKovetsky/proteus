@@ -205,8 +205,9 @@ uart_8e1: ok
 
 1. It compiles both programs, and the two-machine image of section 7.
 2. For the transmitter, it gives channel 0 six bytes, runs the model, and decodes P0 with its own 8E1 decoder:
-   the start, parity and stop bits must be right, every edge must sit on the bit grid within 2%, and the stop
-   bit must last a whole bit.
+   the start, parity and stop bits must be right, every edge must sit on the bit grid within 2%, the line must
+   stay high until 11 bits after the start edge (within the same 2%), and no frame may be left over after the
+   six bytes.
 3. For the receiver, it drives P1 with five frames, one with a wrong parity bit, first 2% fast and then 2% slow.
    The four good bytes must come out on channel 1 and the bad one on channel 2.
 4. It fails if the chip and the test ever drive a pin to opposite levels.
@@ -235,7 +236,7 @@ print(edges(sim.wave, 0))                     # every change of P0 as (clock, le
 
 It prints `[(0, 1), (19, 0), (540, 1), (1061, 0), (3666, 1), (4187, 0), (5229, 1)]`: the start bit falls on
 clock 19, and every edge after it is a whole number of 521-clock bits later. 0x41 has two 1s, so the parity bit
-is 0, and the line rises only for the stop bit at 19 + 10 x 521.
+is 0: the line falls for bit 7 at 4187 and stays low through the parity bit until the stop bit at 19 + 10 x 521.
 
 1. Drive an input with `sim.set(pin, level)` before each `sim.tick()`, as `run()` in run_uart_8e1.py does.
 2. Read the host's side with `sim.received(1)` and `sim.received(2)`.
@@ -277,7 +278,8 @@ the pin timing.
 
 Each of these was run through the same checks.
 
-1. **Odd parity:** `TX=!c` in the transmitter's parity line, and `match=1` in the receiver.
+1. **Odd parity:** `TX=!c` in the transmitter's parity line, and `match=1` in the receiver. The script checks
+   even parity, so its `parity()` must return the inverse too (`... & 1 ^ 1`), or it fails both programs.
 2. **Two stop bits:** `TX=1, hold 2*BIT => idle` in the transmitter. The receiver accepts them unchanged.
 3. **Another baud rate:** change `BIT`. At 60 MHz a bit must be at least a few clocks; the bench program
    [uart_3m.fsm](../bakeoff/cand_table/programs/uart_3m.fsm) runs at 3 Mbaud, 20 clocks a bit.

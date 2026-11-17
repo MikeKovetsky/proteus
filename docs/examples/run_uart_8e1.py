@@ -41,10 +41,13 @@ def frame(byte: int, wrong_parity: bool = False) -> List[int]:
 def decode(wave: List[int], pin: int) -> Tuple[bytes, List[str]]:
     """Read 8E1 frames off `pin`, sampling the middle of each bit from the frame's own start edge."""
     mask, out, problems, i = 1 << pin, bytearray(), [], 1
-    while i < len(wave) - int(11 * BIT):
+    while i < len(wave):
         if not (wave[i - 1] & mask and not wave[i] & mask):
             i += 1
             continue
+        if i + int(11 * BIT) > len(wave):  # a frame the run cuts off is still a frame the chip sent
+            problems.append("frame at cycle %d: the run ends before the frame does" % i)
+            break
         bits = [1 if wave[i + int((k + 0.5) * BIT)] & mask else 0 for k in range(11)]
         byte = sum(bits[1 + n] << n for n in range(8))
         if bits[0] != 0 or bits[10] != 1:
@@ -56,7 +59,7 @@ def decode(wave: List[int], pin: int) -> Tuple[bytes, List[str]]:
                 k = round((j - i) / BIT)
                 if abs(j - i - k * BIT) > max(2.0, 0.02 * k * BIT):
                     problems.append("frame at cycle %d: edge at %d is off the bit grid" % (i, j))
-        slack = int(0.02 * 11 * BIT)  # and the stop bit must last its whole bit time, within 2%
+        slack = int(0.02 * 11 * BIT)  # and the line must stay high until 11 bits after the start edge, within 2%
         if any(not wave[j] & mask for j in range(i + int(10 * BIT) + slack, i + int(11 * BIT) - slack)):
             problems.append("frame at cycle %d: the stop bit is cut short" % i)
         out.append(byte)
@@ -99,8 +102,12 @@ def main() -> int:
     rx = compile_file(HERE / "uart_8e1_rx.fsm")
     # Both machines in one image. They take turns on the table, so each one steps every second clock and
     # its numbers count turns of 2 clocks: BIT is halved, and nothing else changes.
-    both = ((HERE / "uart_8e1_tx.fsm").read_text() + (HERE / "uart_8e1_rx.fsm").read_text()).replace(
-        "const BIT = 60000000 / 115200", "const BIT = 60000000 / 115200 / 2")
+    both = (HERE / "uart_8e1_tx.fsm").read_text() + (HERE / "uart_8e1_rx.fsm").read_text()
+    old = "const BIT = 60000000 / 115200"
+    if both.count(old) != 2:
+        print("FAIL  both programs must have the line `%s`, for the two-machine image" % old)
+        return 1
+    both = both.replace(old, old + " / 2")
     duplex = compile_text(both, "uart_8e1_tx.fsm + uart_8e1_rx.fsm")
     for name, result in (("tx", tx), ("rx", rx), ("duplex", duplex)):
         print("%s: %d states in %d entries, a %d-byte image" % (name, result.states, result.entries,
