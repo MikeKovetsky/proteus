@@ -56,6 +56,7 @@ A dated log, written as the work happens. The verification write-up's AI section
     that changes behaviour. In `project.v`, which the lockstep suite does not reach, 7 of 14 planted bugs passed
     every test, among them a synchroniser stage too few or too many. It added two pin-level tests that catch five
     of them; the other two are a metastability hazard and a race only a host breaking the protocol can reach. It
-    also ran the pin tests on a netlist of generic gates: 7 of 7 pass.
+    also ran the pin tests on a netlist of generic gates: 7 of 7 pass. The builder then ran them on the netlist
+    Yosys maps to IHP CMOS5L cells, with IHP's cell models: 7 of 7 pass. That is before layout, so it is not R12.
 13. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
