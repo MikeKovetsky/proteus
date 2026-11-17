@@ -172,10 +172,14 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 11. **Not done.**
     1. Slew, capacitance and fanout warnings: run 44076197046 reports 78 max-slew (slow corner), 1 max-cap and
        97 max-fanout violations. Every slew violation is on an SRAM input pin, past the range the SRAM's timing
-       tables cover, and the cap violation is on an SRAM output. The fix on branch
-       `worktree-agent-a61dc80b2536b91af` adds a design repair and a hold repair after global routing
-       (`src/config.json`, `//repair`). No layout build has run it yet. The 82 fanout warnings on clock leaf
-       buffers stay, because their slews are at most 0.09 ns.
+       tables cover, and the cap violation is on an SRAM output. The fix adds a design repair and a hold
+       repair after global routing (`src/config.json`, `//repair`). No layout build has run it yet. The 82
+       fanout warnings on clock leaf buffers stay, because their slews are at most 0.09 ns; the other 15 are
+       the SRAM nets themselves, and clear only if the repair buffers them rather than upsizing their drivers.
+       The next build proves the fix if `final/metrics.json` shows `design__max_slew_violation__count` and
+       `design__max_cap_violation__count` at 0 in every corner, and `timing__setup__ws` and
+       `timing__hold__ws` still positive. A hold buffer that the post-routing hold repair puts in front of an
+       SRAM pin can bring a slew warning back, so the slew counts are the check, not the config.
     2. The architecture and instruction set docs (R9) and the write-up (R11).
     3. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
     4. The sby reset and instruction proofs, an independent decoder check (sigrok), and the stranger test (R14).
