@@ -1,0 +1,102 @@
+; I2C controller, fast mode. P0 = SCL, P1 = SDA, both open drain (writing 1 releases the line).
+; Channel 0 gets [addr7][nw][nw bytes][nr]. Bytes read go to channel 1, the status byte to channel 2.
+; The timer ticks every 60 clocks. SCL is low for two ticks, with SDA changing on the tick between them. After
+; SCL is released the program waits until it reads high (a target may hold it), restarts the timer, and keeps
+; SCL high for one more tick. X holds the address, Y counts bytes, V0 remembers a NACK, and V1 and V2
+; remember how much of the message has been taken, so a NACK can throw the rest away.
+.pads out=0b11 oe=0b11 od=0b11
+.sm 0
+.tick 60
+.shift in=left out=left     ; MSB first
+.side p0                    ; side-set drives SCL
+
+main:   pull                ; address
+        out x, 8
+        set v0:3, 0
+        set p1, 0           @tick   ; START: SDA falls while SCL is high
+        nop         side 0  @tick
+        mov isr, null
+        in x, 7
+        in null, 1                  ; write
+        mov osr, isr, 32
+        out null, 24                ; the byte is now at the top of OSR
+        call send
+        pull                ; nw
+        out y, 8
+        set v1, 1
+wloop:  jmp y--, wmore
+        jmp wdone
+wmore:  pull
+        call send
+        jmp wloop
+wdone:  pull                ; nr
+        out y, 8
+        set v2, 1
+        set p1, 1           @tick   ; repeated START: release SDA, then SCL
+        nop         side 1  @tick
+        wait 1, p0
+        timer restart
+        set p1, 0           @tick
+        nop         side 0  @tick
+        mov isr, null
+        in x, 7
+        in ones, 1                  ; read
+        mov osr, isr, 32
+        out null, 24
+        call send
+        jmp y--, .+1                ; Y = nr - 1
+rbyte:  set x, 7
+        set p1, 1           @tick   ; release SDA
+rbit:   nop         side 1  @tick   ; release SCL
+        wait 1, p0                  ; wait out a stretching target
+        timer restart
+        in p1, 1    side 0  @tick   ; read SDA, then SCL low
+        jmp x--, rbit       @tick
+        push                        ; the byte goes to channel 1
+        jmp y--, ack
+        call pulse                  ; last byte: leave SDA high (NACK)
+        jmp stop
+ack:    set p1, 0                   ; ACK
+        call pulse
+        jmp rbyte
+
+; Send the 8 bits in OSR, then read the ACK bit. No ACK: go to nack.
+send:   out p1, 1           @tick
+        nop         side 1  @tick
+        wait 1, p0
+        timer restart
+        nop         side 0  @tick
+        jmp !osre, send
+        set p1, 1           @tick   ; release SDA for the ACK bit
+        nop         side 1  @tick
+        wait 1, p0
+        timer restart
+        jpin 1, p1, nack side 0 @tick   ; SDA still high: nobody answered
+        ret
+
+; One SCL pulse with SDA as it is.
+pulse:  nop         side 1  @tick
+        wait 1, p0
+        timer restart
+        nop         side 0  @tick
+        ret
+
+nack:   set v0, 1
+stop:   set p1, 0           @tick   ; STOP: SDA low, SCL high, SDA high
+        nop         side 1  @tick
+        wait 1, p0
+        timer restart
+        set p1, 1           @tick
+        jpin 1, v0, failed
+        push ch2, #0x00
+        jmp main
+failed: push ch2, #0x01
+        jpin 1, v2, main            ; the whole message was taken already
+        jpin 1, v1, skip            ; Y bytes of the write are still queued
+        pull                        ; nw
+        out y, 8
+skip:   jmp y--, drop
+        pull                        ; nr
+        jmp main
+drop:   pull
+        jmp skip

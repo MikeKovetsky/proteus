@@ -1,0 +1,23 @@
+; UART at 3 Mbaud (20 clocks per bit), both directions at once: machine 0 sends on P0, machine 1 receives on P1.
+; The two machines share program memory A, so each runs on alternate clocks (30 MHz).
+.pads out=0b1 oe=0b1
+.sm 0
+.tick 20
+tx:     pull
+        set p0, 0   @tick
+txbit:  out p0, 1   @tick
+        jmp !osre, txbit
+        set p0, 1   @tick
+        jmp tx
+
+.sm 1
+.tick 20
+.autopush
+        nop [3]
+rx:     wait 1, p1
+        wait 0, p1
+        timer half
+        set x, 7    @tick
+rxbit:  in p1, 1    @tick
+        jmp x--, rxbit
+        jmp rx

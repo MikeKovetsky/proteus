@@ -83,7 +83,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R4 | Known state from `rst_n`, with no reliance on power-up values | NOT MET | |
 | R5 | Program reload after deselect works | NOT MET | |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | NOT MET | |
-| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | NOT MET | |
+| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the placeholder; must pass again on the real design | [Run 44025802951](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) on `00bc006`: gds, precheck, gl_test and viewer all pass |
 | R8 | RTL and tests in the public repo | NOT MET | |
 | R9 | Architecture and instruction set documentation | NOT MET | |
 | R10 | Assembler or toolchain with example programs | NOT MET | |
@@ -128,11 +128,12 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 2. **Template (R1).** It is in at 8x4 tiles and 60 MHz, reviewed and pushed. The review named the placeholder's
    pins, because Tiny Tapeout's docs check fails on a blank pinout, and widened the test until it failed on seven
    deliberately broken designs.
-3. **GitHub Actions (R7, not yet met).** The docs and test workflows pass on `00bc006` and `4d7c9ed`.
-   [The first GDS build](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) had run for 70
-   minutes on the placeholder when this was written. Other 8x4 entries' GDS builds take 2.5 to 3.7 hours, so
-   each layout attempt in CI costs about three hours. GitHub Pages is on, with GitHub Actions as its source, for
-   the layout viewer.
+3. **GitHub Actions (R7 met for the placeholder).** The docs and test workflows pass on every push.
+   [The first GDS build](https://github.com/MikeKovetsky/protoemu/actions/runs/44025802951) passed all four jobs
+   on the placeholder at 8x4: the layout took 50 minutes, then precheck 18 minutes, the gate-level test 46 seconds
+   and the viewer 15 seconds, 68 minutes in all. The [layout viewer page](https://mikekovetsky.github.io/protoemu/)
+   is live. Other 8x4 entries' GDS builds take 2.5 to 3.7 hours, so the real design will take longer than the
+   placeholder. Every push starts a new GDS build, so builds whose layout inputs did not change get cancelled.
 4. **Benches.** All 14 scenarios have a bench. The self-test passes 191 of 191 checks: each bench passes a
    hand-written fake chip that does the scenario correctly and fails fakes with one planted fault each, and the
    reference CRCs match outside vectors. The review tightened five benches (UART framing, I2C START and STOP
@@ -144,7 +145,9 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
    logic. It is a datasheet figure, not synthesis. The CMOS5L SRAM folder in IHP's PDK is a link to these files.
 7. **In progress.** Two agents work in their own git worktrees: the RTL of the table machine with cycle-by-cycle
    tests against `bakeoff/cand_table`, and the SRAM macros through the layout flow on a dummy design.
-8. **Not pushed yet.** `cand_pio` and `cand_event` wait for their review.
+8. **The other two candidates** are reviewed and pushed. The review fixed ten problems and held every number in
+   their READMEs to a check, which moved `cand_event`'s program total from 1,548 to 1,580 bytes. Both still pass
+   14 of 14.
 9. **Not done.** The SRAM macro in GDS, local hardening (it needs a container engine), and every RTL requirement.
 
 ### Layout (target)
@@ -193,9 +196,9 @@ synthesized.
 | Combinational cells | about 7,000 | about 4,800 | about 2,600 |
 | SRAM bits | 32,768 | 32,768 | 32,768 |
 | Protocols at once | 4 at 30 MHz, or 2 at 60 MHz | 2 at full speed | 4 at 15 MHz, or 1 at 60 MHz |
-| All 14 programs | 1,949 bytes | 1,548 bytes | 4,138 bytes |
-| Receive sweeps beyond the benches | 1,160 runs, 0 failed | none; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (by the reviewer) |
-| Weakest point | Closest to what other entries build | Slow on someone else's clock: its SPI target fails at 5 MHz | Large programs, and 4 protocols share one decision rate |
+| All 14 programs | 1,949 bytes | 1,580 bytes | 4,138 bytes |
+| Receive sweeps beyond the benches | 1,160 runs, 0 failed | 1,160 runs, 0 failed; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (by the reviewer) |
+| Weakest point | Closest to what other entries build | Slow on someone else's clock: its SPI target passes at 4.3 MHz and fails at 4.6 MHz | Large programs, and 4 protocols share one decision rate |
 
 **Decision.** Mike, 2026-11-16: "Table-driven". The reasons given to him: novelty decides the tape-out and the
 other entries found build PIO-style machines; it decides on every clock; 13 of its 14 programs passed the first

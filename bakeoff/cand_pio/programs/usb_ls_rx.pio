@@ -1,0 +1,66 @@
+; Low-speed USB receive. P0 = D+, P1 = D-, both inputs. Idle is J (D- high).
+; Each packet's bytes go to channel 1, then [0 good / 1 bad CRC][byte count] to channel 2.
+; Clock recovery is in "getbit": every edge restarts the timer half a bit out of phase, so ticks fall in the
+; middle of bits. An edge before the next tick is a 0, a tick with no edge is a 1.
+; X counts 1s for bit stuffing, Y counts bits. V0 is the bit getbit returns, V1 remembers the line state
+; (1 = J) and V2 marks "drop the next 0".
+.sm 0
+.tick 40
+.shift in=right                 ; LSB first
+.autopush
+.crc poly=0xA001 residue=0xB001 tap=in
+
+        nop [3]                 ; let the synchroniser settle after reset
+idle:   wait 1, p1              ; J
+        set v1:2, 0             ; the line is about to be K, and nothing is stuffed yet
+        set x, 5
+        wait 0, p1              ; first K of SYNC
+        timer half
+        nop             @tick
+sync:   call getbit             ; SYNC is 0s up to the first 1
+        jpin 0, v0, sync
+        mov y, ~null
+        mov isr, null
+pid:    call getbit             ; the PID byte is not in the CRC
+        in v0, 1
+        jmp y--, .+1
+        jmp !isre, pid
+        crcinit 0xFFFF
+data:   call getbit             ; data and CRC until getbit sees the end of the packet
+        in v0, 1
+        jmp y--, .+1
+        jmp data
+
+eop:    wait 1, p1              ; SE0 is over
+        mov isr, ~y             ; bits received,
+        in null, 3              ; as bytes
+        mov x, isr
+        mov isr, null
+        jmp crcok, good
+        push ch2, #0x01
+        jmp count
+good:   push ch2, #0x00
+count:  push ch2, x
+        jmp idle
+
+; Return the next data bit in V0, at the middle of its bit time. Leaves for "eop" on SE0.
+; The line state comes from V1, not from the pin, so an edge that arrives before the wait starts still counts.
+getbit: jpin 1, v1, inj
+        waitt 1, p1, tick, ktick    ; line was K: a rise before the tick is a bit boundary
+        jmp edge
+inj:    waitt 0, p1, tick, one      ; line was J: a fall before the tick is a bit boundary
+edge:   timer half                  ; resynchronise: the next tick is the middle of this bit
+        toggle v1
+        jpin 1, p1, zero
+        jpin 0, p0, eop             ; D- and D+ both low: SE0
+zero:   set x, 5
+        jpin 1, v2, stuff
+        set v0, 0       @tick
+        ret
+stuff:  set v2, 0       @tick       ; the 0 after six 1s is stuffing: drop it
+        jmp getbit
+ktick:  jpin 0, p0, eop             ; no edge, but D+ is low as well: SE0
+one:    set v0, 1
+        jmp x--, back
+        set v2, 1                   ; six 1s in a row
+back:   ret

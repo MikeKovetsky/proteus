@@ -1,0 +1,24 @@
+; SPI target, mode 0. P0 = SCK (in), P1 = MOSI (in), P2 = MISO (out), P3 = CS (in).
+; Bytes to return come from channel 0, bytes read go to channel 1.
+; While it waits for a clock edge the program looks at CS every other clock, so it lets go of MISO on its own.
+.sm 0
+.shift in=left out=left
+.autopush
+        nop [3]             ; let the synchroniser settle after reset
+idle:   wait 1, p3
+        wait 0, p3          ; selected
+        dir p2, 1           ; drive MISO
+bit:    jmp !osre, shift
+        pull noblock        ; next byte, or X (zero) when the host has no more
+shift:  out p2, 1           ; next MISO bit, long before the rising edge
+rise:   waitt 1, p0, 0, chk ; SCK high?
+        in p1, 1            ; read MOSI
+fall:   waitt 0, p0, 0, chk2
+        jmp bit
+chk:    jpin 0, p3, rise    ; still selected: keep waiting
+        jmp off
+chk2:   jpin 0, p3, fall
+off:    dir p2, 0           ; deselected: stop driving
+        mov osr, null, 0
+        mov isr, null
+        jmp idle

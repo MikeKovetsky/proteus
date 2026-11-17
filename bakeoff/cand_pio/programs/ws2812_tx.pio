@@ -1,0 +1,27 @@
+; WS2812 transmit on P0. Channel 0 gets [n][3n bytes], each byte MSB first.
+; The timer ticks every 25 clocks and a bit is three ticks: a 0 is high for one, a 1 is high for two.
+; The next bit is parked on internal pin V0 so the program can branch on it without using X or Y.
+.pads oe=0b1                ; P0 driven low: the idle level
+.sm 0
+.tick 25
+.shift out=left
+.side p0
+next:   pull                ; n
+        out y, 8
+pixel:  jmp y--, go
+        set x, 125          ; all sent: hold the line low for 126 ticks (3,150 clocks)
+gap:    jmp x--, gap        @tick
+        jmp next
+go:     set x, 2            ; three bytes per pixel
+byte:   pull
+bit:    out v0, 1
+        jpin 1, v0, one
+        nop         side 1  @tick   ; a 0: high for one tick
+        nop         side 0  @tick
+        jmp bend            @tick
+one:    nop         side 1  @tick   ; a 1: high for two ticks
+        nop                 @tick
+        nop         side 0  @tick
+bend:   jmp !osre, bit
+        jmp x--, byte
+        jmp pixel

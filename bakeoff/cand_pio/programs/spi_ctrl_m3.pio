@@ -1,0 +1,20 @@
+; SPI controller, mode 3, 5 MHz. P0 = SCK, P1 = MOSI, P2 = MISO, P3 = CS. Channel 0 gets [n][n bytes].
+; The same loop as mode 0. Only the idle level of SCK and the edges around CS differ.
+.pads out=0b1001 oe=0b1011  ; SCK high, CS high
+.sm 0
+.tick 6
+.shift in=left out=left
+.autopush
+.side p0
+next:   pull                ; n
+        out y, 8
+        jmp !y, next
+        jmp y--, .+1        ; Y = n - 1
+        set p3, 0           @tick   ; CS low
+byte:   pull
+bit:    out p1, 1   side 0  @tick   ; SCK falls, next MOSI bit
+        in p2, 1    side 1  @tick   ; SCK rises, read MISO
+        jmp !osre, bit
+        jmp y--, byte
+        set p3, 1           @tick   ; CS high, SCK already idle
+        jmp next

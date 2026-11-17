@@ -47,7 +47,14 @@ A dated log, written as the work happens. The verification write-up's AI section
 11. **Models.** Until the Fable limit, the builders ran on Fable 5.2 and the reviewers on Opus 5.5. From
     2026-11-16, 22:30 PST, Mike switched the session to Opus 5.5, so builders and reviewers now run on the same
     model.
-12. **RTL of the table machine.** A builder subagent (Opus 5.5) wrote `cand_table` in Verilog (`src/`), with IHP's
+12. **Review of the other two candidates.** A fresh Opus 5.5 reviewer at max effort was told these candidates had
+    lost the pick, so what mattered was that their reported results were true. It found ten problems: the
+    event-driven model let helpers act one cycle earlier than its own spec and budget allow, its assembler ran
+    `eval()`, and three of its programs hung on a count of zero. The PIO-style candidate's checks always exited 0,
+    and its assembler silently truncated fields that were too wide. Several README numbers were unbacked or wrong.
+    It fixed all ten, held every README number to a check that fails when the number is edited, and proved each
+    new check fails on a broken version. Both candidates still pass 14 of 14. The main session re-ran every check.
+13. **RTL of the table machine.** A builder subagent (Opus 5.5) wrote `cand_table` in Verilog (`src/`), with IHP's
     SRAM simulation model, and a lockstep suite: the golden model records its 14 benches and 300 random programs,
     and the RTL core replays them in Verilator and must match on every clock (3 million clocks). It also wrote 21
     planted bugs the suite must catch, cocotb tests through the pins, and a decision-loop delay estimate on IHP
@@ -58,5 +65,15 @@ A dated log, written as the work happens. The verification write-up's AI section
     of them; the other two are a metastability hazard and a race only a host breaking the protocol can reach. It
     also ran the pin tests on a netlist of generic gates: 7 of 7 pass. The builder then ran them on the netlist
     Yosys maps to IHP CMOS5L cells, with IHP's cell models: 7 of 7 pass. That is before layout, so it is not R12.
-13. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
+14. **SRAM layout setup.** A second builder subagent (Opus 5.5) built a dummy two-SRAM design and the layout flow
+    config from Ken Pettit's public entry, which passes the same flow with the same SRAM, and tested it on RTL and
+    on a local post-synthesis netlist with planted faults. A fresh Opus 5.5 reviewer restored Pettit's
+    antenna-diode step, which the builder had dropped on a false reason, and added a check that both SRAMs' A_DLY
+    pins are tied high, because the PDK model only calls `$stop`, which the simulator runs past under cocotb. The
+    builder found that LibreLane's docs say plugins are not supported in its Docker container, and Tiny
+    Tapeout's GDS action runs LibreLane in one; the first CI run settles it.
+15. **Integration.** The main session re-ran both builders' checks, then merged the two branches and main on
+    the branch `rtl-sram-flow`, following the layout builder's hand-over note, and renamed the SRAM instances in
+    the layout config to where the RTL puts them.
+16. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
     GitHub Pages, and picked the table-driven architecture from the bake-off table.
