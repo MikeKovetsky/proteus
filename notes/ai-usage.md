@@ -95,4 +95,5 @@ A dated log, written as the work happens. The verification write-up's AI section
     violations, LVS "Circuits match uniquely", "Precheck passed", 7 of 7 gate-level tests, and 4.20 ns of
     setup slack. It also recorded the slew, capacitance and fanout warnings the flow does not gate on.
 19. **What a person decided.** Mike asked for the critique, set the one-week pace, approved the 503 MB download and
-    GitHub Pages, and picked the table-driven architecture from the bake-off table.
+    GitHub Pages, picked the table-driven architecture from the bake-off table, and chose CAN, JTAG and SWD for
+    the stranger test.

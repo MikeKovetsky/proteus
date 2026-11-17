@@ -280,6 +280,27 @@ for that logic.
 5. The limit: the stranger is the same model family as the builder. It shows the chip is programmable from its
    docs, not that it is easy for a person.
 
+**The protocols.** Mike, 2026-11-17: "yes", to CAN, JTAG and SWD. The competition post suggests all three, and none
+is among the 14 bake-off benches. The roles below are the main session's defaults.
+
+| Protocol | The chip's role | What it exercises |
+|---|---|---|
+| CAN 2.0A (classic frames, 11-bit identifier) | A node that sends a frame and receives one, with a bench node that answers in the ACK slot | Bit stuffing in both directions, CRC-15, the ACK slot, a shared open-drain bus |
+| JTAG (IEEE 1149.1) | The controller (a probe): it drives TCK, TMS and TDI and reads TDO from a bench TAP | Walking the TAP state machine, shifting IR and DR of chosen lengths |
+| SWD (Arm Serial Wire Debug) | The host: it drives SWCLK and reads and writes SWDIO against a bench target | Request parity, turnaround on a bidirectional pin, the 3-bit ACK, data parity |
+
+**How it runs.**
+1. A scenario sheet per protocol (pins, rates, host messages, what must happen), in the style of
+   `bakeoff/README.md`, is fixed before the stranger starts. The sheet, `docs/` and the compiler are all the
+   stranger gets.
+2. The benches that judge the programs are written by another agent from the sheets alone. They live in
+   `../protoemu-holdout/`, the stranger never sees them, and they are committed only after the test has run.
+3. No doc, example or bench in this repo may show a program for CAN, JTAG or SWD before the test runs, so the
+   stranger cannot copy one.
+4. The stranger's programs run on the golden model, which matches the RTL on every clock, and the benches judge
+   the waveforms. An independent decoder (sigrok's CAN, JTAG and SWD decoders) is a second judge if
+   `sigrok-cli` is installed.
+
 ### Guards against a loop that games its score
 
 1. The driver, not the worker, runs the judge: from a pinned commit, in a clean checkout, taking only `src/` and
