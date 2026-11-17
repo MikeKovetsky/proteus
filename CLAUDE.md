@@ -236,9 +236,11 @@ never listed here, and the worker can never read them.
 1. [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases/latest), about 503 MB for macOS arm64.
    It bundles Icarus Verilog, Verilator, Yosys, [cocotb](https://github.com/cocotb/cocotb),
    [sby](https://github.com/YosysHQ/sby) (formal proofs), [mcy](https://github.com/YosysHQ/mcy) (mutation
-   coverage), eqy (equivalence checks), GTKWave and Surfer.
-2. Docker, for LibreLane hardening on this machine.
-3. `sigrok-cli`, for the independent protocol decoders.
+   coverage), eqy (equivalence checks), GTKWave and Surfer. Release 2026-11-16 is installed at
+   `~/oss-cad-suite` (1.8 GB, checksum verified). `source ~/oss-cad-suite/environment` puts it on the path. Its
+   Python is 3.11 with cocotb 2.1.
+2. Docker, for LibreLane hardening on this machine. It is not installed.
+3. `sigrok-cli`, for the independent protocol decoders. It is not installed, and neither is Homebrew.
 4. [KLayout](https://www.klayout.de/build.html), optional, for viewing the finished layout.
 5. The bake-off needs none of these. It runs on the system Python 3.9 with the standard library only.
 
