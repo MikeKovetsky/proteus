@@ -1,0 +1,35 @@
+# 10 Mbit Ethernet receiver. Every byte after the start-of-frame byte goes to channel 1 (CRC included).
+# At the end of a frame channel 2 gets [0x00 good CRC or 0x01 bad][len low][len high].
+#
+# Manchester code: every bit has an edge in its middle, and the level after that edge is the bit.
+# The receiver takes the bit one clock after the edge, looks away for three more clocks (an edge between
+# two bits may fall there), then waits for the next middle edge. Each edge re-times it, so it follows the
+# sender's clock, and half bits of 2, 3 or 4 clocks all decode. One line below is one clock.
+
+machine eth
+    in    RX=P2
+    order lsb
+    crc   poly=0xEDB88320 init=0xFFFFFFFF match=0xDEBB20E3   # CRC-32 over frame and CRC leaves this
+
+        hold 4                       # after reset the pin's history is not yet real: no `edge` for 4 clocks
+hunt:   wait edge                    # in the preamble every edge is a middle edge
+        shift RX                     # edge + 1: the bit
+        => S==0xD5: frame            # the last eight bits are the start-of-frame byte
+        nop
+        nop => hunt                  # edge + 4
+
+frame:  K=8, N=0, crc=init
+        T=9
+idle:   wait => edge: bit | tz: end  # no edge for two bit times: the frame is over
+bit:    shift RX, crc+=RX, K-=1, T=9 # edge + 1
+        => kz: byte                  # edge + 2
+        nop
+        nop => idle                  # edge + 4
+byte:   push1=S, N+=1, K=8           # edge + 3
+        nop => idle
+
+end:    => crc: good
+        push2=1 => len
+good:   push2=0
+len:    push2=Nlo
+        push2=Nhi => hunt

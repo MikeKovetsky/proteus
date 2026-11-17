@@ -1,0 +1,35 @@
+# 1-Wire controller, standard speed: reset, presence, write 0x33 (Read ROM), read 64 bits, check CRC-8.
+# The 8 bytes go to channel 1. Channel 2 gets 0x00 (present) and 0x00 (CRC good) or 0x01 (CRC bad),
+# or just 0x01 when no device answers. DQ is open drain: pulled low (=0) or released (=z).
+
+machine ow
+    out   DQ=P0
+    in    DQI=P0
+    order lsb
+    crc   poly=0x8C match=0          # x^8 + x^5 + x^4 + 1, reflected; a good ROM leaves 0
+    const US = 60                    # clocks per microsecond
+
+start:  DQ=0, hold 481*US            # reset pulse
+        DQ=z, hold 70*US             # a device pulls low from 30 us to 150 us after the release
+        => DQI: absent               # still high at 70 us: nobody there
+        hold 410*US                  # the rest of the presence slot
+        S=0x33
+        K=8
+wbit:   DQ=0, hold 6*US              # every write slot starts low
+        DQ=od, hold 59*US            # a 1 is released here; a 0 stays low for 65 us
+        DQ=z, shift, K-=1, hold 5*US # recovery: the slot is 70 us
+        => kz: read | wbit
+read:   J=8, crc=0
+byte:   K=8
+rbit:   DQ=0, hold 3*US              # read slot: a short low pulse,
+        DQ=z, hold 10*US             # then release and sample 13 us after the slot began
+        shift DQI, crc+=DQI, K-=1, hold 57*US
+        => kz: got | rbit
+got:    push1=S, J-=1
+        => jz: done | byte
+done:   push2=0                      # present
+        => crc: good
+        push2=1 => fin               # CRC bad
+good:   push2=0 => fin
+absent: push2=1
+fin:    halt

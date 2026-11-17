@@ -1,0 +1,27 @@
+# UART at 3 Mbaud, both directions at once: two machines share the table and take turns, so each one
+# steps every other clock. A bit is 20 clocks, which is 10 turns.
+
+const BIT = 10
+
+machine tx                           # channel 0 -> P0
+    out   TX=P0
+    order lsb
+
+idle:   TX=1, wait rx0
+        S=pop0, K=8
+        TX=0, hold BIT               # start bit
+bit:    TX=d, shift, K-=1, hold BIT => kz: stop | bit
+stop:   TX=1, hold BIT => idle
+
+machine rx                           # P1 -> channel 1
+    in    RX=P1
+    order lsb
+
+idle:   wait !RX
+        K=8
+        hold BIT + BIT/2 - 3         # to the middle of the first data bit
+bit:    shift RX, K-=1
+        => kz: done
+        hold BIT - 2 => bit
+done:   push1=S
+        wait RX => idle

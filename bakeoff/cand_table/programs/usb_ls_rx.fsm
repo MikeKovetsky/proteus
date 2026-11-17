@@ -1,0 +1,52 @@
+# Low-speed USB receiver (1.5 Mbit/s, 40 clocks per bit). Every byte after SYNC goes to channel 1.
+# At the end of a packet channel 2 gets [0x00 good CRC or 0x01 bad][byte count].
+#
+# The bit clock comes from the edges of D+. An edge starts a bit cell and restarts the timer, so the
+# receiver follows the sender. A cell that starts with an edge is a 0; a cell with no edge is a 1.
+# The line is looked at in the middle of each cell, where both lines low (SE0) ends the packet.
+
+machine usb
+    in    DP=P0, DM=P1
+    order lsb
+    crc   poly=0xA001 init=0xFFFF match=0xB001   # CRC-16 over data and CRC leaves 0xB001
+    const BIT  = 40
+    const HALF = 17                  # edge seen -> middle of that cell, less the three clocks spent getting there
+    const FULL = 37                  # middle of a cell -> middle of the next, less three
+
+# Receive bits until K reaches zero, then go to END. ZERO and ONE are what a 0 and a 1 do to the data
+# path. J counts 1s: after six, the next 0 was stuffed by the sender and is dropped.
+macro bits(ZERO, ONE, END)
+cell:   wait => edge: zero | tz: one
+zero:   T=HALF                       # an edge: wait for the middle of this cell
+        wait tz
+        => !DP & !DM: eop
+        T=FULL
+        => jz: drop
+        ZERO, K-=1, J=6
+        => kz: END | cell
+drop:   J=6 => cell
+one:    => !DP & !DM: eop            # the timer ran out first: no edge, and this is mid-cell
+        T=FULL
+        ONE, K-=1, J-=1
+        => kz: END | cell
+end
+
+idle:   wait DP                      # J to K: D+ rises and SYNC begins
+sync0:  T=HALF
+        wait tz
+        T=FULL+1
+        wait => edge: sync0 | tz: sync1
+sync1:  nop                          # a cell with no edge is the 1 that ends SYNC
+        T=FULL
+        K=8, N=0
+        J=5, crc=init                # that 1 counts towards the next stuffed bit
+        use bits(shift 0, shift 1, pid)
+pid:    push1=S, N+=1, K=8           # the PID is not part of the CRC
+data:   use bits({shift 0, crc+=0}, {shift 1, crc+=1}, byte)
+byte:   push1=S, N+=1, K=8 => data
+
+eop:    => crc: good
+        push2=1 => count
+good:   push2=0
+count:  push2=Nlo
+        wait DM => idle              # back to J

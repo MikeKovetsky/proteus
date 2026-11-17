@@ -1,0 +1,84 @@
+# I2C controller, fast mode, open drain: a pin is pulled low (=0) or released (=z), never driven high.
+# Channel 0 gives [addr7][nw][nw bytes][nr]. The chip writes nw bytes, sends a repeated START, reads nr
+# bytes to channel 1, sends STOP and pushes one status byte to channel 2: 0x00 done, 0x01 NACK.
+
+machine i2c
+    out   SCL=P0, SDA=P1
+    in    SCLI=P0, SDAI=P1
+    order msb
+    const LOW  = 100                 # SCL low time in clocks
+    const HIGH = 60                  # SCL high time, once SCL is seen high
+
+# One SCL pulse, entered with SCL low. SET is what SDA does in the middle of the low time.
+# The caller pulls SCL low again, and may look at SDA in that same clock.
+macro pulse(SET)
+        hold 40
+        SET, call clock              # the rest of the pulse is the subroutine at the end of this file
+end
+
+# Send the byte in S (K=8) and take the ACK bit. Leaves SCL low.
+macro send(NACK)
+wbit:   use pulse(SDA=od)            # data bit: release for 1, pull low for 0
+        SCL=0, shift, K-=1
+        => kz: ack | wbit
+ack:    use pulse(SDA=z)             # the target answers
+        SCL=0 => SDAI: NACK          # SDA still high: nobody acknowledged
+end
+
+macro stop()
+        use pulse(SDA=0)             # SDA low, then SCL high
+        SDA=z, hold LOW              # STOP: SDA rises while SCL is high
+end
+
+idle:   wait rx0
+        R=pop0                       # the address is needed twice
+        wait rx0
+        N=pop0                       # bytes to write
+        SDA=0, hold HIGH             # START: SDA falls while SCL is high
+        SCL=0
+        S=R
+        shift 0, K=8                 # address, then 0 for write
+        use send(nack)
+write:  => nz: restart
+        wait rx0
+        S=pop0, K=8, N-=1
+        use send(nack)
+        goto write
+
+restart: use pulse(SDA=z)            # SDA high, then SCL high
+        SDA=0, hold HIGH             # repeated START
+        SCL=0
+        S=R
+        shift 1, K=8                 # address, then 1 for read
+        use send(nack)
+        wait rx0
+        N=pop0                       # bytes to read
+read:   K=8
+rbit:   use pulse(SDA=z)             # the target drives SDA
+        SCL=0, shift SDAI, K-=1      # this clock still sees SDA as it was while SCL was high
+        => kz: got | rbit
+got:    push1=S, N-=1
+        => nz: final
+        use pulse(SDA=0)             # ACK: more bytes wanted
+        SCL=0 => read
+final:  use pulse(SDA=z)             # NACK: that was the last byte
+        SCL=0
+        use stop()
+        push2=0 => idle
+
+# No acknowledge. SCL is low. Send STOP, drop the rest of the request, report 0x01.
+nack:   use stop()
+drain:  => nz: tail                  # N bytes of the write part are still queued
+        wait rx0
+        pop0, N-=1 => drain
+tail:   wait rx0
+        pop0                         # the read count
+        push2=1 => idle
+
+# The shared second half of every pulse. It waits for SCL to rise, so a target that stretches the clock
+# is waited for.
+clock:  hold LOW - 40
+        SCL=z
+        wait SCLI
+        hold HIGH - 1
+        ret

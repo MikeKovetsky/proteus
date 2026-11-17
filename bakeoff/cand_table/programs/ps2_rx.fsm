@@ -1,0 +1,23 @@
+# PS/2 device-to-host receiver. The device drives both lines; data is valid on the falling clock edge.
+# A frame is a start bit, 8 data bits LSB first, odd parity and a stop bit.
+# Good bytes go to channel 1. A frame with wrong parity puts 0xFF on channel 2.
+
+machine kbd
+    in    CLK=P0, DATA=P1
+    order lsb
+    crc   poly=1 match=1             # a one-bit LFSR is a running parity; odd parity ends at 1
+
+idle:   wait !CLK                    # start bit
+        K=8, crc=0
+        wait CLK
+bit:    wait !CLK
+        shift DATA, crc+=DATA, K-=1
+        wait CLK => kz: parity | bit
+parity: wait !CLK
+        crc+=DATA                    # the parity bit joins the sum
+        wait CLK
+        wait !CLK                    # stop bit
+        wait CLK
+        => crc: good
+        push2=0xFF => idle
+good:   push1=S => idle

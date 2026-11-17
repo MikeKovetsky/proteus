@@ -1,0 +1,27 @@
+# SPI controller, mode 0, 5 MHz (12 clocks per bit), MSB first.
+# Channel 0 gives [n][n bytes]. The n bytes read from MISO go to channel 1.
+
+machine spi
+    out   SCK=P0, MOSI=P1, CS=P3
+    in    MISO=P2
+    order msb
+
+idle:   SCK=0, CS=1, wait rx0
+        N=pop0                       # bytes to transfer
+        => nz: idle
+        wait rx0
+        S=pop0, K=8, N-=1, CS=0      # select the target, first byte in the shifter
+        hold 3
+
+# One bit is exactly 12 clocks, also across a byte boundary: the next byte is fetched while SCK is high.
+bit:    SCK=0, MOSI=d, hold 6        # clocks 0-5: SCK low, data out
+        SCK=1, shift MISO, K-=1      # clock 6: rising edge, sample MISO as the shifter moves on
+        => kz: byte                  # clock 7
+        hold 4 => bit                # clocks 8-11
+byte:   push1=S                      # clock 8: the byte read
+        => nz: last                  # clock 9
+        S=pop0, K=8, N-=1            # clock 10: the next byte to send
+        nop => bit                   # clock 11
+last:   hold 2                       # clocks 10-11
+        SCK=0, hold 6
+        CS=1, hold 12 => idle

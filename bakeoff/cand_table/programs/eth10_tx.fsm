@@ -1,0 +1,53 @@
+# 10 Mbit Ethernet transmitter. Channel 0 gives [len low][len high][len bytes].
+# The chip sends the preamble, the frame and its CRC-32, Manchester coded on TX+ and TX-.
+# A bit is 6 clocks: the first 3 carry the inverse of the bit, the last 3 the bit. One line below is one
+# clock, and every path round a loop is 6 lines long, so no half bit is ever stretched.
+
+machine eth
+    out   TXP=P0, TXN=P1
+    order lsb
+    crc   poly=0xEDB88320 init=0xFFFFFFFF
+
+idle:   TXP=0, TXN=0, wait rx0
+        N=pop0                       # frame length
+        wait rx0
+        Nhi=pop0
+        S=0x55, K=8                  # preamble: seven bytes of 0x55 ...
+        J=6
+
+pre:    TXP=!d, TXN=d, K-=1          # clock 0
+        nop
+        nop
+        TXP=d, TXN=!d, shift         # clock 3
+        => kz & jz: sfd | kz: again | pre5
+pre5:   nop => pre                   # clock 5
+again:  S=0x55, K=8, J-=1 => pre     # clock 5, between bytes
+sfd:    S=0xD5, K=8                  # clock 5: ... and the start-of-frame byte
+
+sbit:   TXP=!d, TXN=d, K-=1
+        nop
+        nop
+        TXP=d, TXN=!d, shift
+        => kz: first
+        nop => sbit
+first:  S=pop0, K=8, N-=1, crc=init  # clock 5: the first frame byte
+
+dbit:   TXP=!d, TXN=d, K-=1, crc+=d  # the frame, with the CRC running
+        nop
+        nop
+        TXP=d, TXN=!d, shift
+        => kz & nz: fcs | kz: more | data5
+data5:  nop => dbit
+more:   S=pop0, K=8, N-=1 => dbit    # clock 5: the next byte, fetched between two bits
+fcs:    K=8, N=3                     # clock 5: the frame is out; four CRC bytes follow
+
+fbit:   TXP=c, TXN=!c, K-=1          # the CRC goes out inverted, low bit first
+        nop
+        nop
+        TXP=!c, TXN=c, crc>>=1
+        => kz & nz: tail | kz: fmore | fcs5
+fcs5:   nop => fbit
+fmore:  K=8, N-=1 => fbit
+tail:   nop
+        TXP=1, TXN=0, hold 18        # end of frame: TX+ high for 18 clocks
+        TXP=0, TXN=0, hold 600 => idle   # idle, and the 9.6 us gap between frames

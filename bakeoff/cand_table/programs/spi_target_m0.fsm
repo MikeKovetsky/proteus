@@ -1,0 +1,19 @@
+# SPI target, mode 0, MSB first. Bytes from channel 0 go out on MISO; bytes read from MOSI go to channel 1.
+# MISO is driven only while CS is low: the `when CS` release acts in the same clock that sees CS rise.
+
+machine spi
+    in    SCK=P0, MOSI=P1, CS=P3
+    out   MISO=P2
+    order msb
+
+start:  wait rx0                     # the first byte must be ready before CS falls
+        S=pop0, K=8
+        wait !CS
+        MISO=d                       # selected: first bit out
+low:    MISO=z when CS, wait => CS: start | SCK: rise
+rise:   shift MOSI, K-=1             # rising edge: sample MOSI, the next bit to send moves up
+        => kz: byte
+high:   MISO=z when CS, wait => CS: start | !SCK: fall
+fall:   MISO=d => low                # falling edge: next bit out
+byte:   push1=S                      # eight bits in: hand over the byte read
+        S=pop0, K=8 => high          # and fetch the next one to send

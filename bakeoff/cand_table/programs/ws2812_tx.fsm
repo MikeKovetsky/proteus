@@ -1,0 +1,26 @@
+# WS2812 LED data. Channel 0 gives [n][3n bytes], each byte MSB first.
+# A 0 is high for 24 clocks and low for 51; a 1 is high for 48 and low for 27. A bit is 75 clocks.
+
+machine led
+    out   DOUT=P0
+    order msb
+
+idle:   DOUT=0, wait rx0
+        N=pop0                       # pixels
+        goto pixel
+
+# Every bit: high, then low with the timer set to end the bit at clock 75. Whatever has to happen
+# between two bits (next byte, next pixel) happens while the timer runs, so the bit time stays exact.
+bit:    DOUT=1, hold 24 => d: one    # clocks 0-23: every bit starts high
+        DOUT=0, shift, K-=1, T=49    # clock 24: a 0 goes low here
+        goto low
+one:    hold 24                      # clocks 24-47: a 1 stays high
+        DOUT=0, shift, K-=1, T=25    # clock 48: and goes low here
+low:    => kz: byte                  # eight bits sent: the shifter is empty
+rest:   wait tz => bit
+byte:   => jz: pixel | load          # three bytes sent: the pixel is done
+pixel:  => nz: latch                 # no pixels left
+        J=3, N-=1
+load:   wait rx0
+        S=pop0, K=8, J-=1 => rest
+latch:  hold 3000 => idle            # the LEDs take the data after 50 us of low

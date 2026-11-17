@@ -1,0 +1,15 @@
+# UART receiver: 8N1, 115200 baud, LSB first. Bytes go to channel 1.
+
+machine rx
+    in    RX=P1
+    order lsb
+    const BIT = 521                  # 60 MHz / 115200 = 520.83 clocks
+
+idle:   wait !RX                     # the start bit pulls the line low
+        K=8
+        hold BIT + BIT/2 - 2         # to the middle of the first data bit (2 clocks went by above)
+bit:    shift RX, K-=1               # sample
+        => kz: done
+        hold BIT - 2 => bit
+done:   push1=S
+        wait RX => idle              # let the stop bit begin before looking for the next start

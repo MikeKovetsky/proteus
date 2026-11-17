@@ -1,0 +1,49 @@
+# Low-speed USB transmitter (1.5 Mbit/s, 40 clocks per bit). Channel 0 gives [n][PID][n-1 data bytes].
+# The chip sends SYNC, PID, data and the CRC-16 of the data, NRZI coded with bit stuffing, then
+# SE0 for two bits and J for one, and lets go of the bus.
+
+machine usb
+    out   DP=P0, DM=P1
+    order lsb
+    crc   poly=0xA001 init=0xFFFF    # x^16 + x^15 + x^2 + 1, reflected
+    const BIT = 40
+
+# Send bits until K reaches zero, then go to END. ONE is true when the next bit is a 1, and STEP moves
+# the source on. A 0 toggles the line, a 1 leaves it, and after six 1s a 0 is stuffed. J counts the 1s.
+# The timer is reloaded in the clock that follows its timeout on every path, so bits are 40 clocks apart.
+macro nrzi(ONE, STEP, END)
+tick:   wait tz => ONE: keep | flip
+flip:   DP=toggle, DM=toggle, T=BIT-2
+        STEP, K-=1, J=6
+        => kz: END | tick
+keep:   T=BIT-2
+        STEP, K-=1, J-=1
+        => jz: stuff
+        => kz: END | tick
+stuff:  wait tz
+        DP=toggle, DM=toggle, T=BIT-2
+        J=6
+        => kz: END | tick
+end
+
+idle:   wait rx0
+        N=pop0                       # PID and data bytes to send
+        S=0x80, K=8                  # SYNC: seven 0s and a 1, which is KJKJKJKK on the wire
+        J=6
+        DP=0, DM=1, call plain       # start driving, in the idle state J, and send SYNC
+        S=pop0, K=8, N-=1
+        crc=init, call plain         # the PID is not part of the CRC
+more:   => nz: check
+        S=pop0, K=8, N-=1
+        use nrzi(d, {shift, crc+=d}, more)
+check:  K=8, N=1                     # the CRC goes out inverted, low bit first: 2 x 8 bits
+crcbit: use nrzi(!c, crc>>=1, half)
+half:   => nz: eop
+        K=8, N-=1 => crcbit
+eop:    wait tz
+        DP=0, DM=0, hold 2*BIT       # SE0 for two bit times
+        DP=0, DM=1, hold BIT         # J for one
+        DP=z, DM=z, hold 4*BIT => idle
+
+plain:  use nrzi(d, shift, sent)     # a byte with no CRC: called for SYNC and for the PID
+sent:   ret
