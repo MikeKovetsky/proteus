@@ -36,9 +36,14 @@
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+  "//": "protoemu changes one template value below (FP_PDN_VPITCH) and adds the SRAM block at the end,",
+  "//": "which also turns Magic DRC off. Each change says why.",
 
   "//": "Save some time",
   "RUN_KLAYOUT_XOR": 0,
+  "//": "protoemu: KLayout DRC stays off in the flow on purpose. The precheck job runs the same CMOS5L deck on",
+  "//": "the same GDS (16 minutes on the empty template), so DRC sign-off is the precheck's. Set it to 1 to get",
+  "//": "the report in the GDS job too, as Ken Pettit's local flow does.",
   "RUN_KLAYOUT_DRC": 0,
 
   "//": "Don't put clock buffers on the outputs",
@@ -58,7 +63,9 @@
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
 
-  "FP_PDN_VPITCH": 50.0,
+  "//": "protoemu: the template's 50 um pitch becomes 44.96 um, four times the SRAM's 11.24 um supply-column pitch,",
+  "//": "so with FP_PDN_VOFFSET and FP_PDN_VSPACING below a VPWR/VGND pair lands on the SRAM's columns (Pettit).",
+  "FP_PDN_VPITCH": 44.96,
   "FP_PDN_VWIDTH": 2.1,
 
   "//": "Clock",
@@ -71,5 +78,81 @@
   "MAGIC_DEF_LABELS": 0,
 
   "//": "Only export pin area in LEF (without any connected nets)",
-  "MAGIC_WRITE_LEF_PINONLY": 1
+  "MAGIC_WRITE_LEF_PINONLY": 1,
+
+  "//sram": "---- protoemu: two IHP RM_IHPSG13_1P_512x32_c2_bm_bist SRAMs (core.table_ram.ram_a and ram_b in the netlist) ----",
+  "//sram_source": "Taken from Ken Pettit's ihp-um-janestreet-prism (src/config.json, main 2026-10-15), whose two 512x32 SRAMs sit at these same spots and pass precheck, and his walkthrough https://kdp1965.github.io/ihp-um-janestreet-prism/ihp_sram_macro.html. Values checked against the macro's LEF at IHP-Open-PDK 89d42ee6d2fd, the commit Tiny Tapeout's flow installs.",
+
+  "//meta": "The Classic flow plus two steps from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root): after the PDN generator, full-height stripes over each SRAM's Metal4 supply columns; after the post-CTS resizer, an antenna diode on each SRAM input pin (see //antenna).",
+  "meta": {
+    "flow": "Classic",
+    "substituting_steps": {
+      "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes",
+      "+OpenROAD.ResizerTimingPostCTS": "Protoemu.DiodesOnSramPins"
+    }
+  },
+
+  "//macros": "Views from the PDK (sg13cmos5l_sram links to sg13g2_sram). The flow's corner names map onto IHP's: the fast lib is characterised at -55 C, not -40 C. 'vh' is a ports-only black box for Verilator lint and Yosys. Locations are the lower-left corners in um. ram_a is flipped (FS) so its pin edge faces up and ram_b's (N) faces down: their address and data pins look at each other across the 145 um gap, where the table logic goes. x = 3.36 puts the first VDD! column centre at 9.03 um, on the stripe grid.",
+  "MACROS": {
+    "RM_IHPSG13_1P_512x32_c2_bm_bist": {
+      "gds": ["pdk_dir::libs.ref/sg13cmos5l_sram/gds/RM_IHPSG13_1P_512x32_c2_bm_bist.gds"],
+      "lef": ["pdk_dir::libs.ref/sg13cmos5l_sram/lef/RM_IHPSG13_1P_512x32_c2_bm_bist.lef"],
+      "spice": ["pdk_dir::libs.ref/sg13cmos5l_sram/cdl/RM_IHPSG13_1P_512x32_c2_bm_bist.cdl"],
+      "vh": ["dir::RM_IHPSG13_1P_512x32_c2_bm_bist_bb.v"],
+      "nl": [],
+      "spef": {},
+      "lib": {
+        "nom_typ_1p20V_25C": ["pdk_dir::libs.ref/sg13cmos5l_sram/lib/RM_IHPSG13_1P_512x32_c2_bm_bist_typ_1p20V_25C.lib"],
+        "nom_fast_1p32V_m40C": ["pdk_dir::libs.ref/sg13cmos5l_sram/lib/RM_IHPSG13_1P_512x32_c2_bm_bist_fast_1p32V_m55C.lib"],
+        "nom_slow_1p08V_125C": ["pdk_dir::libs.ref/sg13cmos5l_sram/lib/RM_IHPSG13_1P_512x32_c2_bm_bist_slow_1p08V_125C.lib"]
+      },
+      "instances": {
+        "core.table_ram.ram_a": {"location": [3.36, 3.78], "orientation": "FS"},
+        "core.table_ram.ram_b": {"location": [3.36, 340.2], "orientation": "N"}
+      }
+    }
+  },
+
+  "//halo": "Standard cells keep 2 um from the SRAM's sides (NWell spacing at its edge) and 0.48 um from its top and bottom (Pettit).",
+  "FP_MACRO_HORIZONTAL_HALO": 2.0,
+  "FP_MACRO_VERTICAL_HALO": 0.48,
+
+  "//obstructions": "No signal routing over the SRAMs on Metal2 to Metal4, except a 2.6 um band at each pin edge. The LEF already obstructs most of it; this also keeps the router off the Metal4 supply columns (Pettit).",
+  "ROUTING_OBSTRUCTIONS": [
+    "Metal2 3.36 3.78 420.0 192.5",
+    "Metal3 3.36 3.78 420.0 192.5",
+    "Metal4 3.36 3.78 420.0 192.5",
+    "Metal2 3.36 342.8 420.0 531.54",
+    "Metal3 3.36 342.8 420.0 531.54",
+    "Metal4 3.36 342.8 420.0 531.54"
+  ],
+
+  "//pdn": "The tile grid is vertical Metal4 only. Width 2.1 + spacing 3.52 = 5.62 um, the SRAM's VDD!-to-VSS! column pitch; offset 6.15 centres the first VPWR stripe at 9.03 um (Pettit). pdn_cfg.tcl is LibreLane's without the per-macro grid, which fails on a one-layer grid (PDN-0233).",
+  "FP_PDN_VSPACING": 3.52,
+  "FP_PDN_VOFFSET": 6.15,
+  "PDN_CFG": "dir::pdn_cfg.tcl",
+
+  "//pdn_macro": "The SRAM has two supplies on VPWR (VDD! for its periphery, VDDARRAY! for the bit cells) and VSS! on VGND, so each instance gets two lines.",
+  "PDN_MACRO_CONNECTIONS": [
+    "core\\.table_ram\\.ram_a VPWR VGND VDD! VSS!",
+    "core\\.table_ram\\.ram_a VPWR VGND VDDARRAY! VSS!",
+    "core\\.table_ram\\.ram_b VPWR VGND VDD! VSS!",
+    "core\\.table_ram\\.ram_b VPWR VGND VDDARRAY! VSS!"
+  ],
+
+  "//pdn_check": "pdngen's grid check runs before Protoemu.ExtendPowerStripes connects the SRAM columns, so it reports them; LVS and the IR drop report are the verdict (Pettit).",
+  "ERROR_ON_PDN_VIOLATIONS": 0,
+
+  "//stripes": "Protoemu.ExtendPowerStripes: each grid stripe crossing an SRAM moves onto its nearest free supply column of the same polarity, each region of the macro gets whole pairs, and each bit-cell array gets a pair on every other column pair. The tile's signal pins are placed after this step, so it cannot steer around them: like the grid's own stripes, the column stripes stop at the core edge (y 706.86), 2.8 um below the pins at the top edge, and the router jogs around them. This is the setting Pettit's submission signed off with.",
+  "EXTEND_STRIPES_SRAM_ALL_COLUMNS": false,
+  "EXTEND_STRIPES_SRAM_ARRAY_EVERY_OTHER": true,
+  "EXTEND_STRIPES_PIN_FACE_MARGIN": 0,
+
+  "//drc": "protoemu changes the template here. Magic DRC is off: it took 44 of the empty template's 50 GDS minutes, and it judges the SRAM from its abstract (Pettit turned it off for that reason). The precheck's KLayout CMOS5L deck is the DRC sign-off.",
+  "RUN_MAGIC_DRC": 0,
+  "//overlap": "Magic's extraction sees the SRAM LEF's Metal4 obstruction bar at the VDD!/VDDARRAY! break (LEF y 39.1-45.2) under every stripe that bridges the two; the GDS has no metal there and both pins are VPWR. Pettit counted 22 such overlaps with clean KLayout DRC and LVS, and waived the check.",
+  "ERROR_ON_ILLEGAL_OVERLAPS": 0,
+
+  "//antenna": "Protoemu.DiodesOnSramPins puts one diode beside each of the 156 input pins of each SRAM, as Pettit's flow does; the flow's rule-based repair (RUN_ANTENNA_REPAIR) still covers every other net. The SRAM LEF carries antenna data on every input, but Pettit found the rule-based repair did not always protect the nets driving the macro, and calls the diodes cheap insurance. The step reads DIODE_CELL as cell/pin, LibreLane's documented format; the PDK default lacks the pin.",
+  "DIODE_CELL": "sg13cmos5l_antennanp/A"
 }
