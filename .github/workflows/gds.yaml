@@ -45,8 +45,11 @@ jobs:
 
   viewer:
     needs: gds
-    # protoemu: the public Pages viewer shows main's layout only, never an unmerged branch's.
+    # protoemu: the public Pages viewer shows main's layout only, never an unmerged branch's. Two locks: the
+    # condition, and the github-pages environment's main-only rule, which binds only a job that names it (the
+    # electrical-fix branch deployed past it in run 44111759734).
     if: github.ref == 'refs/heads/main'
+    environment: github-pages
     runs-on: ubuntu-24.04
     permissions:
       pages: write # to deploy to Pages
