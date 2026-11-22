@@ -15,7 +15,7 @@ import cocotb
 
 from bench import boot, now
 from host_link import ST_OVERFLOW
-from protocols import crc, eth10, i2c, ps2, usb_ls, ws2812
+from protocols import crc, eth10, i2c, ps2, usb_ls
 from protocols.wave import CLK, EPS, US, bits_lsb
 
 P0, P1, P2 = 0, 1, 2
@@ -82,16 +82,6 @@ async def gap_ps2_rx_resync(dut):
     again, _ = ps2.frame(P0, P1, 0x5A, start + 2000 * US, 16.7, late=False)
     await chip.board.play(cut + again)
     await chip.expect(ch1=b"\x5a", within=100 * US)
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_ws2812_v5(dut):
-    """ws2812_tx against WS2812B V5: a 0 is high 380 ns at most, and 280 us low latches."""
-    chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
-    chip.send(b"\x01\x0f\xf0\x55")
-    await chip.wait(350 * US)
-    got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), ws2812.WS2812B_V5)
-    assert got == [b"\x0f\xf0\x55"], "the line carried %s" % [g.hex() for g in got]
 
 
 @cocotb.test(timeout_time=10, timeout_unit="ms")

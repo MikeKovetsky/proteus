@@ -5,8 +5,8 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 67 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 2 min |
-| `make -B COCOTB_TEST_MODULES=known_gaps` | 12 known gaps, one test each. All fail until they are closed | about 40 s |
+| `make -B` | 70 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 2 min |
+| `make -B COCOTB_TEST_MODULES=known_gaps` | 11 known gaps, one test each. All fail until they are closed | about 40 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
 | `make mutants` | 21 planted bugs, one at a time; the lockstep suite must catch each | about 40 s |
 | `make lint` | Verilator lint of `src/`, every warning on | 1 s |

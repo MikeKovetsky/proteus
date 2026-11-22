@@ -15,7 +15,7 @@ import cocotb
 from bench import boot, now
 from host_link import PROGRAMS, ST_OVERFLOW
 from bakeoff.cand_table.compiler import compile_text
-from protocols import i2c, spi, uart
+from protocols import i2c, spi, uart, ws2812
 from protocols.wave import CLK, EPS, US, Wave, bytes_msb
 from test_scenarios import (ACKED, ADDRESS_W, I2C_100KHZ, I2C_FEW, SLOW_POLL, i2c_retimed, i2c_run, rng,
                             some_bytes, some_phase)
@@ -503,3 +503,49 @@ async def test_i2c_bus_free_slow_edges(dut):
     await chip.quiet([P0, P1], 10 * US, 50 * US)
     i2c.check(chip.board, P0, P1, i2c.STANDARD, chip.board.since)
     await chip.finish()
+
+
+# ---- WS2812
+
+
+@cocotb.test(timeout_time=4, timeout_unit="ms")
+async def test_ws2812_v5_frames(dut):
+    """ws2812_tx, two frames back to back: the V5 reads them, whose lows are 580 ns at least and whose latch is
+    280 us, and so does the first WS2812B."""
+    frames = [bytes([0x0F, 0xF0, 0x55, 0x00, 0xFF, 0x81]), bytes([0xAA, 0x01, 0xFE])]
+    chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
+    chip.send(b"".join(bytes([len(frame) // 3]) + frame for frame in frames))
+    await chip.sent(1000 * US)
+    await chip.quiet([P0], 350 * US, 1500 * US)  # longer than the latch, so it is after the last frame
+    chip.driven([P0])
+    for part in (ws2812.WS2812B_V5, ws2812.WS2812B):
+        got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), part)
+        assert got == frames, "a %s reads %s" % (part.name, [g.hex() for g in got])
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=3, timeout_unit="ms")
+async def test_ws2812_late_host(dut):
+    """ws2812_tx: a host that takes its time before the first bit breaks nothing. One that is late inside a
+    frame, or late with a whole pixel, is told so with 0x01 each time. Scenario 8's host is never late."""
+    chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0], poll=5 * US)
+    chip.send(b"\x02")
+    await chip.wait(50 * US)
+    assert not chip.task.received[2], "a frame that had not begun was reported late"
+    chip.send(b"\x10")
+    await chip.expect(ch2=b"\x01", within=40 * US)
+    chip.send(b"\x20\x30")
+    await chip.expect(ch2=b"\x01", within=100 * US)
+    chip.send(b"\x40\x50\x60")
+    await chip.quiet([P0], 330 * US, 1500 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_ws2812_v5(dut):
+    """ws2812_tx against WS2812B V5: a 0 is high 380 ns at most, and 280 us low latches."""
+    chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
+    chip.send(b"\x01\x0f\xf0\x55")
+    await chip.wait(350 * US)
+    got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), ws2812.WS2812B_V5)
+    assert got == [b"\x0f\xf0\x55"], "the line carried %s" % [g.hex() for g in got]

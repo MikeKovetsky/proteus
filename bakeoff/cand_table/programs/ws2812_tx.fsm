@@ -1,26 +1,35 @@
 # WS2812 LED data. Channel 0 gives [n][3n bytes], each byte MSB first.
-# A 0 is high for 24 clocks and low for 51; a 1 is high for 48 and low for 27. A bit is 75 clocks.
+# A bit is 75 clocks: a 0 is high for 19 and low for 56, a 1 high for 40 and low for 35. Those fit the first
+# WS2812B and the V5 (580 ns of low at least), which also needs 280 us of low to latch: the latch is 282 us.
+# A byte that comes too late to keep the bits 75 clocks apart still goes out, late, and gives 0x01 on channel 2:
+# the LEDs may have latched, or misread that frame.
 
 machine led
     out   DOUT=P0
     order msb
+    const LATCH = 16920              # 282 us
 
 idle:   DOUT=0, wait rx0
         N=pop0                       # pixels
-        goto pixel
+        => nz: latch
+        wait rx0                     # nothing is late before the first bit
+        J=2, N-=1                    # the bytes of this pixel after the first
+        S=pop0, K=8
 
 # Every bit: high, then low with the timer set to end the bit at clock 75. Whatever has to happen
 # between two bits (next byte, next pixel) happens while the timer runs, so the bit time stays exact.
-bit:    DOUT=1, hold 24 => d: one    # clocks 0-23: every bit starts high
-        DOUT=0, shift, K-=1, T=49    # clock 24: a 0 goes low here
+bit:    DOUT=1, hold 19 => d: one    # clocks 0-18: every bit starts high
+        DOUT=0, shift, K-=1, T=54    # clock 19: a 0 goes low here
         goto low
-one:    hold 24                      # clocks 24-47: a 1 stays high
-        DOUT=0, shift, K-=1, T=25    # clock 48: and goes low here
+one:    hold 21                      # clocks 19-39: a 1 stays high
+        DOUT=0, shift, K-=1, T=33    # clock 40: and goes low here
 low:    => kz: byte                  # eight bits sent: the shifter is empty
 rest:   wait tz => bit
 byte:   => jz: pixel | load          # three bytes sent: the pixel is done
 pixel:  => nz: latch                 # no pixels left
         J=3, N-=1
-load:   wait rx0
-        S=pop0, K=8, J-=1 => rest
-latch:  hold 3000 => idle            # the LEDs take the data after 50 us of low
+load:   wait => tz: late | rx0: fetch
+late:   push2=1                      # the bit is over and its next byte is not here
+        wait rx0
+fetch:  S=pop0, K=8, J-=1 => rest
+latch:  hold LATCH => idle           # the LEDs take the data
