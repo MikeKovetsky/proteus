@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""The CI wiring that the layout gates and the public viewer rely on (.github/workflows), read as text."""
+"""The CI wiring that the suites, the layout gates and the public viewer rely on (.github/workflows), read as text."""
 import os
 import re
 import unittest
@@ -16,6 +16,13 @@ SUITES = (
     "python3 docs/examples/run_uart_8e1.py",
     "make -C test mutants",  # runs lockstep first
 )
+SUITES_SETUP = [
+    ["uses: actions/checkout"],
+    ["run: sudo apt-get update && sudo apt-get install -y verilator"],
+    ["uses: actions/setup-python", "with:", "python-version: '3.11'"],
+    ["run: pip install -r test/requirements.txt"],  # test/Makefile needs cocotb-config for every target
+]
+EVEN_AFTER_A_FAILURE = "if: ${{ !cancelled() }}"  # the job still fails
 
 
 def workflows():
@@ -34,6 +41,18 @@ def jobs(workflow):
 
 def steps(job):
     return re.split(r"^      - ", job.split("    steps:\n", 1)[1], flags=re.M)[1:]
+
+
+def keys(text, indent):
+    """Everything set at this indent, as written: "if", 'if' and `if ` count too."""
+    return re.findall(r"(?m)^ {%d}([^\s#][^:\n]*)" % indent, text)
+
+
+def code(step):
+    """A step's lines, without its name, its comments and its action's version."""
+    lines = (line.strip() for line in step.splitlines())
+    kept = [line for line in lines if line and not line.startswith(("#", "name: "))]
+    return [re.sub(r"^(uses: [^@]+)@.*", r"\1", line) for line in kept]
 
 
 class Workflows(unittest.TestCase):
@@ -62,17 +81,20 @@ class Workflows(unittest.TestCase):
 
     def test_ci_runs_these_tests(self):
         test = jobs(dict(workflows())["test.yaml"])["test"]
-        self.assertRegex(test, r"(?m)^        run: python3 -m unittest discover -s test/flow\b")
+        self.assertEqual(keys(test, 4), ["runs-on", "steps"])
+        self.assertIn(["run: python3 -m unittest discover -s test/flow -v"], [code(step) for step in steps(test)])
         self.assertNotRegex(test, r"(?m)^ *continue-on-error:")
 
     def test_every_push_runs_the_suites(self):
         workflow = dict(workflows())["test.yaml"]
         self.assertRegex(workflow, r"(?m)^on: \[push\b")
+        # Exact, because much can skip a suite or hide its failure: if, needs, continue-on-error, a shell,
+        # concurrency (cancels runs) and env (MAKEFLAGS=-i makes make ignore failures), at any of three levels.
+        self.assertEqual(keys(workflow, 0), ["name", "on", "jobs"])
         suites = jobs(workflow)["suites"]
-        for command in SUITES:
-            self.assertRegex(suites, r"(?m)^        run: %s$" % re.escape(command))
-        # Nothing may skip a suite or let one fail quietly.
-        self.assertNotRegex(suites, r"(?m)^[ -]*(if|continue-on-error|shell):")
+        self.assertEqual(keys(suites, 4), ["runs-on", "timeout-minutes", "steps"])
+        self.assertEqual([code(step) for step in steps(suites)],
+                         SUITES_SETUP + [[EVEN_AFTER_A_FAILURE, "run: " + command] for command in SUITES])
 
 
 if __name__ == "__main__":

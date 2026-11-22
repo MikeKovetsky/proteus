@@ -51,7 +51,7 @@ jobs:
             test/output/*
 
   # protoemu: the golden model, its compiler and the RTL against the model. A job of its own, so that a failure
-  # here and one in the pin tests each show.
+  # here and one in the pin tests each show. Inside it, every suite runs, also after one has failed.
   suites:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -67,20 +67,30 @@ jobs:
         with:
           python-version: '3.11'
 
+      # For `make -C test mutants`: test/Makefile includes cocotb's makefiles, whatever the target.
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt
+
       - name: Compiler tests
+        if: ${{ !cancelled() }}
         run: python3 -m bakeoff.cand_table.test_compiler
 
       - name: Benches' self-test
+        if: ${{ !cancelled() }}
         run: python3 -m bakeoff.harness.selftest
 
       - name: Golden model's self-check
+        if: ${{ !cancelled() }}
         run: python3 -m bakeoff.cand_table.selfcheck
 
       - name: All benches on the golden model
+        if: ${{ !cancelled() }}
         run: python3 -m bakeoff.run --candidate cand_table --strict
 
       - name: The programming guide's example
+        if: ${{ !cancelled() }}
         run: python3 docs/examples/run_uart_8e1.py
 
       - name: Lockstep and its planted bugs
+        if: ${{ !cancelled() }}
         run: make -C test mutants
