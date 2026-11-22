@@ -12,6 +12,8 @@ WORKFLOWS = os.path.join(fakes.ROOT, ".github", "workflows")
 
 def workflows():
     for name in sorted(os.listdir(WORKFLOWS)):
+        if not name.endswith((".yaml", ".yml")):  # GitHub reads only these, and macOS leaves .DS_Store about
+            continue
         with open(os.path.join(WORKFLOWS, name), encoding="utf8") as f:
             yield name, f.read()
 
