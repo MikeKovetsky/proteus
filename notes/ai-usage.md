@@ -162,3 +162,9 @@ A dated log, written as the work happens. The verification write-up's AI section
     branch, because nothing had shown the suite working on the routed netlist. It also found that the program-fix
     agent had changed an existing test's expectation. The main session's brief had asked for that behaviour
     without Mike's decision, so the main session ordered it reverted and left the decision to Mike.
+36. **The program fixes and CI.** An AI firmware agent closed 13 of the 18 known gaps in programs alone. Its audit
+    found more changed expectations than the one the main session caught, and it took all of them back by
+    replaying the work on the reviewed tests. For Ethernet jitter it built two frames that no receiver sampling at
+    60 MHz can tell apart, instead of tuning the program to the test. The main session re-ran the suites,
+    compared every gap test's body by syntax tree and left the five open gaps to Mike. It also put the compiler,
+    model and lockstep suites into CI on a branch. Both changes went to fresh Opus 5.5 reviewers at max effort.

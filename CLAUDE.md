@@ -82,7 +82,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 |---|---|---|---|
 | R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
-| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
+| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program. All of these are fixed in simulation on `program-fixes-on-pins`, which is in review and not on `main` ("Open work", 5) |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` checks only the cell types, which does not prove freedom from power-up values); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) at 16.6 ns, the slew fix's build, on extracted parasitics: worst setup slack 4.0960 ns (slow corner), worst hold slack 0.0955 ns (fast corner), and 0 setup, hold, slew and capacitance violations in all three corners, so timing at the SRAM pins is no longer extrapolated. `main`'s own build, [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811) on `c2912e7`, gives the same figures. 97 max-fanout warnings remain and do not fail the build |
@@ -218,17 +218,25 @@ make it novel". The main session's reading of it:
    never run on the routed netlist, with IHP's cell models or on cocotb 2.0.1, and proving that here needs about
    5.2 MB of downloads, which wait for Mike's yes. The rest is fixed: 28 of 28 pass on RTL, each limit names its
    source, and `test/known_gaps.py` holds 18 failing reproductions. The branch is unmarked, so it is not pushed.
-5. **The program fixes (branch `program-fixes`).** UART, SPI and I2C come first (R3), then the gaps in USB,
-   Ethernet, 1-Wire, PS/2 and WS2812. Whatever needs an RTL change is reported, not worked around. What counts as
-   correct is Mike's: the branch had turned a request with nothing to write into a plain I2C read, against
-   scenario 7 and an existing test, because the main session's brief asked for it. That is being reverted until
-   Mike decides, and the branch lists its other additions to the scenarios for Mike.
+5. **The program fixes (branch `program-fixes-on-pins`, on the pin tests, in full review since 2026-11-22).** 13 of
+   the 18 gaps are closed. The main session re-ran `6330670` merged with `main` on this Mac: 103 of 103 pin tests
+   pass, the 5 open gaps fail as intended, and the frozen tests and the bodies of all 18 gap tests are unchanged.
+   1. Four open gaps contradict a scenario's text, so only Mike closes them: a plain I2C read (scenario 7), USB
+      handshake packets sent and received (11 and 12), and Ethernet link pulses (13). The plain read that the main
+      session's wrong brief asked for is undone, and the scenarios stay as written until Mike decides.
+   2. The fifth is Ethernet receive jitter. `test/eth10_jitter_limit.py` on the branch builds two different good
+      frames with the same samples at 60 MHz from 8.4 ns of jitter, against 13.5 ns in data sheets (IEEE 802.3
+      was not read), so a full fix needs finer sampling in the RTL. That change is not built.
+   3. The behaviour the programs add where a scenario is silent (status bytes, stalls) is listed for Mike by the
+      review. An Ethernet transmit length of 0 is a new bug with no gap test, left by the builder.
 6. **The proofs (branch `formal`).** The reset and instruction proofs, the host link in `src/project.v`, and
    mutation coverage are being built.
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
    container engine and is not needed while CI builds in about 40 minutes.
-8. **CI runs too little.** It runs the pin tests, docs and layout, and not the compiler's tests, lockstep, the
-   bake-off or the self-checks. They go into `test.yaml` next, now that the slew fix, which edits that file, has landed.
+8. **CI runs too little (branch `ci-checks`, in full review since 2026-11-22).** On `main`, CI runs the pin
+   tests, flow tests, docs and layout. The branch adds a job for the compiler's tests, the bake-off, both
+   self-checks, the guide's example and lockstep with its planted bugs. It also corrects three overclaims, in
+   `info.yaml`, `lockstep.cpp` and a comment in `config.json`. It has not run on GitHub yet.
 
 ### Layout (target)
 
@@ -280,7 +288,7 @@ synthesized.
 | Receive sweeps beyond the benches | 1,160 runs, 0 failed | 1,160 runs, 0 failed; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (reported by the reviewer, with no script kept) |
 | Weakest point | Closest to RP2040 PIO | Slow on someone else's clock: its SPI target passes at 4.3 MHz and fails at 4.6 MHz | Large programs, and 4 protocols share one decision rate |
 
-**Decision.** Mike, 2026-11-16: "Table-driven". The reasons given to him: novelty decides the tape-out and the
+**Decision.** Mike, 2026-11-16: "Table-driven". The reasons given to Mike: novelty decides the tape-out and the
 other entries found build PIO-style machines; it decides on every clock; 13 of its 14 programs passed the first
 time they ran; and it has the smallest logic. The alternative offered was `cand_pio`, the most robust and least
 novel.
