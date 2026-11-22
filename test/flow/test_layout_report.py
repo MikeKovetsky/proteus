@@ -176,11 +176,12 @@ class Report(unittest.TestCase):
             self.assertIn("MISSING", text)
 
     def test_missing_sta_log_fails(self):
-        self.layout()
-        os.remove(os.path.join(self.run_dir, STEP, SLOW, "sta.log"))
-        text, status = self.result()
-        self.assertEqual(status, 1)
-        self.assertIn("FAIL: %s: no max slew figure" % SLOW, text)
+        for corner in CORNERS:
+            self.layout()
+            os.remove(os.path.join(self.run_dir, STEP, corner, "sta.log"))
+            text, status = self.result()
+            self.assertEqual(status, 1, corner)
+            self.assertIn("FAIL: %s: no max slew figure" % corner, text)
 
     def test_a_figure_only_counts_at_the_start_of_a_line_and_under_its_own_corner(self):
         key = "design__max_slew_violation__count__corner:" + SLOW
@@ -193,7 +194,7 @@ class Report(unittest.TestCase):
         self.assertEqual(self.result()[1], 1)
 
     def test_figure_that_is_not_a_number_fails(self):
-        for value in (None, "", "1.5", "n/a"):
+        for value in (None, "", "0.0", "0 0", "n/a"):
             metrics = clean_metrics()
             metrics["design__max_cap_violation__count__corner:" + SLOW] = value
             self.layout(metrics)
@@ -253,14 +254,12 @@ class Report(unittest.TestCase):
         self.assertIn("final/metrics.json: none", text)
 
     def test_mid_pnr_figures_never_stand_in(self):
+        # First the pre-PNR step alone, as after a run that stopped early, then a mid-PNR one too.
         for step in ("12-openroad-staprepnr", "45-openroad-stamidpnr-3"):
-            self.write(step + "/state_out.json", {"metrics": clean_metrics()})
-            for corner in CORNERS:
-                self.write(os.path.join(step, corner, "sta.log"), sta_log(clean_metrics(), corner))
-        self.write("final/metrics.json", dict(clean_metrics(), **SIGN_OFF))
-        text, status = self.result()
-        self.assertEqual(status, 1)
-        self.assertIn("no post-PNR timing figures", text)
+            self.layout(step=step)
+            text, status = self.result()
+            self.assertEqual(status, 1, step)
+            self.assertIn("no post-PNR timing figures", text)
 
     def test_empty_absent_or_broken_run_fails(self):
         self.assertEqual(self.result()[1], 1)

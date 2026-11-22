@@ -273,12 +273,14 @@ class Flow(unittest.TestCase):
 
     def test_buffers_before_hold_repair_and_diodes_after(self):
         steps = config()["meta"]["substituting_steps"]
+        self.assertEqual(steps["+OpenROAD.GeneratePDN"], "Protoemu.ExtendPowerStripes")
         self.assertEqual(steps["+OpenROAD.CTS"], "Protoemu.BuffersOnSramPins")
         self.assertEqual(steps["+OpenROAD.ResizerTimingPostCTS"], "Protoemu.DiodesOnSramPins")
         for step in steps.values():
             self.assertIn(step, STEPS)
-        self.assertEqual([s.id for s in STEPS["Protoemu.BuffersOnSramPins"].Steps],
-                         ["Protoemu.SramPinBufferPlacement", "OpenROAD.DetailedPlacement"])
+        for step, script_step in (("Protoemu.BuffersOnSramPins", "Protoemu.SramPinBufferPlacement"),
+                                  ("Protoemu.DiodesOnSramPins", "Protoemu.SramPinDiodePlacement")):
+            self.assertEqual([s.id for s in STEPS[step].Steps], [script_step, "OpenROAD.DetailedPlacement"])
 
     def test_slew_and_cap_violations_fail_every_corner(self):
         self.assertEqual(config()["MAX_SLEW_VIOLATION_CORNERS"], ["*"])
