@@ -85,8 +85,9 @@ loader byte after the load. It stays set until reset.
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 27 tests in about 45 seconds. The same tests
-run on a gate-level netlist (`GATES=yes`) in minutes: so far on generic gates, not yet on the routed netlist.
+The default test runs the whole chip through its 24 pins on Icarus: 28 tests in about 50 seconds. The same tests
+run on a gate-level netlist (`GATES=yes`) in minutes: so far on a synthesised netlist with stand-in cell models, not
+yet on the routed netlist or under CI's cocotb.
 
 ```sh
 cd test
@@ -107,24 +108,27 @@ were written from each protocol's definition and share no code with the golden m
 | `ws2812_tx` | WS2812B pulse widths and the 50 us latch |
 | `onewire` | Reset, presence at both ends of its range, slot timing, and Read ROM with a good and a bad CRC-8 |
 | `ps2_rx` | A device at 10, 12.5 and 16.7 kHz, and one bad parity |
-| `usb_ls_tx`, `usb_ls_rx` | NRZI, stuffing, CRC-16, EOP and turnaround; receive at 1.5% off with the allowed jitter |
-| `eth10_tx`, `eth10_rx` | Manchester, TP_IDL, gap and FCS up to a full frame, in real time; receive at 200 ppm off |
+| `usb_ls_tx`, `usb_ls_rx` | NRZI, stuffing, CRC-16, EOP and packet spacing; receive at 1.5% off with a device's and a host's allowed jitter |
+| `eth10_tx`, `eth10_rx` | Manchester, TP_IDL, gap and FCS up to a full frame, in real time; receive at 200 ppm off with 5.5 ns of jitter |
 
-One test checks the judges' CRCs against the RevEng catalogue's check values and codewords, and three more run I2C
-with the slowest edges and at 400 and 100 kHz. The seven in `test/test.py` cover what the scenarios do not: the
-loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the
-SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which Icarus runs past when nothing
-answers on its stdin, as in CI).
+The transmit tests also require each push-pull pin to be driven, because a pin left to its pull reads the same.
+One test checks the judges' CRCs against the RevEng catalogue's check values and codewords. Four more run I2C on
+fast mode's slowest edges, with a late host and, with sharp edges, at 400 and 100 kHz. The seven in `test/test.py`
+cover what the scenarios do not: the loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads'
+three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which
+Icarus runs past when nothing answers on its stdin, as in CI).
 
 What the shipped programs do not yet do:
 
-1. I2C runs at about 350 kHz. The tests reach 400 and 100 kHz only by replacing the program's two timing
-   constants before compiling it.
-2. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses a transmitter's 3.5 ns.
-   Ethernet transmit sends no link pulses.
-3. A host that falls behind a transmit program gets zeros on the wire and no flag. On Ethernet they go out under
-   a valid FCS.
-4. `test/known_gaps.py` has these and the other gaps, 17 tests that fail until each is closed:
+1. I2C runs at about 355 kHz. The tests reach 400 and 100 kHz only by replacing the program's two timing
+   constants before compiling it, and then only with sharp edges: on a slow bus it breaks tBUF, the free time
+   between STOP and START.
+2. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
+   sending station may add. Ethernet transmit sends no link pulses.
+3. The SPI programs (both roles) and the USB and Ethernet transmit programs do not wait for a host that falls
+   behind: zeros go out and no flag is raised, on USB and Ethernet under a valid CRC. UART and I2C wait safely.
+   WS2812 waits with the line low, so a host over 50 us late makes the LEDs latch part of a frame, with no flag.
+4. `test/known_gaps.py` has these and the other gaps, 18 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
