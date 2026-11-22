@@ -83,11 +83,40 @@ once shows its answer 3 clocks later: two in, one out through the pad register.
 It is set by a machine pushing into a full channel 1 or 2, by the host writing to a full channel 0 or 3, or by a
 loader byte after the load. It stays set until reset.
 
+## The programs
+
+`bakeoff/cand_table/programs/` has one source per image, and each file's header says what the host sends and what
+it gets back on channel 1 (data) and channel 2 (status).
+
+| Programs | What they do | Status on channel 2 |
+|---|---|---|
+| `uart_tx_9600`, `uart_tx`, `uart_tx_921600` | 8N1 transmit at 9600, 115200 and 921600 baud | None |
+| `uart_rx_9600`, `uart_rx`, `uart_rx_921600` | 8N1 receive at the same three rates | `0x01` for a frame whose stop bit is 0 |
+| `uart_3m` | 8N1 both ways at once at 3 Mbaud | `0x01` for a frame whose stop bit is 0 |
+| `spi_ctrl_m0`, `_m1`, `_m2`, `_m3` | SPI controller in modes 0 to 3 at 5 MHz. The clock waits for a late host | None |
+| `spi_target_m0` | SPI target in mode 0 | `0x01` for each byte clocked out with none queued (it is `0x00`) |
+| `i2c_ctrl`, `i2c_ctrl_100k` | I2C controller at 400 and at 100 kHz: a write then a read, or a write alone when the read count is 0 | `0x00` done, `0x01` NACK, `0x02` bus stuck |
+
+What to know before using them:
+
+1. **UART rates** are one constant, `BIT` (60 MHz / baud). With one machine the 16-bit timer takes transmit down
+   to 916 baud and receive down to 1,374; the compiler refuses a lower one. 921,600 baud is 65 clocks a bit,
+   0.16% slow. Apart from `uart_3m` and the four-machine program, each UART image is one direction.
+2. **The SPI target takes a byte from channel 0 early**, as the last bit of the byte before it is sampled, to
+   have it ready for the next falling edge. A byte the host queues later waits for the byte after. A byte is kept
+   when CS rises before its first clock, and dropped, in both directions, when CS rises inside it.
+3. **I2C is a single controller** with 7-bit addresses. A read always follows address+W and a repeated START,
+   even with nothing to write, as scenario 7 asks: it cannot read a target that will not take its write address.
+   It gives up on an SCL held low for 25 ms. It also gives `0x02`, and does not clock the bus free, when SDA is
+   low before START or at STOP. While it waits for the host's next byte in a write, it holds SCL low for as long
+   as that takes.
+4. **`extra/four_at_once`** drops a UART byte whose stop bit is 0 without a report: channel 2 is PS/2's there.
+
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 28 tests in about 50 seconds. The same tests
-run on a gate-level netlist (`GATES=yes`) in minutes: so far on a synthesised netlist with stand-in cell models, not
-yet on the routed netlist or under CI's cocotb.
+The default test runs the whole chip through its 24 pins on Icarus: 67 tests in about 2 minutes. They are
+written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
+stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
 ```sh
 cd test
@@ -102,9 +131,9 @@ were written from each protocol's definition and share no code with the golden m
 | Scenario | What the test requires |
 |---|---|
 | `uart_tx`, `uart_rx`, `uart_3m` | 8N1 at 115200 and 3 Mbaud, both ways at once at 3M, edges and senders within 2% |
-| `spi_ctrl_m0`, `spi_ctrl_m3` | 5 MHz: period, phase, CS lead and trail, setup and hold; a target up to 50 ns late |
+| `spi_ctrl_m0`, `spi_ctrl_m3` | 5 MHz: period, phase, CS lead and trail, setup and hold; a target up to 50 ns late (modes 1 and 2 too) |
 | `spi_target_m0` | A 2 MHz controller; MISO stable round the sampling edge and released with CS high |
-| `i2c_ctrl` | UM10204's controller timing, clock stretching, repeated START, a NACK at each place one can come |
+| `i2c_ctrl` | UM10204's controller timing (`i2c_ctrl_100k` too), stretching, every form of request, each place a NACK can come |
 | `ws2812_tx` | WS2812B pulse widths and the 50 us latch |
 | `onewire` | Reset, presence at both ends of its range, slot timing, and Read ROM with a good and a bad CRC-8 |
 | `ps2_rx` | A device at 10, 12.5 and 16.7 kHz, and one bad parity |
@@ -113,22 +142,23 @@ were written from each protocol's definition and share no code with the golden m
 
 The transmit tests also require each push-pull pin to be driven, because a pin left to its pull reads the same.
 One test checks the judges' CRCs against the RevEng catalogue's check values and codewords. Four more run I2C on
-fast mode's slowest edges, with a late host and, with sharp edges, at 400 and 100 kHz. The seven in `test/test.py`
-cover what the scenarios do not: the loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads'
-three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which
-Icarus runs past when nothing answers on its stdin, as in CI).
+fast mode's slowest edges, with a late host and, with sharp edges, retimed to 400 and 100 kHz.
+`test/test_programs.py` holds the programs to the section above: the other UART rates and SPI modes, both I2C
+programs as shipped with the sharpest and slowest edges and the time-out, bad stop bits, queued bytes and late
+hosts. The seven in `test/test.py` cover what the scenarios do not: the loader with reset and reload, both host
+ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model reports a
+wrong tie only with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in CI).
 
 What the shipped programs do not yet do:
 
-1. I2C runs at about 355 kHz. The tests reach 400 and 100 kHz only by replacing the program's two timing
-   constants before compiling it, and then only with sharp edges: on a slow bus it breaks tBUF, the free time
-   between STOP and START.
-2. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
+1. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
    sending station may add. Ethernet transmit sends no link pulses.
-3. The SPI programs (both roles) and the USB and Ethernet transmit programs do not wait for a host that falls
-   behind: zeros go out and no flag is raised, on USB and Ethernet under a valid CRC. UART and I2C wait safely.
-   WS2812 waits with the line low, so a host over 50 us late makes the LEDs latch part of a frame, with no flag.
-4. `test/known_gaps.py` has these and the other gaps, 18 tests that fail until each is closed:
+2. The USB and Ethernet transmit programs do not wait for a host that falls behind: zeros go out and no flag is
+   raised, under a valid CRC. WS2812 waits with the line low, so a host over 50 us late makes the LEDs latch part
+   of a frame, with no flag.
+3. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
+   changing it waits for Mike's decision.
+4. `test/known_gaps.py` has these and the other gaps, 12 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random

@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 BIT = 60_000_000 / 115200  # 520.83 clocks: the true bit time, not the program's rounded 521
 TX_PIN, RX_PIN = 0, 1
 TX_DATA = bytes([0x00, 0x55, 0xA7, 0xFF, 0x31, 0x80])  # what the host gives the transmitter
-RX_FRAMES = [(0x12, False), (0xC3, False), (0x5A, True), (0x7E, False), (0x80, False)]  # True: wrong parity
+RX_FRAMES = [(0x12, ""), (0xC3, ""), (0x5A, "parity"), (0x7E, ""), (0x2D, "stop"), (0x80, "")]  # and what is wrong
 
 
 def parity(byte: int) -> int:
@@ -33,9 +33,11 @@ def parity(byte: int) -> int:
     return bin(byte).count("1") & 1
 
 
-def frame(byte: int, wrong_parity: bool = False) -> List[int]:
-    """One 8E1 frame as line levels, one per bit: start, 8 data bits LSB first, parity, stop."""
-    return [0] + [(byte >> n) & 1 for n in range(8)] + [parity(byte) ^ wrong_parity, 1]
+def frame(byte: int, wrong: str = "") -> List[int]:
+    """One 8E1 frame as line levels, one per bit: start, 8 data bits LSB first, parity, stop. `wrong` names the
+    bit to spoil. A stop bit of 0 gets one bit of high line after it, so that a start bit can follow."""
+    end = [0, 1] if wrong == "stop" else [1]
+    return [0] + [(byte >> n) & 1 for n in range(8)] + [parity(byte) ^ (wrong == "parity")] + end
 
 
 def decode(wave: List[int], pin: int) -> Tuple[bytes, List[str]]:

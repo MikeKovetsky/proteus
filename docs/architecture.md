@@ -279,8 +279,8 @@ Tiny Tapeout's flow in CI.
 
 ## Limits
 
-1. **512 entries for all machines together,** and a state is 8 bytes. Copies add up: the I2C controller's 89
-   states take 94 entries (771 bytes). One subroutine level (`call`, `ret`) is the main way to share code.
+1. **512 entries for all machines together,** and a state is 8 bytes. Copies add up: the I2C controller's 92
+   states take 101 entries (827 bytes). One subroutine level (`call`, `ret`) is the main way to share code.
 2. **Two conditions per state.** A decision on three things takes two states, so two clocks.
 3. **One byte on the bus, one LFSR operation and one immediate per state,** and two pin operations.
 4. **Small counters:** K and J hold 15 at most and S holds 8 bits, so longer words need nested counters and a
@@ -306,4 +306,4 @@ Tiny Tapeout's flow in CI.
 | [bakeoff/cand_table/chip.py](../bakeoff/cand_table/chip.py) | The golden model: the RTL core matches it on every clock of the recorded traces ([test/README.md](../test/README.md)) |
 | [bakeoff/cand_table/entry.py](../bakeoff/cand_table/entry.py) | The entry's fields and the image format, shared by the compiler and the model |
 | [bakeoff/cand_table/compiler.py](../bakeoff/cand_table/compiler.py) | The compiler |
-| [bakeoff/cand_table/programs/](../bakeoff/cand_table/programs/) | The 14 bench programs and the four-machine program |
+| [bakeoff/cand_table/programs/](../bakeoff/cand_table/programs/) | The 14 bench programs, more rates and modes of them, and the four-machine program |

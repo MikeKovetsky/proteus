@@ -5,8 +5,8 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 28 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`), on Icarus | about 50 s |
-| `make -B COCOTB_TEST_MODULES=known_gaps` | 18 known gaps, one test each. All fail until they are closed | about 45 s |
+| `make -B` | 67 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 2 min |
+| `make -B COCOTB_TEST_MODULES=known_gaps` | 12 known gaps, one test each. All fail until they are closed | about 40 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
 | `make mutants` | 21 planted bugs, one at a time; the lockstep suite must catch each | about 40 s |
 | `make lint` | Verilator lint of `src/`, every warning on | 1 s |
@@ -31,6 +31,7 @@ python3 -m cocotb_tools.check_results results.xml
 | `protocols/` | One judge per protocol: decoder, far end and limits, with the standard named at the top |
 | `test.py` | The host link, loader, reset, overflow and pad latency, counted in clocks |
 | `test_scenarios.py` | The 14 scenarios of `bakeoff/README.md`, the CRC references and four more I2C runs (edges, speeds, a late host) |
+| `test_programs.py` | The other rates and modes, the gaps that closed, and the errors the programs report. No scenario's expectation |
 | `known_gaps.py` | What the shipped programs get wrong or cannot do, not in the default run |
 
 1. **Only pins.** `test_scenarios.py` and `bench.py` use top-level ports only. `test.py` also reads the SRAMs'
@@ -40,9 +41,10 @@ python3 -m cocotb_tools.check_results results.xml
 3. **The clock.** It is 16,666 ps, 60.0024 MHz, the nearest period Icarus can toggle in whole picoseconds. (It
    was 16 ns, 62.5 MHz, which would make every absolute time 4% wrong.) `bench.py` counts one clock as exactly
    16.6667 ns, so a limit in ns or ppm is the limit of a chip at 60 MHz.
-4. **I2C speeds.** The shipped program runs at about 355 kHz with sharp edges and 320 kHz with 300 ns ones. The 400 and 100 kHz tests compile it with only
-   `LOW` and `HIGH` replaced (80 and 62, 310 and 285). No shipped image runs at either speed. Both run with 20 ns
-   edges only: with the slowest edges allowed they break tBUF (`gap_i2c_bus_free_slow_edges`).
+4. **I2C speeds and time-out.** `test_scenarios.py` retimes the program's two constants to 400 and 100 kHz (80
+   and 62, 310 and 285). `test_programs.py` runs `i2c_ctrl` and `i2c_ctrl_100k` as shipped at both speeds, up to
+   each mode's slowest edges. One test waits out the shipped 25 ms time-out, about 25 seconds of real time. The
+   test of every phase that can time out compiles the program with that shortened to 1.1 ms.
 5. **Ethernet receive runs below the standard's jitter.** Its test uses 5.5 ns, the most a whole sending station
    may add. A receiver must take 13.5 ns and this program loses frames from 8.5 ns (`gap_eth10_rx_jitter`).
 6. **Driven, not pulled.** A pin nobody drives reads as its pull, so the transmit tests also check that the chip
@@ -83,7 +85,8 @@ These figures are the tests' own choices, so no source can confirm them: the 2 n
 the Ethernet interframe gap from the end of TP_IDL.
 
 A gap test states what should happen, so it fails today, and a chip that does nothing passes none of them. When one
-passes, move it into `test_scenarios.py`. `gap_i2c_plain_read` contradicts scenario 7's wording, as its docstring says.
+passes, move it into `test_programs.py` with its body unchanged. A gap that contradicts a scenario's wording, as
+`gap_i2c_plain_read` does, waits for Mike instead. `test_scenarios.py` and `protocols/` don't change for a program.
 
 ## Gate-level simulation
 
@@ -95,14 +98,14 @@ the same tests can run on the netlist Yosys maps to IHP cells:
 3. Run `make -B GATES=yes PDK_ROOT=<a folder holding ihp-sg13cmos5l/libs.ref>`. The tests need the PDK's
    `sg13cmos5l_stdcell.v`, `sg13cmos5l_udp.v` and `sg13cmos5l_io.v`.
 
-All 28 tests are written to run there. On 2026-11-22 they passed on that mapped netlist under cocotb 2.1-dev, with
-stand-in cell models made from the liberty's logic functions: with zero delay, and with 0.08 ns gates and 0.6 ns
-flops (17 and 18 minutes of CPU on a busy laptop). With a delayed tie cell the SRAM model prints an `A_DLY` error
-at time 0 and runs on. That is the stand-in's doing.
+All the tests are written to run there. On 2026-11-22 an earlier 28 of them passed on that mapped netlist under
+cocotb 2.1-dev, with stand-in cell models made from the liberty's logic functions: with zero delay, and with 0.08 ns
+gates and 0.6 ns flops (17 and 18 minutes of CPU on a busy laptop). The programs have changed since. With a delayed
+tie cell the SRAM model prints an `A_DLY` error at time 0 and runs on. That is the stand-in's doing.
 
 They have **not** run on the routed netlist, with IHP's own cell models or under the cocotb 2.0.1 that CI installs.
-At the 3,700 clocks a second of CI's last 7-test gl_test, their 2.2 million clocks should take it about 10 minutes.
-That is an estimate, not a CI run.
+At the 3,700 clocks a second of CI's last 7-test gl_test, those 28 tests' 2.2 million clocks would have taken it
+about 10 minutes. The suite now simulates several times as long. Neither is a CI run.
 
 The SRAM model in `ihp_sram/` is IHP's own (its README says where it comes from), and both runs use it.
 

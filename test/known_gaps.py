@@ -6,7 +6,7 @@
 
 Every test here states what the protocol or the program's own interface asks for, so each one FAILS until
 its gap is closed, and a chip that does nothing at all passes none of them. They are not in the default run
-and weaken nothing there: when one passes, move it into test_scenarios.py.
+and weaken nothing there: when one passes, move it into test_programs.py, body unchanged.
 """
 
 import zlib
@@ -15,27 +15,12 @@ import cocotb
 
 from bench import boot, now
 from host_link import ST_OVERFLOW
-from protocols import crc, eth10, i2c, ps2, spi, uart, usb_ls, ws2812
-from protocols.wave import CLK, EPS, US, bits_lsb, bytes_msb
-from test_scenarios import I2C_100KHZ, i2c_retimed
+from protocols import crc, eth10, i2c, ps2, usb_ls, ws2812
+from protocols.wave import CLK, EPS, US, bits_lsb
 
-P0, P1, P2, P3 = 0, 1, 2, 3
-SPI_PINS = SCK, MOSI, MISO, CS = P0, P1, P2, P3
+P0, P1, P2 = 0, 1, 2
 USB_PINS = DP, DM = P0, P1
 DATA0, ACK = usb_ls.DATA0, usb_ls.ACK
-
-
-@cocotb.test(timeout_time=3, timeout_unit="ms")
-async def gap_i2c_write_only(dut):
-    """i2c_ctrl, [addr][1][byte][0]: a write with nothing to read must end. N wraps and it reads 65,536 bytes."""
-    chip = await boot(dut, "i2c_ctrl", open_drain=[P0, P1])
-    i2c.Target(chip.board, P0, P1, {0x50: b"\x11\x22"}, i2c.FAST, 0)
-    chip.send(bytes([0x50, 1, 0x77, 0]))
-    await chip.expect(ch2=b"\x00", within=300 * US)
-    await chip.quiet([P0, P1], 10 * US, 50 * US)
-    got, _ = i2c.check(chip.board, P0, P1, i2c.FAST, chip.board.since)
-    assert got == ["S A0+ 77+ P"], "the bus carried %s" % got
-    await chip.finish()
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")
@@ -51,67 +36,6 @@ async def gap_i2c_plain_read(dut):
     got, _ = i2c.check(chip.board, P0, P1, i2c.FAST, chip.board.since)
     assert got == ["S A1+ 11- P"], "the bus carried %s" % got
     await chip.finish()
-
-
-@cocotb.test(timeout_time=5, timeout_unit="ms")
-async def gap_i2c_bus_free_slow_edges(dut):
-    """i2c_ctrl retimed to 100 kHz on a bus with standard mode's longest rise, 1 us: tBUF must be 4.7 us. It is
-    4.25, as the program times it from letting SDA go and not from SDA high. At 400 kHz with 300 ns it is 1.12
-    of 1.3 us."""
-    rise = i2c.STANDARD.tr_max
-    chip = await boot(dut, i2c_retimed(**I2C_100KHZ), open_drain=[P0, P1], rise={P0: rise, P1: rise}, poll=2 * US)
-    i2c.Target(chip.board, P0, P1, {0x50: b"\x11\x22"}, i2c.STANDARD, rise)
-    chip.send(bytes([0x50, 1, 0x77, 1]) * 2)
-    await chip.expect(ch1=b"\x11\x22", ch2=b"\x00\x00", within=2000 * US)
-    await chip.quiet([P0, P1], 10 * US, 50 * US)
-    i2c.check(chip.board, P0, P1, i2c.STANDARD, chip.board.since)
-    await chip.finish()
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_spi_target_keeps_queued_byte(dut):
-    """spi_target_m0: two bytes queued, two 1-byte transactions. The second byte is popped after the first's last
-    bit and lost as CS rises, so the second transaction has nothing to drive."""
-    chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
-    chip.send(b"\xa5\x3c")
-    idle_since = chip.board.since
-    for want in (0xA5, 0x3C):
-        await chip.wait(3 * US)
-        events, rises, end = spi.controller_mode0(SPI_PINS, b"\x81", now() + 1 * US)
-        await chip.board.play(events)
-        await chip.wait(1 * US)
-        got = spi.check_target(chip.board.line[MISO], chip.board.chip[MISO], events[0][0], rises, end, idle_since)
-        assert got == bytes([want]), "MISO carried %s, expected %02x" % (got.hex(), want)
-        idle_since = end + spi.TARGET_DISABLE
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_spi_ctrl_samples_early(dut):
-    """spi_ctrl_m0: a target whose data is valid 20 ns before the rising edge of a 5 MHz clock is in order.
-    The controller sampled the pad 2 clocks (33 ns) before it raised SCK: with the board's 2 ns of pad delay,
-    anything valid under 35.3 ns before the edge is lost."""
-    chip = await boot(dut, "spi_ctrl_m0", outputs=[SCK, MOSI, CS], pulled_low=[SCK])
-    spi.Target(chip.board, SPI_PINS, 0, [(b"\xa5", spi.PERIOD / 2 - 20)])
-    chip.send(b"\x01\x00")
-    await chip.expect(ch1=b"\xa5", within=20 * US)
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_underrun_is_silent(dut):
-    """spi_ctrl_m0 (eth10_tx and usb_ls_tx alike): the host is late with byte 2. The chip must wait or flag
-    it. It pops the empty FIFO and sends a 0, and OVERFLOW stays low."""
-    chip = await boot(dut, "spi_ctrl_m0", outputs=[SCK, MOSI, CS], pulled_low=[SCK])
-    board = chip.board
-    chip.send(b"\x02\xff")
-    await chip.wait(20 * US)
-    if chip.host.status() & ST_OVERFLOW:
-        return  # flagged
-    rises = sum(1 for _, level in board.line[SCK].changes(board.since) if level)
-    assert rises <= 8, "%d clocks for 1 byte from the host, and no flag" % rises
-    chip.send(b"\x5a")  # the late byte
-    await chip.wait(20 * US)
-    sampled = [board.line[MOSI].at(t) for t, level in board.line[SCK].changes(board.since) if level]
-    assert len(sampled) == 16 and bytes_msb(sampled) == b"\xff\x5a", "with the late byte it clocked out %s" % sampled
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
@@ -133,20 +57,6 @@ async def gap_eth10_tx_underrun(dut):
     for sent in frames:
         valid = sent[-4:] == zlib.crc32(sent[:-4]).to_bytes(4, "little")
         assert not valid, "30 bytes became a valid frame: %s" % sent.hex()
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_uart_rx_framing(dut):
-    """uart_rx: a frame whose stop bit is 0 is not a byte. The next good frame still is one. An error report on
-    channel 2 is allowed."""
-    chip = await boot(dut, "uart_rx")
-    bit = 1e9 / 115200
-    broken, end = uart.send(P1, b"\x42", 115200, now() + 1 * US, stop=0)
-    following, _ = uart.send(P1, b"\x5a", 115200, end + 2 * bit)
-    await chip.board.play(broken + [(end, {P1: 1})] + following)
-    await chip.expect(ch1=b"\x5a", within=30 * US)
-    await chip.wait(10 * US)
-    assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
 
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")

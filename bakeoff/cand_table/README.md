@@ -1,8 +1,8 @@
 # cand_table: a state table in SRAM, compiled from a state-machine language
 
-All 14 scenarios pass. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
-machine reads one entry per clock, branches four ways on two inputs, and runs up to eight register operations
-in that same clock. It costs 1,202 flops and both SRAM macros. Programs are large: 107 to 771 bytes.
+All 14 scenarios pass, and the programs still have known bugs. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
+machine reads one entry per clock, branches four ways on two inputs, and runs several operations
+in that same clock. It was budgeted at 1,202 flops (the RTL has 1,172) and both SRAM macros. Programs are large: 107 to 827 bytes.
 
 ```bash
 python3 -m bakeoff.run --candidate cand_table
@@ -22,12 +22,12 @@ that the compiler only does arithmetic. The third prints a program's listing: ev
 | Scenario | Result | Source lines | States | Table entries | Image bytes |
 |---|---|---|---|---|---|
 | uart_tx | pass | 9 | 8 | 11 | 107 |
-| uart_rx | pass | 12 | 10 | 13 | 123 |
-| uart_3m (two machines) | pass | 20 | 18 | 25 | 235 |
-| spi_ctrl_m0 | pass | 21 | 23 | 27 | 235 |
-| spi_ctrl_m3 | pass | 20 | 21 | 25 | 219 |
-| spi_target_m0 | pass | 15 | 11 | 16 | 147 |
-| i2c_ctrl | pass | 67 | 89 | 94 | 771 |
+| uart_rx | pass | 14 | 13 | 17 | 155 |
+| uart_3m (two machines) | pass | 22 | 21 | 29 | 267 |
+| spi_ctrl_m0 | pass | 20 | 22 | 28 | 243 |
+| spi_ctrl_m3 | pass | 19 | 21 | 27 | 235 |
+| spi_target_m0 | pass | 23 | 19 | 34 | 291 |
+| i2c_ctrl | pass | 72 | 92 | 101 | 827 |
 | ws2812_tx | pass | 19 | 17 | 21 | 187 |
 | ps2_rx | pass | 18 | 14 | 22 | 195 |
 | onewire | pass | 30 | 33 | 33 | 283 |
@@ -179,7 +179,7 @@ automatic push and pull, on fractional clock dividers, and on running every stat
 
 ## Helpers that serve fewer than two scenarios
 
-1. **`R`** (i2c_ctrl) keeps the address, which is sent twice. One shifter cannot keep it.
+1. **`R`** (i2c_ctrl) keeps the address, which is sent twice, then the status. One shifter cannot keep it.
 2. **Input C** (spi_target_m0) is the third input a three-wire target needs.
 3. **`when`** (spi_target_m0) releases MISO 3 clocks after CS rises. The bench also passes without it, at 4.
 4. **`S == imm`** (eth10_rx) finds a sync byte or an address without a state per bit.
