@@ -63,6 +63,48 @@ class Learner(unittest.TestCase):
             self.assertEqual(self.assert_not_failed(table, result), judge.EXACT)
             self.assertEqual(result["stats"]["states"], states)
 
+    def test_the_demonstration_devices_are_exact_whatever_the_seed(self):
+        """The seed orders the questions. The page says the demonstration is no lucky seed, and this is why."""
+        for name, told in (("flash", {"serve": 2000}), ("sensor", {}), ("thermometer", {})):
+            for seed in range(1, 9):
+                table = getattr(devices, name)()
+                self.assertEqual(verdict(table, learn(table, seed=seed, **told)), judge.EXACT, (name, seed))
+
+    def test_the_last_sweep_tries_every_symbol_from_every_state(self):
+        """The guarantee's first line rests on this: on the pass that found nothing, the sweep put every symbol the
+        bus allows to every state of the final model."""
+        sweep, test = Search.sweep, Search.test
+        sweeps = []
+
+        def recorded_sweep(search, model):
+            sweeps.append((model, set()))
+            search.tried = sweeps[-1][1]
+            try:
+                return sweep(search, model)
+            finally:
+                search.tried = None
+
+        def recorded_test(search, model, q, word, *rest):
+            if getattr(search, "tried", None) is not None and word:
+                search.tried.add((q, word[0]))
+            return test(search, model, q, word, *rest)
+
+        Search.sweep, Search.test = recorded_sweep, recorded_test
+        try:
+            for table in (devices.flash(), devices.thermometer()):
+                del sweeps[:]
+                result = learn(table, **({"serve": 2000} if table.bus == "spi" else {}))
+                self.assertTrue(result["ok"], result["reason"])
+                engine = session.BUSES[table.bus](session.settings({"bus": table.bus}))
+                self.assertTrue(sweeps, "no sweep ran")
+                model, tried = sweeps[-1]
+                self.assertEqual(model.n, result["stats"]["states"])
+                missing = [(q, s) for q, phase in enumerate(result["model"]["phases"])
+                           for s in range(engine.SYMBOLS) if engine.allows(phase, s) and (q, s) not in tried]
+                self.assertEqual(missing, [], table.name)
+        finally:
+            Search.sweep, Search.test = sweep, test
+
     def test_a_declared_size_is_not_refused_while_the_model_is_still_small(self):
         table = cloning.two_byte(32, 32)
         inputs = devices.LOCK_INPUTS

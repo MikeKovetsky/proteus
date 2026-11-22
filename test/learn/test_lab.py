@@ -121,6 +121,14 @@ class Judge(unittest.TestCase):
         self.assertEqual(self.verdict(self.table, blind), judge.MISSED)
         self.assertEqual(self.verdict(self.table, dict(blind, warnings=[])), judge.SILENT)
 
+    def test_a_walk_cut_short_is_no_exact_copy(self):
+        """A clone the judge could not walk in full is not called exact, even when every step it took agreed."""
+        with board.Board(self.table.bus) as on:
+            report = judge.judge(on, self.table, self.result, pairs=20)
+        found = report["clone"][0]
+        self.assertEqual((found["equal"], found["complete"]), (True, False))
+        self.assertEqual(report["verdict"], judge.WRONG_CLONE)
+
     def test_a_refusal_with_an_image_is_silent(self):
         self.assertEqual(self.verdict(self.table, dict(self.result, ok=False)), judge.SILENT)
 

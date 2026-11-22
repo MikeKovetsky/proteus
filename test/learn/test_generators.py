@@ -95,6 +95,7 @@ class Generators(unittest.TestCase):
             (T, "DIN_B", T.DIN_A, "spi"), (T, "DATA", T.NDATA, "spi"), (T, "RELEASE", 0, "spi"),
             (clone_i2c, "K7", 0x600, "i2c"), (clone_i2c, "K8", 0x900, "i2c"), (clone_i2c, "K1", 0, "i2c"),
             (clone_i2c, "HOLD", 90, "i2c"), (T, "OPEN_DRAIN", T.DATA, "i2c"), (T, "DIN_B", T.DIN_A, "i2c"),
+            (clone_i2c, "NRESET", T.TX1, "i2c"),  # deaf to nRESET: only the judge's reset symbol finds it
         ):
             table = devices.flash() if bus == "spi" else devices.thermometer()
             right = getattr(module, name)

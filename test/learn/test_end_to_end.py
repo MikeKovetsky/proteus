@@ -7,14 +7,19 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 import common  # noqa: F401
-from learn.lab import board, cases, judge, replace
+from learn.lab import board, cases, cloning, judge, measure, replace
+
+# The first feasibility probe's two largest machines, which didn't fit there, carried to SPI with their inputs told
+PROBES = tuple(cases.Case("the probe's %d" % raw, "spi", lambda raw=raw: cloning.probes_machine(raw),
+                          {"serve": 2000, "inputs": measure.TWO_BYTE_INPUTS}, judge.EXACT, "ok", "")
+               for raw in (64, 100))
 
 
 class EndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         board.build()
-        every = cases.DEMONSTRATION + cases.CONTROLS
+        every = cases.DEMONSTRATION + cases.CONTROLS + PROBES
         with ThreadPoolExecutor(board.jobs()) as pool:
             cls.done = dict(zip([case.name for case in every], pool.map(cases.run, every)))
 
@@ -33,6 +38,12 @@ class EndToEnd(unittest.TestCase):
     def test_the_hidden_features_were_found(self):
         for name, hidden in (("flash", (0x5E, 0xE7)), ("sensor", (0x7E, 0xC3, 256 + 0x9F))):
             self.assertLessEqual(set(hidden), set(self.done[name][0]["model"]["alphabet"]), name)
+
+    def test_the_first_probes_two_largest_are_learned_through_the_pins(self):
+        for case, entries in zip(PROBES, (300, 461)):
+            result, report = self.done[case.name]
+            self.assertEqual((report["verdict"], result["stats"].get("entries")), (judge.EXACT, entries),
+                             "%s: %s" % (case.name, result["reason"]))
 
     def test_each_clone_replaces_its_device(self):
         with replace.Pair() as pair:
