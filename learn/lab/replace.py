@@ -248,7 +248,6 @@ def summary(part, test, got, total):
         "test passes on the device": test_passes(device),
         "test passes on the clone": test_passes(clone),
         "same answers": device["answers"] == clone["answers"] and len(device["answers"]) == total,
-        "same bus": bus == "spi" or (bool(device.get("decoded")) and device["decoded"] == clone.get("decoded")),
         "test fails on nothing": not test_passes(got["nothing"]),
         "test fails on a wrong byte sent": not test_passes(got["broken sent"]),
         "test fails on a wrong compare": not test_passes(got["broken compare"]),
@@ -256,6 +255,8 @@ def summary(part, test, got, total):
         "problems": [got[k]["faults"] + [got[k].get("bus_check")] for k in ("device", "clone")
                      if got[k]["faults"] or got[k].get("bus_check")],
     }
+    if bus == "i2c":  # on SPI the answers are all that the target puts on the bus
+        out["same bus"] = bool(device.get("decoded")) and device["decoded"] == clone.get("decoded")
     if bus == "spi":
         sent = [answer[0] for answer in wanted]
         for who in ("device", "clone"):

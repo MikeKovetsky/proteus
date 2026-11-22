@@ -3,6 +3,7 @@
 """The evaluation can't be bent afterwards: the host is the frozen one, the devices follow from the seeds, and a
 failure can't drop out of the summary."""
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -42,6 +43,13 @@ class Families(unittest.TestCase):
             lines = families.summary([row])
             self.assertEqual(lines[2].split()[-3], "1", failure)  # the family's FAILED column
             self.assertIn("planted", lines[-1])
+
+    def test_the_kept_result_has_every_device_once(self):
+        kept = families.ROOT / "learn/results/families.jsonl"
+        rows = [json.loads(line) for line in kept.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(sorted((row["family"], row["i"]) for row in rows), sorted(families.tasks()))
+        verdicts = [row["verdict"] for row in rows]  # what notes/learn-it-become-it.md says of them
+        self.assertEqual([verdicts.count(v) for v in (judge.EXACT, judge.REFUSED, judge.MISSED)], [106, 15, 39])
 
     def test_a_crash_is_a_failure(self):
         row = families.one(("no such family", 0))

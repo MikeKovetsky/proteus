@@ -94,3 +94,19 @@ def two_byte(states, seed):
     out = bytes(rng.choice((0x21, 0x4F)) for _ in range(states))
     same = array("i", range(states))
     return devices.Table("two-byte %d" % states, "spi", list(range(states)), out, next_, same, same)
+
+
+def probes_machine(states):
+    """One of the random machines of the first feasibility probe (the same seed and graph), carried to SPI. A
+    bit becomes one of two bytes, and a step's answer bit the byte sent next, since an SPI target decides a byte
+    before it has the one coming in. So a state of the probe's can become two here."""
+    rng = random.Random(states)
+    steps = [tuple((rng.randrange(states), rng.getrandbits(1)) for _ in range(2)) for _ in range(states)]
+    next_ = array("i")
+    for q in range(2 * states):
+        to = [2 * after + answer for after, answer in steps[q // 2]]
+        for x in range(256):
+            next_.append(to[1 if x == 0xA5 else 0])
+    out = bytes(0x4F if q & 1 else 0x21 for q in range(2 * states))
+    same = array("i", range(2 * states))
+    return devices.Table("the probe's %d" % states, "spi", list(range(2 * states)), out, next_, same, same)

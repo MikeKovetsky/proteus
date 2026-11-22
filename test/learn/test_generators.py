@@ -109,6 +109,14 @@ class Generators(unittest.TestCase):
         for table, serve in ((devices.flash(), 2000), (devices.thermometer(), 400), (devices.sensor(), 400)):
             self.assertEqual(judged(table, serve)[1]["verdict"], judge.EXACT, table.name)
 
+    def test_the_first_probes_own_two_largest_machines_fit(self):
+        for raw, entries in ((64, 300), (100, 461)):
+            table = cloning.probes_machine(raw)
+            made, result = cloning.generate(table, 2000, [0x5A, 0xA5, judge.SELECT])
+            self.assertEqual(made["entries"], entries)
+            with board.Board("spi") as on:
+                self.assertEqual(judge.judge(on, table, result, [2000])["verdict"], judge.EXACT)
+
     def test_the_larger_sizes_of_the_first_probe_fit(self):
         for raw, states in ((64, 52), (100, 86)):
             table = cloning.two_byte(raw, raw)
