@@ -48,8 +48,9 @@ once shows its answer 3 clocks later: two in, one out through the pad register.
 ### The host link
 
 1. **Writing a byte.** Set the port and the low nibble, wait one clock, toggle the write strobe, wait four clocks;
-   then the same with the high nibble. The byte goes to the port's channel on the second edge. A nibble must be
-   on the pins one clock before its edge and stay four clocks after it, so a byte takes about 10 clocks.
+   then the same with the high nibble. The byte is in the port's channel within three clocks of the second edge.
+   A nibble must be on the pins one clock before its edge and stay four clocks after it, so a byte takes about
+   10 clocks.
 2. **Check ROOM first.** A byte written to a full channel is dropped and sets OVERFLOW.
 3. **Reading a byte.** Wait for HAS_BYTE, read the low nibble on `uo_out[3:0]`, toggle the read strobe, wait four
    clocks, read the high nibble, toggle again and wait four clocks. The second edge pops the byte; until it has,
@@ -112,9 +113,10 @@ What to know before using them:
    0.16% fast. Apart from `uart_3m` and the four-machine program, each UART image is one direction.
 2. **The SPI target takes a byte from channel 0 early**, as the last bit of the byte before it is sampled, to
    have it ready for the next falling edge. A byte the host queues later waits for the byte after. The first byte
-   must be in channel 0 before CS falls. A later one is not sent in its place: the chip sends `0x00` with `0x01`,
-   and the bytes after it stay one behind, with no further status. A byte is kept when CS rises before its first
-   clock, and dropped, in both directions, when CS rises inside it.
+   must be in channel 0 before CS falls, so finish its write by then ("The host link", item 1). A later one is not
+   sent in its place: the chip sends `0x00` with `0x01`, and the bytes after it stay one behind, with no further
+   status. A byte is kept when CS rises before its first clock, and dropped, in both directions, when CS rises
+   inside it.
 3. **I2C is a single controller** with 7-bit addresses. A read always follows address+W and a repeated START,
    even with nothing to write, as scenario 7 asks: it cannot read a target that will not take its write address.
    It gives up on an SCL held low for 25 ms. It also gives `0x02`, and does not clock the bus free, when SDA is
@@ -126,10 +128,12 @@ What to know before using them:
    channel 2 is PS/2's data there.
 6. **USB is data packets only.** Both programs give every packet a CRC-16, as scenarios 11 and 12 say: transmit
    cannot send a handshake or a token, and receive reports both as bad. Receive also reports seven 1s as bad, and
-   accepts six just before EOP, as the harness's decoder does. It takes its edges from D+ alone, and loses some
-   packets when 75 ns of jitter between neighbouring edges comes with a long SE0 inside transitions: above 140 ns
-   at 1.5% off in rate, and above 190 ns at the exact rate. Either one, at its limit and 1.5% off in rate, is
-   received.
+   accepts six just before EOP, as the harness's decoder does. A packet with seven 1s ends at its EOP, or once the
+   bus has been J for 16 bit times. A short glitch to K on an idle bus reads as such a packet, with no bytes, and
+   a packet that starts within 16 us after the glitch is lost with it. Receive takes its edges from D+ alone, and
+   loses some packets when 75 ns of jitter between neighbouring edges comes with a long SE0 inside transitions:
+   above 140 ns at 1.5% off in rate, and above 190 ns at the exact rate. Either one, at its limit and 1.5% off in
+   rate, is received.
 7. **A USB or Ethernet transmitter that was cut short waits for the rest** of that packet or frame from the host,
    and drops it, before it starts the next.
 8. **Read channel 2** of every program that has a status there. It holds 4 bytes. While it is full the chip
@@ -137,9 +141,10 @@ What to know before using them:
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 116 tests in 3 to 4 minutes. They are
-written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
-stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
+The default test runs the whole chip through its 24 pins on Icarus: 122 tests in 3 to 4 minutes. They are
+written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them passed on the routed netlist under
+CI's cocotb 2.0.1 ([run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947), on
+`a60b878`). These programs and the other 94 tests are newer than that run.
 
 ```sh
 cd test
