@@ -634,10 +634,10 @@ async def test_ws2812_v5(dut):
 
 
 @cocotb.test(timeout_time=6, timeout_unit="ms")
-@cocotb.parametrize(short_at=[0, 900, 1950])  # us: from the start, in the rest of the presence slot, in the read
+@cocotb.parametrize(short_at=[0, 900, 1950, 2400])  # us: the start, after presence, the first and second byte read
 async def test_onewire_short(dut, short_at):
-    """onewire: a line shorted to ground gives only 0x01, as no device does, and also when it goes short after
-    the presence pulse or in the first byte read. Scenario 9 has no short."""
+    """onewire: a line shorted to ground gives 0x01 and no more, as no device does, and also when it goes short
+    after the presence pulse or in the read. A byte read before that stays on channel 1. Scenario 9 has no short."""
 
     def plug_in(board):
         if not short_at:
@@ -647,7 +647,8 @@ async def test_onewire_short(dut, short_at):
         board.later(short_at * US, lambda: board.drive({P0: 0}))
 
     chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: ONEWIRE_RISE}, far_end=plug_in, poll=SLOW_POLL)
-    await chip.expect(ch2=b"\x01", within=3000 * US)
+    read = b"\xff" if short_at == 2400 else b""
+    await chip.expect(ch1=read, ch2=b"\x01", within=3000 * US)
     await chip.quiet([P0], 500 * US, 1000 * US)
     await chip.finish()
 

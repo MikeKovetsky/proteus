@@ -5,7 +5,7 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 115 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
+| `make -B` | 116 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | 3 to 4 min |
 | `make -B COCOTB_TEST_MODULES=known_gaps` | 5 known gaps, one test each. All fail until they are closed | about 30 s |
 | `python3 eth10_jitter_limit.py` | Builds two good frames that no receiver sampling at 60 MHz can tell apart | 1 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
@@ -110,7 +110,7 @@ tie cell the SRAM model prints an `A_DLY` error at time 0 and runs on. That is t
 
 They have **not** run on the routed netlist, with IHP's own cell models or under the cocotb 2.0.1 that CI installs.
 At the 3,700 clocks a second of CI's last 7-test gl_test, those 28 tests' 2.2 million clocks would have taken it
-about 10 minutes. The 115 tests simulate 8.9 million clocks, about 40 minutes at that speed. Neither is a CI
+about 10 minutes. The 116 tests simulate 9 million clocks, about 40 minutes at that speed. Neither is a CI
 run.
 
 The SRAM model in `ihp_sram/` is IHP's own (its README says where it comes from), and both runs use it.

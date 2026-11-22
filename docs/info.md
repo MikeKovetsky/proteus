@@ -134,7 +134,7 @@ What to know before using them:
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 115 tests in about 3 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 116 tests in 3 to 4 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
