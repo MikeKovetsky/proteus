@@ -2,14 +2,14 @@
 
 An entry for Jane Street's
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/): a small
-programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build and review
+programmable chip meant to speak UART, SPI and I2C, and protocols it was not designed for (R3 is not met, and the stranger test has not run). AI agents build and review
 it with tests as gates, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
 Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requirements are met"), after a pause
 from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). At 22:55 they set the order:
 **"let's complete without novelty first and then right after it brainstorm how to make it novel"**. The
 bake-off is done, and Mike picked the table-driven architecture. Its RTL core matches the golden model on every recorded clock,
-the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup and hold met at 60 MHz, and the architecture
+the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup and hold met at 60 MHz (slew and capacitance limits are still exceeded), and the architecture
 and instruction set docs are written. "Progress" below has the detail, and "Open work" says
 where each open piece stands.
 
@@ -82,15 +82,15 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 |---|---|---|---|
 | R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
-| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 never ends, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
-| R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
+| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
+| R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` checks only the cell types, which does not prove freedom from power-up values); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI does not run those tests yet ("Open work", 8). The programs' own bugs are R3 |
-| R11 | Verification write-up, including how AI was used | NOT MET | A draft and 84 claims for Mike are on the local branch `writeup` (b25f92c). It moves out of `docs/`, which the stranger gets, to `WRITEUP.md`, makes no novelty claim, and lands once Mike accepts its claims |
+| R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
@@ -150,17 +150,17 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 7. **RTL.** The table machine is in Verilog (`src/protoemu_*.v`). The core matches the golden model on every clock it replays: 323
    of 323 traces, 3,051,548 clocks, from all 14 benches and 300 random programs, replayed in Verilator in about 5
    seconds (`make -C test lockstep`). The suite catches 21 of 21 planted bugs (`make -C test mutants`), and its
-   reviewer planted 64 more in the core and the suite caught every one that changes behaviour. Seven pin-level
-   tests pass, including reset, reload and run again. Yosys gives 1,172 flops (budget 1,202) and about 2,700 logic
-   cells. An estimate on IHP's cells puts the decision loop at 9.3 ns of the 16.6 ns clock before wires; it is not
+   reviewer reported planting 64 more, all caught unless harmless, but kept no list or script of them. Seven pin-level
+   tests pass, including reset, reload and run again. Yosys gives 1,172 flops (budget 1,202) and about 2,700 generic
+   gates (3,310 multi-input cells after CI's mapping). An estimate on IHP's cells puts the decision loop at 9.3 ns of the 16.6 ns clock before wires; it is not
    independently confirmed, and the flow's timing report is the real answer.
 8. **SRAM layout setup.** The two SRAMs go through the flow with Ken Pettit's placement, power stripes, antenna
    diodes and DRC waivers, proven on a dummy design in simulation. The power stripes come from a LibreLane
    plugin, and LibreLane's docs say plugins are not supported in its Docker container; the first layout build
    settled it, because both plugin steps ran in Tiny Tapeout's container.
 9. **Integration.** Both are merged with `main` on the branch `rtl-sram-flow`, reviewed, and pushed. Its
-   [first layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44047118911) closed timing (setup
-   slack 1.12 ns at the slow corner), but detailed routing ended with 382 shorts and LVS failed. Pettit's SRAM
+   [first layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44047118911) met setup timing (slack
+   1.12 ns at the slow corner), but detailed routing ended with 382 violations (369 shorts) and LVS failed. Pettit's SRAM
    spots left the channel between the two pin edges open at one end only, and Metal3 is the tile's only
    horizontal routing layer, so the 244 nets leaving the channel had 345 tracks; global routing overflowed and
    sent 25 nets straight over the SRAMs. The fix moves both SRAMs to x 273.12 (6 stripe pitches right, so the
@@ -216,7 +216,7 @@ make it novel". The main session's reading of it:
    Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
    one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
-4. **The pin tests (branch `pin-tests`, e2127dc, not reviewed yet).** All 14 scenarios run through the pins, 27 of
+4. **The pin tests (branch `pin-tests`, 9662164, not reviewed yet).** All 14 scenarios run through the pins, 27 of
    27 tests pass on RTL, and `test/known_gaps.py` holds 17 failing reproductions of program gaps. They have not
    run on the routed netlist. Their timing limits were typed from a model's memory and need checking against
    the standards.
@@ -242,16 +242,16 @@ notes/ai-usage.md   how AI was used, logged as the work happens
 notes/lessons.md    what the loop has learned; the worker reads it every round
 ```
 
-Held-out protocol specs and tests live outside the repo, in `../protoemu-holdout/`. They are never committed,
-never listed here, and the worker can never read them.
+Held-out protocol specs and tests live outside the repo, in `../protoemu-holdout/`. The specs and tests are committed only after their test has run,
+only the protocols' names are listed here, and the worker may never read them.
 
 ### 1. Architecture bake-off (`bakeoff/`)
 
 1. Three candidate architectures are written as cycle-accurate Python simulators, with no RTL. Each has an
    assembler and a program for every bench.
 2. The candidates are:
-   1. `cand_pio`: PIO-style state machines with shift registers and clock dividers. This is the baseline most
-      entries will build.
+   1. `cand_pio`: PIO-style state machines with shift registers and clock dividers. This is the familiar
+      baseline.
    2. `cand_event`: an event-driven engine whose instructions wait on edges, timers and pattern matches, with
       configurable helpers for CRC, bit-stuffing, line coding and clock recovery.
    3. `cand_table`: a table-driven state machine with counters and shifters. It reacts in one cycle and is
@@ -276,8 +276,8 @@ synthesized.
 | SRAM bits | 32,768 | 32,768 | 32,768 |
 | Protocols at once | 4 at 30 MHz, or 2 at 60 MHz | 2 at full speed | 4 at 15 MHz, or 1 at 60 MHz |
 | All 14 programs | 1,949 bytes | 1,580 bytes | 4,138 bytes |
-| Receive sweeps beyond the benches | 1,160 runs, 0 failed | 1,160 runs, 0 failed; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (by the reviewer) |
-| Weakest point | Closest to what other entries build | Slow on someone else's clock: its SPI target passes at 4.3 MHz and fails at 4.6 MHz | Large programs, and 4 protocols share one decision rate |
+| Receive sweeps beyond the benches | 1,160 runs, 0 failed | 1,160 runs, 0 failed; Ethernet receive works at 1 of 3 sample positions | 270 runs, 0 failed (reported by the reviewer, with no script kept) |
+| Weakest point | Closest to RP2040 PIO | Slow on someone else's clock: its SPI target passes at 4.3 MHz and fails at 4.6 MHz | Large programs, and 4 protocols share one decision rate |
 
 **Decision.** Mike, 2026-11-16: "Table-driven". The reasons given to him: novelty decides the tape-out and the
 other entries found build PIO-style machines; it decides on every clock; 13 of its 14 programs passed the first
@@ -292,8 +292,8 @@ today, was not true either: no mechanism enforced it. An earlier entry is also n
 or change. Lockstep builds the core alone, so only the pin tests check the host link in `src/project.v`.
 
 `cand_table`'s open risk, by its author's account: it decides on every clock only if one path (memory output,
-condition select, memory address) closes in 16.7 ns. That is not checked in synthesis. If it fails, decisions drop
-to every second clock and the Ethernet scenarios are lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
+condition select, memory address) closes in 16.7 ns. It has since met setup and hold after layout, with extrapolated
+timing at SRAM pins that break slew limits. Had it failed, the Ethernet scenarios would have been lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
 for that logic.
 
 ### 2. Prove the flow
@@ -356,7 +356,7 @@ is among the 14 bake-off benches. The roles below are the main session's default
 3. No doc, example or bench in this repo may show a program for CAN, JTAG or SWD before the test runs, so the
    stranger cannot copy one. Public entries do show them, so the stranger has no web access and gets neither
    this file, the write-up nor any agent's transcript.
-4. The stranger's programs run on the golden model, which matches the RTL on every clock, and the benches judge
+4. The stranger's programs run on the golden model, which the RTL core matched on every recorded lockstep clock, and the benches judge
    the waveforms. An independent decoder (sigrok's CAN, JTAG and SWD decoders) is a second judge if
    `sigrok-cli` is installed.
 
@@ -375,7 +375,7 @@ is among the 14 bake-off benches. The roles below are the main session's default
 ### What stays human
 
 1. **The architecture pick,** from the bake-off table.
-2. **What counts as correct.** That means the bench scenarios, the reference models and the properties.
+2. **What counts as correct.** That means the bench scenarios, the reference models and the properties. No review of them by a person is recorded yet.
 3. **The write-up.** The agent drafts it, and a person decides what it claims.
 
 ## The pieces

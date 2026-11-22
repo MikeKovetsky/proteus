@@ -1,8 +1,8 @@
 # cand_table: a state table in SRAM, compiled from a state-machine language
 
-All 14 scenarios pass. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
-machine reads one entry per clock, branches four ways on two inputs, and runs up to eight register operations
-in that same clock. It costs 1,202 flops and both SRAM macros. Programs are large: 107 to 771 bytes.
+All 14 scenarios pass, and the programs still have known bugs. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
+machine reads one entry per clock, branches four ways on two inputs, and runs several operations
+in that same clock. It was budgeted at 1,202 flops (the RTL has 1,172) and both SRAM macros. Programs are large: 107 to 771 bytes.
 
 ```bash
 python3 -m bakeoff.run --candidate cand_table
@@ -51,9 +51,9 @@ The fourth prints a program's listing: every entry, its state and successors.
 3. **The SRAM's address register is the state register.** The entry read on one clock chooses the address
    the SRAM latches at the end of that clock, and the new entry is out on the next. That gives one decision per
    clock with a synchronous read, which the simulator models (`q_addr` in [chip.py](chip.py)). The loop is
-   SRAM output, a 16:1 condition select, an OR, a 2:1 mux, SRAM address. **It is not checked in synthesis.**
-   If it cannot close at 60 MHz, decisions drop to every second clock and Ethernet is lost (reasoned, not run).
-4. **Actions belong to the state** (a Moore machine): they run on every clock spent in it. So a line that
+   SRAM output, a 16:1 condition select, an OR, a 2:1 mux, SRAM address. **It has since met setup and hold at 60 MHz after layout,**
+   with extrapolated timing at SRAM pins that break slew limits.
+4. **Actions belong to the state** and run on every clock spent in it, gated pin operations aside. So a line that
    waits may only set pins, and "do this, then wait" is two states. Pin operations alone can be gated by an
    input in the clock that sees it (`when`), which gives the pads' floor of 3 clocks from pin to pin.
 5. **Up to four machines take turns** on the one read port. One machine decides every clock, two decide every
@@ -142,7 +142,7 @@ agree).
 | Pin map (4 out, 3 in) and shift order | 22 | Host link | 40 |
 | **One machine** | **230** | **Shared** | **282** |
 
-1. **Flops: 1,202** (4 x 230 + 282) of the 3,000 allowed.
+1. **Flops: 1,202, as budgeted before the RTL** (4 x 230 + 282), of the 3,000 allowed. The RTL has 1,172.
 2. **SRAM: 32,768 bits,** both 512x32 macros, all of it the state table.
 3. **Gates: about 2,600 combinational cells.** This is an estimate, not a synthesis result: 680 for the
    per-machine register muxes and enables, 600 for the shared datapath, 130 for the FIFOs, 320 for the loader
@@ -162,18 +162,18 @@ agree).
 | `uo_out[3:0]` | Host data out |
 | `uo_out[7:4]` | The selected write channel has room, the read channel has a byte, running, overflow |
 
-A strobe edge takes two clocks to synchronise, so the RP2350 can move a nibble every 4 clocks and a byte every
-8. Two channels each way then get one byte per 16 clocks, which is the bake-off's host rate. The loader
+A strobe edge takes two clocks to synchronise, and a nibble also needs a clock of setup, so a byte takes about
+10 clocks. The bake-off's host model moves one byte per 16 clocks on each channel. The loader
 takes the image over the same port: the machine count, 16 bytes of setup per machine, then the entries from
 address 0. The largest image loads in under 1 ms. The host link is not modelled; the harness stands in for it.
 
-## What it does that a PIO cannot
+## How it differs from a PIO
 
-1. **A four-way branch and eight register operations in one clock, every clock.** A PIO runs one instruction
+1. **A four-way branch and several operations in one clock.** A PIO runs one instruction
    per clock and tests one thing per instruction. In `eth10_tx`, the clock between two bytes tests the bit
    count and the byte count, and the next clock fetches a byte, reloads one counter and steps another, while
    the pins keep exact 3-clock half bits.
-2. **CRC and parity on chip.** One LFSR does CRC-8, CRC-16, CRC-32 and PS/2 parity. A PIO has none.
+2. **CRC and parity on chip.** One LFSR does CRC-8, CRC-16, CRC-32 and PS/2 parity. An RP2040 PIO has no CRC unit, though its DMA sniffer computes some CRCs.
 3. **Clock recovery at 6 clocks per bit.** `eth10_rx` re-times on every edge, takes the bit one clock later,
    matches the start-of-frame byte, checks the CRC and counts the length, in 21 states.
 4. **Bit stuffing and NRZI in the table,** with a counter of 1s that a stuffed bit resets (both USB scenarios).
@@ -197,7 +197,7 @@ automatic push and pull, on fractional clock dividers, and on running every stat
 
 None. These limits showed up on the way and would bite on other protocols:
 
-1. **The 60 MHz loop through the SRAM is unproven.** See point 3 of "The machine".
+1. **The 60 MHz loop through the SRAM was unproven before layout.** See point 3 of "The machine".
 2. **Programs are big.** A state is 8 bytes. `i2c_ctrl` was 1,195 bytes before `call` and `ret` existed.
 3. **K and J hold 15 at most and S holds 8 bits.** Longer words need nested counters and a byte per bus move.
 4. **Several machines share the decision rate.** Two fast protocols at once do not fit: Ethernet runs alone.

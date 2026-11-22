@@ -1,7 +1,7 @@
 # Writing a protocol for protoemu
 
 This guide writes a protocol that none of the 14 bench programs uses, a UART with an even-parity bit (8E1), from
-the spec to a program that runs on the chip's model and is checked by an independent decoder. Then it shows
+the spec to a program that runs on the chip's model and is checked by a decoder written for the example. Then it shows
 the patterns the bench programs use for the harder parts of a protocol: exact bit loops, edges with time-outs,
 clock recovery and CRCs.
 

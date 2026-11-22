@@ -3,8 +3,8 @@
 protoemu is a programmable protocol emulator on Tiny Tapeout's IHP shuttle. A program is a **state table**: one
 64-bit entry per state, held in two SRAMs. On every clock a machine reads its state's entry, and that one entry
 says everything about the clock: which pins to drive, what to count, shift or move, and which of up to four next
-states to take, chosen by two conditions. Nothing is fetched or decoded in between, so the chip decides on every
-clock. Up to four machines share the table, each with its own registers, and run four protocols at once.
+states to take, chosen by two conditions. With one machine, the chip decides on every
+clock. Up to four machines share the table by taking turns, each with its own registers, at 15 MHz each with four.
 
 Programs are written in a small state-machine language, one line per state and per clock, and compiled to the
 table by [compiler.py](../bakeoff/cand_table/compiler.py). [isa.md](isa.md) is the reference for the entry and the
@@ -21,13 +21,13 @@ PIO-style processor (one instruction per clock, shift registers, clock dividers)
 
 The table won ([CLAUDE.md, "1. Architecture bake-off"](../CLAUDE.md#1-architecture-bake-off-bakeoff)) because:
 
-1. **It decides on every clock, and a decision does a lot.** One entry branches four ways and runs up to eight
-   register operations in the same clock. In [eth10_tx.fsm](../bakeoff/cand_table/programs/eth10_tx.fsm) the
+1. **It decides on every clock, and a decision does a lot.** One entry branches four ways and runs several
+   operations in the same clock. In [eth10_tx.fsm](../bakeoff/cand_table/programs/eth10_tx.fsm) the
    clock between two bytes tests the bit and byte counts, and the next fetches a byte, reloads one counter and
    steps another, while the line keeps exact 3-clock half bits.
-2. **It had the smallest logic estimate.** There is no instruction decoder, no program counter adder and no branch logic:
+2. **It had the smallest logic estimate.** There is no program counter adder:
    the next address is an OR of two condition bits into the entry's base address. The candidates estimated about
-   2,600 logic cells for it against 4,800 and 7,000 for the others; synthesis of the RTL gives 2,674.
+   2,600 logic cells for it against 4,800 and 7,000 for the others; only the table was synthesized, and CI maps it to 3,310 multi-input cells besides buffers and inverters.
 3. **Its helpers are generic.** One LFSR does parity, CRC-8, CRC-16 and CRC-32. Counters, a shifter, a byte
    compare and edge detection cover bit stuffing, line coding and clock recovery without a block that knows any
    protocol by name.
@@ -67,20 +67,20 @@ uses the SRAM's own address register as the state register, so the loop that dec
 
 1. The entry is on the SRAM outputs.
 2. Its fields `cA` and `cB` each select one of 16 condition flags. Every flag is a flop or a little logic
-   beside one: inputs A, B and C, `edge`, the zero flags of T, K, J and N, the data bit, the CRC match, four
+   on registers and the entry's fields: inputs A, B and C, `edge`, the zero flags of T, K, J and N, the data bit, the CRC match, four
    FIFO flags, and the 8-bit compare `S == imm`.
 3. The two selected bits are OR-ed into the low two bits of the entry's `base`: `base | cA | cB << 1`.
 4. A 2:1 mux takes the link register instead when the entry is a return.
 5. The result is latched as the SRAM address at the end of the clock, and the next entry comes out on the next.
 
 There is no adder and no priority logic in that loop. Deciding on every clock depends on it closing in one
-clock, and the whole design meets setup and hold at 60 MHz after place-and-route (see
+clock. The whole design meets setup and hold at 60 MHz after place-and-route, with timing extrapolated at some SRAM pins (see
 [Budget](#budget-as-synthesised)).
 
 In the same clock, the entry drives the pins and the datapath: up to two pin operations, one byte on the bus, a
 shift, an LFSR step, and updates of N, K, J and T. All of them read the registers as they were at the start of the
 clock, and the conditions do too, so a state's actions never affect its own branch. Actions belong to the state
-(a Moore machine): they run on every clock spent in it.
+and run on every clock spent in it, except that a gated pin operation also depends on a condition.
 
 ### Four machines on one read port
 
@@ -267,7 +267,7 @@ Tiny Tapeout's flow in CI.
 | **Total** | **1,172** |
 
 1. **Flops: 1,172.** The layout flow's clock tree counts the same 1,172 registers.
-2. **Logic: 2,674 generic gates** after synthesis (AND, OR, MUX and the like, before mapping to IHP cells).
+2. **Logic: 3,310 multi-input combinational cells** after CI maps it to IHP cells, besides buffers and inverters.
 3. **SRAM: 32,768 bits,** both IHP 512x32 macros, all of it the state table.
 4. **Layout:** the whole design passes Tiny Tapeout's flow at 8x4 tiles: layout, precheck, and the pin tests on
    the routed netlist ([CI run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046)).
@@ -275,7 +275,7 @@ Tiny Tapeout's flow in CI.
    so timing there is extrapolated), with 4.20 ns of worst setup slack at the slow corner in that run, as
    [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records.
 5. **Where the flops go:** a third of them (384) are the LFSRs' configured polynomial, start and match values.
-   They are what let one unit serve every CRC.
+   They let one unit serve CRCs of up to 32 bits.
 
 ## Limits
 

@@ -7,8 +7,8 @@ built this way, and [programming.md](programming.md) walks through writing a new
 
 Every encoding below comes from [entry.py](../bakeoff/cand_table/entry.py) and
 [compiler.py](../bakeoff/cand_table/compiler.py), and every behaviour from the golden model
-[chip.py](../bakeoff/cand_table/chip.py), which the RTL ([protoemu_core.v](../src/protoemu_core.v)) matches on
-every clock.
+[chip.py](../bakeoff/cand_table/chip.py), which the RTL core ([protoemu_core.v](../src/protoemu_core.v)) matches on
+every clock of the recorded traces.
 
 1. [How a machine steps](#1-how-a-machine-steps)
 2. [The table entry](#2-the-table-entry)
@@ -36,7 +36,7 @@ In one turn, in this order:
    moved on the bus, one shift, one LFSR operation, and updates of N, K, J and T.
 5. A pin operation reaches the pad one clock later (the pad's output register).
 
-So a state's actions run on every turn spent in it (a Moore machine), and a state's conditions never see its own
+So a state's actions run on every turn spent in it (gated pin operations aside), and a state's conditions never see its own
 actions: an entry that does `K-=1` and tests `kz` tests K as it was before the decrement.
 
 ## 2. The table entry

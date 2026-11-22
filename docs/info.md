@@ -19,7 +19,7 @@ tested against.
 2. **One decision per clock.** The SRAM's address register is the state register. The entry on the SRAM outputs
    picks two of 16 conditions and ORs them into its `base` address, and that address is latched at the end of the
    same clock. A return takes the machine's link register instead.
-3. **Up to eight register operations in that same clock**: two pin operations, one byte move, a shift, an LFSR
+3. **Several operations in that same clock**: two pin operations, one byte move, a shift, an LFSR
    step, and counter and timer updates. Pin operations alone may be gated by the first condition.
 4. **Four machines take turns** on the one SRAM port, each with its own registers (timer T, counter N, K, J,
    shifter S, R, a 32-bit LFSR with its polynomial, start and match values, a link register and its pin map).
@@ -102,9 +102,9 @@ reset in the middle of a frame, reload, and running again with the same and anot
 that both SRAM macros have `A_DLY` tied high: IHP's model reports a wrong tie only with a `$stop`, which Icarus
 runs past when nothing answers on its stdin, as in CI.
 
-The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
+The lockstep suite checks the core against the model. It records the golden model running all 14 bake-off benches and 300 random
 programs with random pins and random host traffic, replays every trace into the RTL core with Verilator, and
-compares the pins, every host answer and the overflow flag on every clock (about 3 million clocks, 10 seconds):
+compares the pad registers, the model's host answers and the overflow flag (not the top level or the registered host status) on every clock (about 3 million clocks, 10 seconds):
 
 ```sh
 make -C test lockstep

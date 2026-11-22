@@ -137,3 +137,9 @@ A dated log, written as the work happens. The verification write-up's AI section
     for five, wrote a differential oracle from docs/isa.md, killed 77 of 77 mutants of the fixes and replayed
     3,008 compiled programs on the RTL. The main session replayed the reviewed chain onto main, re-ran the
     checks and probed the bugs with its own small programs before pushing.
+30. **Corrections to this log and to the docs.** The write-up's agent checked every public claim against the code
+    and proposed 52 corrections, and the main session applied those that touch only docs. The main session was
+    wrong that the I2C write "never ends": run to completion on the golden model, it reads 65,536 bytes in
+    1.644 seconds and reports success. Three earlier entries here overstate: the first layout's 382 "shorts"
+    were 369 shorts and 13 spacing errors, the 64 extra planted bugs were reported with no list or script kept,
+    and "checked every claim" against the code was the docs agent's report, which later checks contradicted.
