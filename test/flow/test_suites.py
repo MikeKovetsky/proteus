@@ -12,25 +12,31 @@ from test_workflows import SUITES
 
 *PYTHON_SUITES, MAKE_SUITE = SUITES
 
-# A chip that never drives a pin, and benches that fail whatever they are given. Both fail fast.
-FAULTS = {
-    "bakeoff/cand_table/chip.py": """
+FAILING_BENCH = """
+def fail(cls):
+    if %s:
+        cls.run = lambda self, *args: Result(self.name, False, "planted")
+Bench.__init_subclass__ = classmethod(fail)
+"""
+STUCK_CHIP = ("bakeoff/cand_table/chip.py", """
 TableChip.step = lambda self, pins: (0, 0)
-""",
-    "bakeoff/harness/sim.py": """
-def fail_every_run(cls):
-    cls.run = lambda self, *args: Result(self.name, False, "planted")
-Bench.__init_subclass__ = classmethod(fail_every_run)
-""",
-}
-# What each Python suite prints when it finds a fault. A crash exits 1 as well, and would prove nothing.
-VERDICTS = (r"FAILED \(failures=", r"checks, [1-9]\d* failed", r"selfcheck: \d+ problems", r": 0 of 14 benches pass",
-            r"uart_8e1: \d+ problems")
+""")
+EVERY_BENCH_FAILS = ("bakeoff/harness/sim.py", FAILING_BENCH % "True")  # with one, the self-test takes 20 seconds
+ONE_BENCH_FAILS = ("bakeoff/harness/sim.py", FAILING_BENCH % 'cls.name == "ws2812_tx"')
+# The fault planted for each Python suite, and what it prints then. A crash exits 1 as well, and would prove nothing.
+PYTHON_FAULTS = (
+    (STUCK_CHIP, r"FAILED \(failures="),
+    (EVERY_BENCH_FAILS, r"checks, [1-9]\d* failed"),
+    (STUCK_CHIP, r"selfcheck: \d+ problems"),
+    (ONE_BENCH_FAILS, r": [1-9]\d* of \d+ benches pass"),  # --strict must fail when only one does
+    (STUCK_CHIP, r"uart_8e1: \d+ problems"),
+)
 
-# Stands in for Verilator: the program it "builds" exits with ON_RTL, or with ON_MUTANT for a mutant's build.
+# Stands in for Verilator: the program it "builds" exits with ON_RTL for the RTL, ON_FIRST_MUTANT for the first
+# mutant and 1 (killed) for every other mutant.
 VERILATOR = r"""#!/bin/sh
 while [ $# -gt 1 ] && [ "$1" != -o ]; do shift; done
-case "$2" in */mutants/*) status=$ON_MUTANT ;; *) status=$ON_RTL ;; esac
+case "$2" in */mutants/m00/*) status=$ON_FIRST_MUTANT ;; */mutants/*) status=1 ;; *) status=$ON_RTL ;; esac
 printf '#!/bin/sh\nexit %s\n' "$status" > "$2"
 chmod +x "$2"
 """
@@ -57,12 +63,12 @@ class SuitesCanFail(unittest.TestCase):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
 
     def test_each_python_suite_fails_on_a_fault(self):
-        for path, fault in FAULTS.items():
-            self.write(path, fault, "a")
-        self.assertEqual(len(VERDICTS), len(PYTHON_SUITES), "a new suite needs its verdict here")
-        for command, verdict in zip(PYTHON_SUITES, VERDICTS):
+        self.assertEqual(len(PYTHON_FAULTS), len(PYTHON_SUITES), "a new suite needs its fault here")
+        for command, ((path, fault), verdict) in zip(PYTHON_SUITES, PYTHON_FAULTS):
             with self.subTest(command):
+                self.write(path, fault, "a")
                 done = self.run_as_ci_does(command)
+                shutil.copyfile(os.path.join(fakes.ROOT, path), os.path.join(self.root, path))
                 self.assertRegex(done.stdout, verdict)
                 self.assertEqual(done.returncode, 1, done.stdout[-2000:])
 
@@ -74,13 +80,13 @@ class SuitesCanFail(unittest.TestCase):
         for name, script in (("verilator", VERILATOR), ("cocotb-config", "#!/bin/sh\necho '%s'\n" % tools)):
             os.chmod(self.write("tools/" + name, script), 0o755)
         path = tools + os.pathsep + os.environ["PATH"]
-        # (lockstep's exit status on the RTL, on every mutant, whether CI's command may pass)
-        for on_rtl, on_mutant, may_pass in ((0, 1, True), (1, 1, False), (0, 0, False)):
-            with self.subTest(on_rtl=on_rtl, on_mutant=on_mutant):
+        # (lockstep's exit status on the RTL, on the first mutant, whether CI's command may pass)
+        for on_rtl, on_first_mutant, may_pass in ((0, 1, True), (1, 1, False), (0, 0, False)):
+            with self.subTest(on_rtl=on_rtl, on_first_mutant=on_first_mutant):
                 shutil.rmtree(os.path.join(self.root, "test", "lockstep", "build"), ignore_errors=True)
                 self.write("test/lockstep/build/traces/planted.trace", "")
                 done = self.run_as_ci_does(MAKE_SUITE, PATH=path, PY="true", ON_RTL=str(on_rtl),
-                                           ON_MUTANT=str(on_mutant))
+                                           ON_FIRST_MUTANT=str(on_first_mutant))
                 self.assertEqual(done.returncode == 0, may_pass, done.stdout[-2000:])
 
 
