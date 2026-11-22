@@ -49,3 +49,38 @@ jobs:
             test/tb.fst
             test/results.xml
             test/output/*
+
+  # protoemu: the golden model, its compiler and the RTL against the model. A job of its own, so that a failure
+  # here and one in the pin tests each show.
+  suites:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Verilator
+        run: sudo apt-get update && sudo apt-get install -y verilator
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Compiler tests
+        run: python3 -m bakeoff.cand_table.test_compiler
+
+      - name: Benches' self-test
+        run: python3 -m bakeoff.harness.selftest
+
+      - name: Golden model's self-check
+        run: python3 -m bakeoff.cand_table.selfcheck
+
+      - name: All benches on the golden model
+        run: python3 -m bakeoff.run --candidate cand_table --strict
+
+      - name: The programming guide's example
+        run: python3 docs/examples/run_uart_8e1.py
+
+      - name: Lockstep and its planted bugs
+        run: make -C test mutants

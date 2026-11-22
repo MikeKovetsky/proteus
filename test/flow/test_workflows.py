@@ -8,6 +8,14 @@ import unittest
 import fakes
 
 WORKFLOWS = os.path.join(fakes.ROOT, ".github", "workflows")
+SUITES = (
+    "python3 -m bakeoff.cand_table.test_compiler",
+    "python3 -m bakeoff.harness.selftest",
+    "python3 -m bakeoff.cand_table.selfcheck",
+    "python3 -m bakeoff.run --candidate cand_table --strict",
+    "python3 docs/examples/run_uart_8e1.py",
+    "make -C test mutants",  # runs lockstep first
+)
 
 
 def workflows():
@@ -56,6 +64,15 @@ class Workflows(unittest.TestCase):
         test = jobs(dict(workflows())["test.yaml"])["test"]
         self.assertRegex(test, r"(?m)^        run: python3 -m unittest discover -s test/flow\b")
         self.assertNotRegex(test, r"(?m)^ *continue-on-error:")
+
+    def test_every_push_runs_the_suites(self):
+        workflow = dict(workflows())["test.yaml"]
+        self.assertRegex(workflow, r"(?m)^on: \[push\b")
+        suites = jobs(workflow)["suites"]
+        for command in SUITES:
+            self.assertRegex(suites, r"(?m)^        run: %s$" % re.escape(command))
+        # Nothing may skip a suite or let one fail quietly.
+        self.assertNotRegex(suites, r"(?m)^[ -]*(if|continue-on-error|shell):")
 
 
 if __name__ == "__main__":

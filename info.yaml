@@ -3,7 +3,7 @@ project:
   title:        "protoemu: a programmable protocol emulator"      # Project title
   author:       "Mike Kovetsky"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "A small programmable chip that speaks UART, SPI, I2C and other protocols from loaded programs"      # One line description of what your project does
+  description:  "A small programmable chip that runs protocol state tables loaded through its pins"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     60000000       # Clock frequency in Hz (or 0 if not applicable)
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Mike Kovetsky
 // SPDX-License-Identifier: Apache-2.0
 //
-// Replays golden-model traces (test/lockstep/traces.py) into the RTL core and compares every output on
-// every clock: the pad registers (out, oe), the overflow flag, and every host answer (room, a popped byte
-// or none). It stops a trace at its first mismatch and prints the step, the signal, what the model gave
-// and what the RTL gave.
+// Replays golden-model traces (test/lockstep/traces.py) into the RTL core and compares on every clock the
+// pad registers (out, oe), the overflow flag, and the answers to the trace's host calls (room, a popped byte
+// or none), not the registered host status. It stops a trace at its first mismatch and prints the step, the
+// signal, what the model gave and what the RTL gave.
 //
 //   lockstep FILE.trace [FILE.trace ...]
 //

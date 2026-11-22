@@ -15,6 +15,9 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 `make lockstep RANDOM=1000 SEED=7` runs more random tests, or other ones. A lockstep failure names the trace, the
 clock (step), the signal, and what the model and the RTL gave.
 
+On every push, `.github/workflows/test.yaml` runs `make`, the flow's tests, `make mutants` (lockstep first), the
+compiler's tests, the benches and both their self-checks, and the programming guide's example.
+
 ## Gate-level simulation
 
 CI's GDS workflow copies the routed netlist to `gate_level_netlist.v` and runs `make GATES=yes`. Before layout,
