@@ -154,3 +154,6 @@ A dated log, written as the work happens. The verification write-up's AI section
     own checkers show no slew, capacitance, setup or hold violation in any corner. It also traced two warnings the
     gate does not read. The power-grid failure precedes the SRAM stripes and the final check finds the grid
     connected, and the parasitic names the IR-drop step missed are diodes on the SRAMs' unused test pins.
+34. **The slew fix on main.** The main session checked main's own build by the same bar: the same slacks, 0 slew,
+    capacitance, setup and hold violations, precheck and 7 of 7 gate-level tests. GitHub's deployment record and
+    the live site's header show that the viewer was deployed from that commit.
