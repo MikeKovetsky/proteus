@@ -210,7 +210,7 @@ class DiodesOnSramPins(CompositeStep):
     OpenROAD.ResizerTimingPostCTS), so that one routing pass includes the diodes, and the rule-based repair
     still runs afterwards for every other net. From Pettit's plugin, with one change: for a pin that has a
     buffer from Protoemu.BuffersOnSramPins, the diode goes on the buffer's input, where the long wire now ends
-    (a buf_2 gate alone allows about 210 um of wire on a layer). Running after the hold repair matters for
+    (a buf_2 gate alone allows about 210 um of minimum-width wire). Running after the hold repair matters for
     the same reason: the diode ends up on the last, long piece of the net.
     """
 
