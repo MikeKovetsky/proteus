@@ -278,6 +278,26 @@ class Thermometer:
         return (state[0], ("none", 0))
 
 
+# ---- what the data sheets give, and no more
+
+
+class FlashAsDocumented(Flash):
+    def byte(self, state, x):
+        if x in self.hidden and state[2] and state[2][0] == "command":
+            return state[:2] + (("ignore", 0),)
+        return Flash.byte(self, state, x)
+
+
+class SensorAsDocumented(Sensor):
+    def write(self, state, x):
+        if x == self.hidden[0] and state[2][0] == "pointer":
+            return (state[0], 0xFF, ("data", 0)), True
+        return Sensor.write(self, state, x)
+
+
+AS_DOCUMENTED = {"flash": FlashAsDocumented, "sensor": SensorAsDocumented, "thermometer": Thermometer}
+
+
 # ---- the controls
 
 
