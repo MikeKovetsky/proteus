@@ -133,3 +133,7 @@ A dated log, written as the work happens. The verification write-up's AI section
 28. **What the benches had missed.** An agent wrote pin-level tests from each protocol's definition, sharing no
     code with the benches, and found program bugs that all 14 benches had passed. The main session reproduced
     three of them with its own script on the golden model and moved R3 from MET back to NOT MET.
+29. **The compiler's review.** A fresh Opus 5.5 reviewer at max effort found 14 more silent miscompiles in a fix
+    for five, wrote a differential oracle from docs/isa.md, killed 77 of 77 mutants of the fixes and replayed
+    3,008 compiled programs on the RTL. The main session replayed the reviewed chain onto main, re-ran the
+    checks and probed the bugs with its own small programs before pushing.

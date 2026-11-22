@@ -89,7 +89,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
-| R10 | Assembler or toolchain with example programs | NOT MET until the compiler fix lands | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open, some silent (19 of the fix's 23 tests fail on `main`); not yet moved to `asm/` |
+| R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI does not run those tests yet ("Open work", 8). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | A draft and 84 claims for Mike are on the local branch `writeup` (b25f92c). It moves out of `docs/`, which the stranger gets, to `WRITEUP.md`, makes no novelty claim, and lands once Mike accepts its claims |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
@@ -203,14 +203,9 @@ make it novel". The main session's reading of it:
    `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 in every corner and setup,
    hold, routing and LVS are still clean. The SRAM's timing at those pins is extrapolated until then. That
    branch's build also deployed its layout to the public viewer, over `main`'s.
-2. **The compiler fix (local branch `worktree-agent-a4b95512cb9f20160`, not pushed, not reviewed).** Two commits,
-   b51267f and b31c43d, fix the five compiler bugs the docs found: `N-=1, ret` is refused in either order (one
-   entry cannot hold both), `X=1 when A, ret` now compiles its gate, `crc init = 1 + 2` evaluates in full,
-   the listing prints `c` and input names, and compile errors print `file:line: message` and exit 1. All 19
-   images the repo builds stay byte-identical; 23 new tests in `bakeoff/cand_table/test_compiler.py` pass. Its
-   full-tier review was stopped at the pause, before it changed anything, so the review gate blocks the push. To
-   resume: run the full review (`review_pack.py` on that worktree), then push `main`. Still open there:
-   `crc init=1 init=2` silently keeps the last value, and four error messages name no line or the wrong reason.
+2. **The compiler fix: landed on 2026-11-21.** Its full review added four commits, closed 14 silent miscompiles
+   beyond the five bugs the docs found, and left nothing on the checklist open. The language is stricter: a line
+   that sets something twice is refused. Every shipped program compiles to the image it did before.
 3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design), waiting for the
    brainstorm.** Their review was paused on 2026-11-21, before it reported or exported anything. One of its runs
    left output in the session's temp folder, against its instructions: that reviewer removes it on resuming,
@@ -231,6 +226,8 @@ make it novel". The main session's reading of it:
    mutation coverage are being built.
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
    container engine and is not needed while CI builds in about 40 minutes.
+8. **CI runs too little.** It runs the pin tests, docs and layout, and not the compiler's tests, lockstep, the
+   bake-off or the self-checks. They go into `test.yaml` after the electrical fix, which edits that file.
 
 ### Layout (target)
 
