@@ -74,7 +74,7 @@ uses the SRAM's own address register as the state register, so the loop that dec
 5. The result is latched as the SRAM address at the end of the clock, and the next entry comes out on the next.
 
 There is no adder and no priority logic in that loop. Deciding on every clock depends on it closing in one
-clock. The whole design meets setup and hold at 60 MHz after place-and-route, with timing extrapolated at some SRAM pins (see
+clock. The whole design meets setup, hold, slew and capacitance limits at 60 MHz after place-and-route (see
 [Budget](#budget-as-synthesised)).
 
 In the same clock, the entry drives the pins and the datapath: up to two pin operations, one byte on the bus, a
@@ -270,9 +270,10 @@ Tiny Tapeout's flow in CI.
 2. **Logic: 3,310 multi-input combinational cells** after CI maps it to IHP cells, besides buffers and inverters.
 3. **SRAM: 32,768 bits,** both IHP 512x32 macros, all of it the state table.
 4. **Layout:** the whole design passes Tiny Tapeout's flow at 8x4 tiles: layout, precheck, and the pin tests on
-   the routed netlist ([CI run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046)).
-   Setup and hold are met at a 16.6 ns clock (slew and capacitance limits at the SRAMs' pins are still exceeded,
-   so timing there is extrapolated), with 4.20 ns of worst setup slack at the slow corner in that run, as
+   the routed netlist ([CI run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402)).
+   Setup, hold, slew and capacitance limits are met at a 16.6 ns clock in all three corners, with 4.0960 ns of
+   worst setup slack at the slow corner in that run. A buffer at each of the 216 live SRAM pins keeps the edges
+   there inside the library's limits. 97 max-fanout warnings remain and do not fail the build, as
    [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records.
 5. **Where the flops go:** a third of them (384) are the LFSRs' configured polynomial, start and match values.
    They let one unit serve CRCs of up to 32 bits.

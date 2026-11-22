@@ -9,7 +9,7 @@ Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requiremen
 from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). At 22:55 they set the order:
 **"let's complete without novelty first and then right after it brainstorm how to make it novel"**. The
 bake-off is done, and Mike picked the table-driven architecture. Its RTL core matches the golden model on every recorded clock,
-the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup and hold met at 60 MHz (slew and capacitance limits are still exceeded), and the architecture
+the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup, hold, slew and capacitance limits met at 60 MHz (max-fanout warnings remain), and the architecture
 and instruction set docs are written. "Progress" below has the detail, and "Open work" says
 where each open piece stands.
 
@@ -85,13 +85,13 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` checks only the cell types, which does not prove freedom from power-up values); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
-| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners. The latest build of `main`, [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, also has 0 of each in all three; its log cuts the slack figures short |
-| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. All four jobs passed again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, with the compiler fix and unchanged layout inputs. It must pass again on every design change |
+| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) at 16.6 ns, the slew fix's build, on extracted parasitics: worst setup slack 4.0960 ns (slow corner), worst hold slack 0.0955 ns (fast corner), and 0 setup, hold, slew and capacitance violations in all three corners, so timing at the SRAM pins is no longer extrapolated. 97 max-fanout warnings remain and do not fail the build |
+| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. All four jobs passed again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, with the compiler fix and unchanged layout inputs. With the slew fix, [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) passes gds, precheck and gl_test, with 0 routing, LVS and antenna violations; its viewer job is skipped by design off `main`. The flow's waivers are unchanged (`src/config.json` says why for each). It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI does not run those tests yet ("Open work", 8). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
-| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler |
+| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
@@ -192,23 +192,14 @@ make it novel". The main session's reading of it:
 3. The stranger test and its bench review wait for the brainstorm, because the test runs once on frozen RTL and
    the brainstorm may change the RTL. R14 is deferred, not waived.
 
-1. **The electrical fix (branch `electrical-fix`, pushed, reviewed at the light tier).** It adds four LibreLane
-   settings to `src/config.json`: design repair after global routing (`RUN_POST_GRT_DESIGN_REPAIR`, with
-   `GRT_DESIGN_REPAIR_MAX_SLEW_PCT` 65 and `GRT_DESIGN_REPAIR_MAX_CAP_PCT` 50) and hold repair after it
-   (`RUN_POST_GRT_RESIZER_TIMING`). All four exist in LibreLane 3.1.0.dev4's source. Its layout build,
-   [run 44111759734](https://github.com/MikeKovetsky/protoemu/actions/runs/44111759734), was still running at the
-   pause, and finished at 07:41 PST. All four jobs passed, **but the fix missed its bar, so it did not land**: the
-   log's final timing table shows 1 max-cap violation and at least 10 max-slew violations in each of the three
-   corners (the log cuts the slew count short). Setup, hold, routing and LVS stayed clean. It lands only when
-   `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 in every corner and setup,
-   hold, routing and LVS are still clean. The SRAM's timing at those pins is extrapolated until then. That
-   branch's build also deployed its layout to the public viewer, over `main`'s.
-   A second fix replaces it on the branch `slew-fix` (ee9667f, reviewed at the full tier): a buffer at each of the
-   216 live SRAM pins, a build that fails on slew or capacitance violations, and a viewer that only `main` can
-   deploy from that workflow. Its first layout build,
-   [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402), started on 2026-11-21 at
-   about 23:28 PST. It lands by the same bar, with precheck and gate-level simulation passing. `electrical-fix` is
-   not to be merged, pushed or re-run: it and `rtl-sram-flow` still carry the old viewer job.
+1. **The slew fix: landed on 2026-11-22.** It puts a buffer at each of the 216 live SRAM pins, fails the build on
+   slew, capacitance or antenna violations, and lets only `main` deploy the public viewer from that workflow. Its
+   [layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) met the bar: 0 slew and 0
+   capacitance violations in all three corners, with setup, hold, routing, LVS, precheck and gate-level simulation
+   clean. It replaces the first attempt, `electrical-fix`, whose
+   [green build](https://github.com/MikeKovetsky/protoemu/actions/runs/44111759734) still broke both limits and
+   deployed over `main`'s viewer. That branch and `rtl-sram-flow` still carry the old viewer job, so neither is to
+   be merged, pushed or re-run. Deleting them waits for Mike's yes.
 2. **The compiler fix: landed on 2026-11-21.** Its full review added four commits, closed 14 silent miscompiles
    beyond the five bugs the docs found, and left nothing on the checklist open. The language is stricter: a line
    that sets something twice is refused. Every shipped program compiles to the image it did before.
@@ -233,7 +224,7 @@ make it novel". The main session's reading of it:
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
    container engine and is not needed while CI builds in about 40 minutes.
 8. **CI runs too little.** It runs the pin tests, docs and layout, and not the compiler's tests, lockstep, the
-   bake-off or the self-checks. They go into `test.yaml` after the electrical fix, which edits that file.
+   bake-off or the self-checks. They go into `test.yaml` next, now that the slew fix, which edits that file, has landed.
 
 ### Layout (target)
 
@@ -298,8 +289,8 @@ today, was not true either: no mechanism enforced it. An earlier entry is also n
 or change. Lockstep builds the core alone, so only the pin tests check the host link in `src/project.v`.
 
 `cand_table`'s open risk, by its author's account: it decides on every clock only if one path (memory output,
-condition select, memory address) closes in 16.7 ns. It has since met setup and hold after layout, with extrapolated
-timing at SRAM pins that break slew limits. Had it failed, the Ethernet scenarios would have been lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
+condition select, memory address) closes in 16.7 ns. It has since met setup and hold after layout, inside the
+slew and capacitance limits. Had it failed, the Ethernet scenarios would have been lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
 for that logic.
 
 ### 2. Prove the flow

@@ -150,3 +150,7 @@ A dated log, written as the work happens. The verification write-up's AI section
     on a pre-layout estimate, that antenna violations failed nothing, and that the main-only rule for the public
     viewer never applied. It fixed all three before any layout was built. The main session confirmed the viewer
     rule in GitHub's settings, replayed the reviewed patch onto main, re-ran the checks and started the build.
+33. **The slew fix's build.** The main session judged the reviewed fix by GitHub's logs: the report and LibreLane's
+    own checkers show no slew, capacitance, setup or hold violation in any corner. It also traced two warnings the
+    gate does not read. The power-grid failure precedes the SRAM stripes and the final check finds the grid
+    connected, and the parasitic names the IR-drop step missed are diodes on the SRAMs' unused test pins.

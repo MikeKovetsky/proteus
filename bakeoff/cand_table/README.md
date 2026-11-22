@@ -52,7 +52,7 @@ The fourth prints a program's listing: every entry, its state and successors.
    the SRAM latches at the end of that clock, and the new entry is out on the next. That gives one decision per
    clock with a synchronous read, which the simulator models (`q_addr` in [chip.py](chip.py)). The loop is
    SRAM output, a 16:1 condition select, an OR, a 2:1 mux, SRAM address. **It has since met setup and hold at 60 MHz after layout,**
-   with extrapolated timing at SRAM pins that break slew limits.
+   inside the slew and capacitance limits.
 4. **Actions belong to the state** and run on every clock spent in it, gated pin operations aside. So a line that
    waits may only set pins, and "do this, then wait" is two states. Pin operations alone can be gated by an
    input in the clock that sees it (`when`), which gives the pads' floor of 3 clocks from pin to pin.

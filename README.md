@@ -7,8 +7,8 @@ agents then built and reviewed the RTL, with tests as gates.
 
 The chip is a table-driven state machine: a program is a state table, compiled from a small state-machine
 language and held in two IHP SRAMs, and up to four machines take turns, four at 15 MHz each (four protocols at once have run only on the model). It passes Tiny Tapeout's whole
-flow at 8x4 tiles: layout, precheck and gate-level simulation, with setup and hold met at 60 MHz. Slew and capacitance
-limits at the SRAMs' pins are still exceeded, so the timing there is extrapolated until that is fixed.
+flow at 8x4 tiles: layout, precheck and gate-level simulation, with setup, hold, slew and capacitance
+limits met at 60 MHz. Max-fanout warnings remain.
 
 1. [docs/architecture.md](docs/architecture.md) explains the machine and why it is built this way,
    [docs/isa.md](docs/isa.md) is the reference for the table entry and the state-machine language, and
