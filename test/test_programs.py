@@ -319,6 +319,30 @@ async def test_spi_target_underrun(dut):
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
+@cocotb.parametrize(after=[100, 500])
+async def test_spi_target_late_first_byte(dut, after):
+    """spi_target_m0: the first byte's deadline is CS falling. A reply queued after that, even well before the
+    first clock, is never sent in its place: 0x00 and one 0x01, then every reply is one transaction behind.
+    Scenario 6 queues before CS falls, so it does not define this."""
+    chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
+    idle_since = chip.board.since
+    for reply, want in ((0x21, 0x00), (0x32, 0x21), (0x43, 0x32), (None, 0x43)):
+        await chip.wait(3 * US)
+        events, rises, end = spi.controller_mode0(SPI_PINS, b"\x81", now() + 1 * US)
+        player = chip.board.play(events)
+        if reply is not None:
+            await chip.wait(events[0][0] + after - now())
+            chip.send(bytes([reply]))
+        await player
+        await chip.wait(1 * US)
+        got = spi.check_target(chip.board.line[MISO], chip.board.chip[MISO], events[0][0], rises, end, idle_since)
+        idle_since = end + spi.TARGET_DISABLE
+        assert got == bytes([want]), "MISO carried %s, expected %02x" % (got.hex(), want)
+    await chip.expect(ch1=b"\x81" * 4, ch2=b"\x01", within=10 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
 async def test_spi_target_deselect_high(dut):
     """spi_target_m0: CS rises while SCK is still high. After a byte's last clock the byte taken early for the
     next one is kept, and inside a byte that byte is dropped. Scenario 6 raises CS once, with SCK low."""

@@ -95,7 +95,7 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `uart_rx_9600`, `uart_rx`, `uart_rx_921600` | 8N1 receive at the same three rates | `0x01` for a frame whose stop bit is 0 |
 | `uart_3m` | 8N1 both ways at once at 3 Mbaud | `0x01` for a frame whose stop bit is 0 |
 | `spi_ctrl_m0`, `_m1`, `_m2`, `_m3` | SPI controller in modes 0 to 3 at 5 MHz. The clock waits for a late host | None |
-| `spi_target_m0` | SPI target in mode 0 | `0x01` for each byte clocked out with none queued (it is `0x00`) |
+| `spi_target_m0` | SPI target in mode 0. Queue the first byte before CS falls | `0x01` for each byte clocked out with none queued in time (it is `0x00`). A late first byte goes out as the next one, so later bytes stay one behind, with no more status |
 | `i2c_ctrl`, `i2c_ctrl_100k` | I2C controller at 400 and at 100 kHz: a write then a read, or a write alone when the read count is 0 | `0x00` done, `0x01` NACK, `0x02` bus stuck |
 | `ws2812_tx` | WS2812B and its V5: 75 clocks a bit, 282 us of latch | `0x01` each time the host was late inside a frame |
 | `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short (channel 1 may hold bytes read before it) |

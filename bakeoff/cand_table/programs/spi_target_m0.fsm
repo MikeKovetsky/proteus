@@ -3,6 +3,9 @@
 # A byte is taken from channel 0 ahead of its first clock, and kept for the next transaction if CS rises before
 # that clock comes. A byte the host did not have ready goes out as 0x00, and channel 2 gets 0x01 as soon as the
 # controller clocks it. A byte that CS cuts short is dropped in both directions.
+# The first byte must be in channel 0 before CS falls. A later one is not sent in its place: the chip sends
+# 0x00 with 0x01, and that byte waits for the next one, so the bytes after it stay one behind, with no more
+# status. Taking it later would risk a wrong first bit with no status at all.
 
 machine spi
     in    SCK=P0, MOSI=P1, CS=P3
