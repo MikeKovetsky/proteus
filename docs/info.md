@@ -149,11 +149,11 @@ were written from each protocol's definition and share no code with the golden m
 | Scenario | What the test requires |
 |---|---|
 | `uart_tx`, `uart_rx`, `uart_3m` | 8N1 at 115200 and 3 Mbaud, both ways at once at 3M, edges and senders within 2% |
-| `spi_ctrl_m0`, `spi_ctrl_m3` | 5 MHz: period, phase, CS lead and trail, setup and hold; a target up to 50 ns late (modes 1 and 2 too) |
+| `spi_ctrl_m0`, `spi_ctrl_m3` | 5 MHz: period, phase, CS lead and trail, setup and hold; a target up to 50 ns late |
 | `spi_target_m0` | A 2 MHz controller; MISO stable round the sampling edge and released with CS high |
-| `i2c_ctrl` | UM10204's controller timing (`i2c_ctrl_100k` too), stretching, every form of request, each place a NACK can come |
-| `ws2812_tx` | WS2812B's and the V5's pulse widths and latch, 50 and 280 us |
-| `onewire` | Reset, presence at both ends of its range, slot timing, Read ROM with a good and a bad CRC-8, and shorts |
+| `i2c_ctrl` | UM10204's controller timing, clock stretching, repeated START, a NACK at each place one can come |
+| `ws2812_tx` | WS2812B pulse widths and the 50 us latch |
+| `onewire` | Reset, presence at both ends of its range, slot timing, and Read ROM with a good and a bad CRC-8 |
 | `ps2_rx` | A device at 10, 12.5 and 16.7 kHz, and one bad parity |
 | `usb_ls_tx`, `usb_ls_rx` | NRZI, stuffing, CRC-16, EOP and packet spacing; receive at 1.5% off with a device's and a host's allowed jitter |
 | `eth10_tx`, `eth10_rx` | Manchester, TP_IDL, gap and FCS up to a full frame, in real time; receive at 200 ppm off with 5.5 ns of jitter |
