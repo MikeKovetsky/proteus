@@ -127,3 +127,6 @@ A dated log, written as the work happens. The verification write-up's AI section
     README said tests could not be edited when they could, and another entry had already published a similar
     bake-off. The main session checked each of those at its source, corrected them, and left the pick, the name
     and the write-up's claims to Mike.
+27. **The order of work.** On 2026-11-21 Mike wrote "let's complete without novelty first and then right after it
+    brainstorm how to make it novel". The main session paused the bench reviewer and had the write-up reworked
+    to stand without a novelty claim or the stranger test.

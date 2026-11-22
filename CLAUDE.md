@@ -6,7 +6,8 @@ programmable chip that speaks UART, SPI and I2C, and protocols it was not design
 it with tests as gates, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
 Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requirements are met"), after a pause
-from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). The
+from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). At 22:55 they set the order:
+**"let's complete without novelty first and then right after it brainstorm how to make it novel"**. The
 bake-off is done, and Mike picked the table-driven architecture. Its RTL core matches the golden model on every recorded clock,
 the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup and hold met at 60 MHz, and the architecture
 and instruction set docs are written. "Progress" below has the detail, and "Open work" says
@@ -89,10 +90,10 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | NOT MET until the compiler fix lands | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open, some silent (19 of the fix's 23 tests fail on `main`); not yet moved to `asm/` |
-| R11 | Verification write-up, including how AI was used | NOT MET | A draft and 84 claims for Mike are on the local branch `writeup` (b25f92c). It stays off `main` until the stranger test has run, because the stranger gets `docs/` |
+| R11 | Verification write-up, including how AI was used | NOT MET | A draft and 84 claims for Mike are on the local branch `writeup` (b25f92c). It moves out of `docs/`, which the stranger gets, to `WRITEUP.md`, makes no novelty claim, and lands once Mike accepts its claims |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
-| R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, and at risk | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
+| R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
 
 ## Plan: simulator first, loop second
@@ -181,7 +182,15 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 
 ### Open work
 
-The compiler fix lands first. The stranger test does not wait for the electrical fix, which changes no RTL.
+**The order.** Mike, 2026-11-21: "let's complete without novelty first and then right after it brainstorm how to
+make it novel". The main session's reading of it:
+
+1. First, every line but R14 is finished: the compiler fix, the electrical fix, the pin tests, the proofs, the
+   docs' remaining overclaims, and the write-up with no novelty claim. R13 also waits for Jane Street's form.
+2. Right after, Mike and the main session brainstorm R14. The architecture pick and the project's name are open
+   there. The table stays until then.
+3. The stranger test and its bench review wait for the brainstorm, because the test runs once on frozen RTL and
+   the brainstorm may change the RTL. R14 is deferred, not waived.
 
 1. **The electrical fix (branch `electrical-fix`, pushed, reviewed at the light tier).** It adds four LibreLane
    settings to `src/config.json`: design repair after global routing (`RUN_POST_GRT_DESIGN_REPAIR`, with
@@ -202,7 +211,10 @@ The compiler fix lands first. The stranger test does not wait for the electrical
    full-tier review was stopped at the pause, before it changed anything, so the review gate blocks the push. To
    resume: run the full review (`review_pack.py` on that worktree), then push `main`. Still open there:
    `crc init=1 init=2` silently keeps the last value, and four error messages name no line or the wrong reason.
-3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design).** A scenario sheet
+3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design), waiting for the
+   brainstorm.** Their review was paused on 2026-11-21, before it reported or exported anything. One of its runs
+   left output in the session's temp folder, against its instructions: that reviewer removes it on resuming,
+   no other agent opens it, and the stranger's sandbox denies that whole folder. The pieces are a scenario sheet
    (`SCENARIOS.md`) and benches for CAN, JTAG and SWD, with reference codecs, behavioural fakes and `run.py`,
    which judges a compiled image on the golden model. The self-test passes 77 of 77 checks. The agent was stopped
    while checking one hex constant in the sheet, so its README may be unfinished. Not reviewed. Before the test:
