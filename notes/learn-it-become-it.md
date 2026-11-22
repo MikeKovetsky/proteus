@@ -57,23 +57,29 @@ With n states found, for a device that is deterministic, is cleared by reset and
 events:
 
 1. If the device has at most n states, the model is exact for every event the bus allows.
-2. If it has at most n + m states (m is at least 1, and is printed), and every event that was not learned in full
-   acts like that kind's default, the model is exact.
+2. If it has at most n + m states, and every event that was not learned in full acts like that kind's default, the
+   model is exact. m is printed. It is 1 unless told otherwise, more where that costs little, and exactly the told
+   size less n when the most states is told, which can make it 0.
 3. If the inputs were told, the model is exact for those inputs up to n + m states, and says nothing of others.
 
 **Beyond that, a copy can be wrong, and the warning can't tell you whether yours is.** It is on every copy. No
 test through the pins can find every secret: a long enough code that shows nothing until its last step is just
 one sequence among too many. The host refuses when it sees noise, time-outs, a reset that doesn't clear, a size
-bound that it can't afford to test, or a machine that won't fit. The promise is about the model. The program
-comes from a generator that is tested and not proven.
+bound that it can't afford to test, a machine that won't fit, or a rate its copy can't serve. The promise is about
+the model. The program comes from a generator that is tested and not proven.
 
 ## What it did
 
-| Device | States | Table entries | Bus events asked | Chip time | Exact, by a separate judge |
+| Device | States | Table entries | Bus events asked | Chip time | By a separate judge |
 |---|---|---|---|---|---|
-| Flash-like SPI part with modes, a test mode and a hidden key | 51 | 170 of 512 | 2.6 to 3.6 million | 6 to 9 s | 6 of 6 seeds |
-| I2C sensor with a hidden register and a hidden address | 64 | 364 of 512 | 1.2 to 1.3 million | 25 to 28 s | 3 of 3 seeds |
-| I2C thermometer with nothing hidden | 13 | 140 of 512 | about 130,000 | 3 s | 6 of 6 seeds |
+| Flash-like SPI part with modes, a test mode and a hidden key | 51 | 170 of 512 | 2.6 million | 6.5 s | Exact |
+| I2C sensor with a hidden register and a hidden address | 64 | 364 of 512 | 1.3 million | 27.7 s | Exact |
+| I2C thermometer with nothing hidden | 13 | 140 of 512 | 135,000 | 2.9 s | Exact |
+
+These are the numbers `python3 -m learn` prints, for seed 1. The seed orders the questions. With seeds 1 to 8 on
+the tests' ideal link, which answers as the query engine does without the RTL, all three models came out exact
+every time, after 2.4 to 3.6 million events for the flash, 1.05 to 1.32 million for the sensor and 128,000 to
+135,000 for the thermometer. Chip time was not measured for those seeds.
 
 The judge alone sees the truth. It walks every reachable pair of a true state and a state of the whole chip's
 RTL, and tries every bus event from each. For the replacement, the repo's controller program runs unmodified
@@ -114,9 +120,12 @@ from that commit's hash, committed, and run once (`python3 -m learn evaluate` re
 | Broken promise, copy with no warning, or crash | 0 | 0 |
 
 The 32 untraced secrets were built to lie outside the promise, and all were missed. The other seven are the
-weakness that matters most: **an ordinary SPI register write**, a command and a value that show nothing until a
-later read, can be missed. The refusals are devices where whole ranges of bytes act alike, which the table
-encodes badly.
+weakness that matters most: **an ordinary SPI register write was missed every time.** Seven of the 16 SPI register
+devices have a bank switch, a command and then a value that show nothing until a later read, and all seven were
+copied wrong. The nine without one were exact. The wrong copies carry the same warning as the exact ones, so the
+warning doesn't single them out. Of the refusals, 11 are devices where whole ranges of bytes act alike, so the
+copy would need a chain of compares too long for the rate, and 4 are devices where more than 64 byte values
+matter, more than the host will learn.
 
 ## Other limits
 

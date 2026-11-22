@@ -217,3 +217,11 @@ A dated log, written as the work happens. The verification write-up's AI section
     misses in a simulation without RTL, and it was not committed, since it was made looking at those devices. The
     same agent wrote the host, the devices, the families and the judge, so none of this is independent. The main
     session rebuilt the work on `main` without its private notes, with the code unchanged.
+49. **A review of learn it, become it.** A fresh Opus 5.5 agent that had not built the feature reviewed it at max
+    effort, from the diff, the repo and a pack of facts. It broke the code on purpose and found three breaks that
+    every test passed: the sweep taken out, the judge's I2C reset left out, and an unfinished walk counted as
+    finished. It added tests that fail on each, and an end-to-end test for the probe's two largest machines, which
+    only the generator had been tested on. It checked the page's numbers against its own runs and corrected five
+    claims, among them that an SPI register write "can be missed": all seven with a bank switch were. It left
+    `learn/host` and `learn/programs` as frozen. L3 and L4 stay NOT MET, and the warning singles out no wrong copy.
+    Those wait for Mike.
