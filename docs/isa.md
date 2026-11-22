@@ -291,7 +291,7 @@ stop:   TX=1, hold BIT => idle
 3. A **label** is a name and a colon at the start of a line. It may stand alone on its line, and then it names
    the next state line. Several labels may name one line. Labels belong to their machine: two machines may
    both have an `idle`.
-4. A label may not be a reserved word (section 4.12), inside a macro too, or one of the machine's pin names.
+4. A label may not be a reserved word (section 4.12), inside a macro too, or a pin name declared above it.
 
 ### 4.2 Declarations
 
@@ -305,8 +305,8 @@ stop:   TX=1, hold BIT => idle
 | `crc poly=v init=v match=v` | The LFSR's values. Any of the three, in any order; the default of each is 0. Each value is an expression (section 4.3) that runs to the next `poly=`, `init=` or `match=`, so `crc init = 0xFF00 + 0xFF` sets 0xFFFF. It must come to 0 to 0xFFFFFFFF. A machine sets each of the three once at most, on one line or on several. |
 
 A pin or constant name may be any name that is not reserved and does not start with a digit. A machine declares
-a pin name once as an `in` and once as an `out` at most. One name may be both an `in` and an `out` of the same
-pin: as a condition it reads the input, and on the left of `=` it drives the output.
+a pin name once as an `in` and once as an `out` at most, above the lines that use it. One name may be both an
+`in` and an `out` of the same pin: as a condition it reads the input, and on the left of `=` it drives the output.
 
 ### 4.3 Numbers and expressions
 

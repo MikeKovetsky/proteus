@@ -79,7 +79,7 @@ BUS_SRCS = {"pop0": E.SRC_POP0, "pop3": E.SRC_POP3, "S": E.SRC_S, "R": E.SRC_R, 
 RESERVED = set(BUILTIN_CONDS) | set(BUS_DSTS) | set(BUS_SRCS) | {
     "T", "K", "J", "d", "c", "wait", "hold", "goto", "nop", "halt", "shift", "else", "when", "use", "call", "ret",
 }
-NEXT, STAY = "<next>", "<stay>"  # where a state goes when no rule fires; not names a source can use
+NEXT, STAY = "#next", "#stay"  # where a state goes when no rule fires; `#` starts a comment, so no source has these
 LABEL_RE = re.compile(r"^([A-Za-z_]\w*)\s*:(?!=[^>])\s*(.*)$")  # `idle:=> kz: done` has a label too
 IDENT_RE = re.compile(r"\b[A-Za-z_]\w*")  # whole words only: the xF in 0xF is no name
 NAME = r"[^\W\d]\w*"  # a pin or a constant: not a number, which `shift 1` would read as a bit
@@ -231,7 +231,7 @@ class Compiler:
                 for _, body_line in body:
                     local = LABEL_RE.match(body_line)
                     if local and local.group(1) not in rename:
-                        if local.group(1) in RESERVED:  # renamed, it would rename the word all through the body
+                        if local.group(1) in RESERVED:  # renaming a `d` would rename the data bit all through the body
                             raise CompileError(NOT_A_LABEL % local.group(1), number, body_line)
                         rename[local.group(1)] = "%s_%d" % (local.group(1), self.uses)
                 if label:
@@ -356,16 +356,15 @@ class Compiler:
         hold = None
         halt = False
         until: Optional[List[Literal]] = None  # `wait COND`: the rules apply once COND holds
-        for item in [part.strip() for part in split_items(actions) if part.strip()]:
+        for item in [" ".join(part.split()) for part in split_items(actions) if part.strip()]:
             if item == "nop":
                 continue
-            if (item in ("wait", "halt") or item.startswith("wait ")) and (state.wait or halt):
-                state.fail("one `wait` or `halt` per line; join the conditions of a `wait` with `&`")
-            if item == "halt":
-                halt = True
-            elif item == "wait" or item.startswith("wait "):
-                state.wait = True
-                if item != "wait":
+            if item in ("wait", "halt") or item.startswith("wait "):
+                if state.wait or halt:
+                    state.fail("one `wait` or `halt` per line; join the conditions of a `wait` with `&`")
+                halt = item == "halt"
+                state.wait = not halt
+                if item.startswith("wait "):
                     until = self._guard(machine, state, item[5:])
             elif item.startswith("hold "):
                 if hold is not None:
@@ -442,9 +441,8 @@ class Compiler:
         literals = []
         for part in text.split("&"):
             part = part.strip()
-            name = part.lstrip("! ")
-            want = 1 - part[:len(part) - len(name)].count("!") % 2  # a macro's `!P` given `!A` pastes `!!A`
-            literals.append((self._cond(machine, state, name), want))
+            want = 1 - part.count("!") % 2  # a macro's `!P` given `!A` pastes `!!A`
+            literals.append((self._cond(machine, state, part.lstrip("! ")), want))
         return literals
 
     def _din(self, machine: Machine, state: State, name: str) -> int:

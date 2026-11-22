@@ -14,7 +14,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from unittest import mock
 
 from .. import run
@@ -50,6 +50,18 @@ def address(result: Result, state: str) -> int:
 
 def listing_line(result: Result, state: str) -> str:
     return next(line for line in result.listing if line.split()[1] == state)
+
+
+def command_line(*sources: Optional[bytes]) -> Tuple[subprocess.CompletedProcess, List[str]]:
+    """Run the compiler's command on one file per source; None is a file that is not there."""
+    with tempfile.TemporaryDirectory() as folder:
+        paths = [str(Path(folder) / ("prog%d.fsm" % n)) for n in range(len(sources))]
+        for path, source in zip(paths, sources):
+            if source is not None:
+                Path(path).write_bytes(source)
+        done = subprocess.run([sys.executable, "-m", "bakeoff.cand_table.compiler"] + paths, cwd=str(ROOT),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    return done, paths
 
 
 class Refusals(unittest.TestCase):
@@ -197,13 +209,9 @@ class Bug5CommandLine(unittest.TestCase):
     """A compile error on the command line printed a Python traceback."""
 
     def run_compiler(self, source: str) -> subprocess.CompletedProcess:
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "prog.fsm"
-            path.write_text(source)
-            done = subprocess.run([sys.executable, "-m", "bakeoff.cand_table.compiler", str(path)], cwd=str(ROOT),
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-            done.path = str(path)  # type: ignore[attr-defined]
-            return done
+        done, [path] = command_line(source.encode())
+        done.path = path  # type: ignore[attr-defined]
+        return done
 
     def test_error_prints_file_line_message_and_exits_1(self) -> None:
         done = self.run_compiler("machine m\n    out X=P0\nidle: X=1, K+=1\n")
@@ -342,6 +350,11 @@ class Bug7AsWritten(Refusals):
         self.assertEqual(self.gate("macro load(V)\n  T=V => here\nend\nhere:\nidle: use load(max(1, 4))\n",
                                    "m.here")["imm"], 4)
 
+    def test_a_tab_between_words(self) -> None:
+        for spaced, tabbed in (("wait A", "wait\tA"), ("hold 7", "hold\t7"), ("call idle", "call\tidle")):
+            self.assertEqual(build("idle:   %s\n        halt\n" % tabbed).image,
+                             build("idle:   %s\n        halt\n" % spaced).image)
+
     def test_a_label_right_before_the_arrow(self) -> None:
         self.assertEqual(self.gate("idle:=> A: idle | idle\n")["base"], 0)
 
@@ -454,6 +467,8 @@ class Bug8Messages(Refusals):
         ("idle: N-=1, ret\n", 4, "`ret` and a change of N cannot share a line", "N-=1, ret"),
         ("idle: ret, N-=1\n", 4, "`ret` and a change of N cannot share a line", "ret, N-=1"),
         ("idle: call idle\n", 4, "nothing follows this call to return to", "call idle"),
+        ("idle: call <next>\n      halt\n", 4, "no label `<next>` in machine m", "call <next>"),
+        ("idle: call #next\n", 4, "cannot read `call`", "call"),
     )
 
     def test_every_refusal_names_its_line_and_reason_and_shows_the_line(self) -> None:
@@ -486,12 +501,16 @@ class Bug8Messages(Refusals):
         nested = "macro p0()\n  halt\nend\n" + "".join(
             "macro p%d()\n  use p%d()\nend\n" % (n, n - 1) for n in range(1, 8))
         self.assertTrue(build(nested + "idle: use p7()\n").image)
-        with self.assertRaises(CompileError):
+        with self.assertRaises(CompileError) as caught:
             build(nested + "macro p8()\n  use p7()\nend\nidle: use p8()\n")
+        self.assertEqual(caught.exception.message, "macros nest too deep")
 
     def test_a_short_hold_has_no_timer_to_test(self) -> None:
         for line in ("hold 2", "K=1, hold 3"):  # the rules sit on a `.pad` state, so two conditions fit
             self.assertTrue(build("idle:   %s => A: idle | kz: idle | idle\n" % line).image)
+
+    def test_a_hold_line_may_name_the_timer_too(self) -> None:
+        self.assertEqual(entries(build("idle:   hold 5 => A & tz: idle | idle\n"), "m.idle.hold")[0]["ca"], E.C_TZ)
 
     def test_the_bakeoff_shows_file_line_and_reason(self) -> None:
         def program(name: str) -> bytes:
@@ -523,55 +542,48 @@ class Bug9ListingAsWritten(unittest.TestCase):
 class Bug10Files(unittest.TestCase):
     """Files that ended in a Python traceback, and what the command does with several files."""
 
-    def run_compiler(self, *sources: bytes) -> Tuple[subprocess.CompletedProcess, List[str]]:
-        with tempfile.TemporaryDirectory() as folder:
-            paths = [str(Path(folder) / ("prog%d.fsm" % n)) for n in range(len(sources))]
-            for path, source in zip(paths, sources):
-                if source:  # an empty one stands for a file that is not there
-                    Path(path).write_bytes(source)
-            done = subprocess.run([sys.executable, "-m", "bakeoff.cand_table.compiler"] + paths, cwd=str(ROOT),
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-            return done, paths
-
     def test_a_byte_that_is_not_utf8(self) -> None:
-        done, [path] = self.run_compiler(b"machine m\nidle: halt\n  T=\xe9\n")
+        done, [path] = command_line(b"machine m\nidle: halt\n  T=\xe9\n")
         self.assertEqual(done.returncode, 1)
         self.assertTrue(done.stderr.startswith("%s:3: cannot evaluate" % path), done.stderr)
-        done, _paths = self.run_compiler(b"machine m  # 5 \xb5s\nidle: halt\n")
+        done, _paths = command_line(b"machine m  # 5 \xb5s\nidle: halt\n")
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_nothing_comes_before_the_message(self) -> None:
-        done, [path] = self.run_compiler(b"machine m\nidle: T=1or 2\n")
+        done, [path] = command_line(b"machine m\nidle: T=1or 2\n")
         self.assertTrue(done.stderr.startswith("%s:2: cannot evaluate `1or 2`" % path), done.stderr)
 
     def test_a_byte_order_mark(self) -> None:
-        done, _paths = self.run_compiler("\ufeffmachine m\nidle: halt\n".encode())
+        done, _paths = command_line("\ufeffmachine m\nidle: halt\n".encode())
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_a_number_too_big_to_print(self) -> None:
-        done, [path] = self.run_compiler(("machine m\ncrc init = %s * %s\n" % ("9" * 3000, "9" * 3000)).encode())
+        done, [path] = command_line(("machine m\ncrc init = %s * %s\n" % ("9" * 3000, "9" * 3000)).encode())
         self.assertEqual(done.returncode, 1)
         self.assertTrue(done.stderr.startswith("%s:2: cannot evaluate" % path), done.stderr)
         self.assertIn("the number is too big", done.stderr)
 
     def test_a_long_chain_of_gotos(self) -> None:
         chain = "".join("l%d: goto l%d\n" % (n, n + 1) for n in range(1500))
-        done, _paths = self.run_compiler(("machine m\nidle: nop\n" + chain + "l1500: halt\n").encode())
+        done, _paths = command_line(("machine m\nidle: nop\n" + chain + "l1500: halt\n").encode())
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_every_file_is_tried_and_one_failure_is_status_1(self) -> None:
-        good, bad = b"machine m\nidle: halt\n", b"machine m\nidle: K+=1\n"
-        for sources in ((bad, good), (b"", good), (good, bad, b"", good)):
-            done, paths = self.run_compiler(*sources)
+        good, bad, missing = b"machine m\nidle: halt\n", b"machine m\nidle: K+=1\n", None
+        for sources in ((bad, good), (missing, good), (good, bad, missing, good)):
+            done, paths = command_line(*sources)
             self.assertEqual(done.returncode, 1)
             self.assertNotIn("Traceback", done.stderr)
             for path, source in zip(paths, sources):
-                wanted = {good: "%s: 1 states" % path, bad: "%s:2: K and J" % path,
-                          b"": "%s: No such file or directory" % path}[source]
-                self.assertIn(wanted, done.stdout if source == good else done.stderr)
+                if source is good:
+                    self.assertIn("%s: 1 states" % path, done.stdout)
+                elif source is bad:
+                    self.assertIn("%s:2: K and J" % path, done.stderr)
+                else:
+                    self.assertIn("%s: No such file or directory" % path, done.stderr)
 
     def test_a_state_never_reached_is_a_warning(self) -> None:
-        done, _paths = self.run_compiler(b"machine m\nidle: halt\nlost: halt\n")
+        done, _paths = command_line(b"machine m\nidle: halt\nlost: halt\n")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("warning: m.lost (line 3) is never reached", done.stdout)
 
