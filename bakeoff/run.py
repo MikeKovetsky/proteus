@@ -63,8 +63,9 @@ def run_candidate(name: str, benches: List[Bench]) -> Dict[str, object]:
     for bench in benches:
         try:
             image = module.program(bench.name)
-        except Exception:  # a program that does not build fails its own bench, not the whole table
-            error = traceback.format_exc(limit=3).strip().splitlines()[-1]
+        except Exception as exc:  # a program that does not build fails its own bench, not the whole table
+            # The message's first line: a compile error's last one is only the source line.
+            error = "%s: %s" % (type(exc).__name__, str(exc).partition("\n")[0])
             rows.append({"bench": bench.name, "status": "fail", "detail": "build: " + error, "bytes": 0, "cycles": 0})
             continue
         if image is None:

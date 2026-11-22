@@ -4,7 +4,7 @@
 
 prints the listing: every table entry, the state it holds and where it goes.
 
-The language, in short (README.md has the full description):
+The language, in short (docs/isa.md, section 4, has the full description):
 
     machine tx                      # one section per machine; machine m starts at its first line
         out TX=P0                   # up to four outputs and three inputs (A, B, C in the order given)
@@ -32,6 +32,7 @@ import ast
 import operator
 import re
 import sys
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -60,6 +61,9 @@ class CompileError(Exception):
 # The N field of an entry holds either a change of N or the return code, never both.
 RET_CHANGES_N = ("`ret` and a change of N cannot share a line: the entry's N field holds the return code, so "
                  "it has no room for N-=1 or N+=1; change N on the line before the `ret`")
+NOT_A_LABEL = "`%s` is a reserved word or a pin, not a label"
+HOLD_MAX = 0xFFFF + 2  # `hold n` counts n - 2 on the 16-bit timer
+NUMBER_BITS = 1024     # no program needs a bigger number, and a message can always print one this size
 
 
 BUILTIN_CONDS = {
@@ -110,11 +114,11 @@ class State:
 
     def use_imm(self, mask: int, value: int, what: str) -> None:
         if value & ~mask:
-            self.fail("%s = %d does not fit its field" % (what, value >> ((mask & -mask).bit_length() - 1)))
+            self.fail("%s does not fit its field, 0 to %d" % (what, mask // (mask & -mask)))
         for other_mask, other_value, other_what in self.imm_users:
             overlap = mask & other_mask
             if (value & overlap) != (other_value & overlap):
-                self.fail("%s and %s need different bits of the one immediate; put them on separate lines"
+                self.fail("%s and %s set the same bits of the one immediate differently; put them on separate lines"
                           % (other_what, what))
         self.imm_users.append((mask, value, what))
 
@@ -133,14 +137,18 @@ class State:
 
 
 class Goto:
-    def __init__(self, target: str) -> None:
+    def __init__(self, target: str, line: int, text: str) -> None:
         self.target = target
+        self.line = line
+        self.text = text
 
 
 class Machine:
-    def __init__(self, name: str, index: int) -> None:
+    def __init__(self, name: str, index: int, line: int, text: str) -> None:
         self.name = name
         self.index = index
+        self.line = line
+        self.text = text
         self.cfg = E.MachineConfig()
         self.outs: Dict[str, int] = {}
         self.ins: Dict[str, int] = {}
@@ -178,15 +186,17 @@ class Compiler:
             number, line = lines[i]
             head = re.match(r"^macro\s+(\w+)\s*\(([^)]*)\)$", line)
             if not head:
+                if line.split()[0] == "macro":
+                    raise CompileError("expected `macro NAME(P, Q)`", number, line)
                 out.append(lines[i])
                 i += 1
                 continue
             body = []
             i += 1
-            while i < len(lines) and lines[i][1] != "end":
+            while i < len(lines) and lines[i][1] != "end" and lines[i][1].split()[0] != "macro":
                 body.append(lines[i])
                 i += 1
-            if i == len(lines):
+            if i == len(lines) or lines[i][1] != "end":
                 raise CompileError("macro %s has no `end`" % head.group(1), number, line)
             params = [p.strip() for p in head.group(2).split(",") if p.strip()]
             if head.group(1) in self.macros:
@@ -200,8 +210,6 @@ class Compiler:
 
     def _expand(self, lines: List[Tuple[int, str]], depth: int = 0) -> List[Tuple[int, str]]:
         """Replace every `use` by the macro's body, with the macro's own labels made unique."""
-        if depth > 8:
-            raise CompileError("macros nest too deep")
         out: List[Tuple[int, str]] = []
         i = 0
         while i < len(lines):
@@ -210,6 +218,8 @@ class Compiler:
             rest = label.group(2) if label else line
             use = re.match(r"^use\s+(\w+)\s*\((.*)\)$", rest)
             if use:
+                if depth == 8:
+                    raise CompileError("macros nest too deep", number, line)
                 if use.group(1) not in self.macros:
                     raise CompileError("no macro named %s" % use.group(1), number, line)
                 params, body = self.macros[use.group(1)]
@@ -221,6 +231,8 @@ class Compiler:
                 for _, body_line in body:
                     local = LABEL_RE.match(body_line)
                     if local and local.group(1) not in rename:
+                        if local.group(1) in RESERVED:  # renamed, it would rename the word all through the body
+                            raise CompileError(NOT_A_LABEL % local.group(1), number, body_line)
                         rename[local.group(1)] = "%s_%d" % (local.group(1), self.uses)
                 if label:
                     out.append((number, label.group(1) + ":"))
@@ -232,17 +244,23 @@ class Compiler:
             i += 1
         return out
 
-    def value(self, expr: str, line: int) -> int:
+    def value(self, expr: str, line: int, source: str) -> int:
         try:
-            return int(round(arithmetic(expr, self.consts)))  # inside the try: 1e400 is infinity, no integer
+            result = int(round(arithmetic(expr, self.consts)))  # inside the try: 1e400 is infinity, no integer
+            if result.bit_length() > NUMBER_BITS:
+                raise ValueError("the number is too big")
+            return result
+        except SyntaxError as error:
+            why = error.msg  # not str(error), which adds a line number of its own
         except Exception as error:
-            raise CompileError("cannot evaluate `%s`: %s" % (expr.strip(), error), line)
+            why = str(error)
+        raise CompileError("cannot evaluate `%s`: %s" % (expr.strip(), why), line, source)
 
     # ---- parsing ---------------------------------------------------------------------------------------
 
     def parse(self) -> None:
         machine: Optional[Machine] = None
-        pending_labels: List[str] = []
+        pending_labels: List[Tuple[str, int, str]] = []  # name, and the line that gave it
         for number, line in self.lines:
             words = line.split(None, 1)
             key, rest = words[0], (words[1] if len(words) > 1 else "")
@@ -252,14 +270,15 @@ class Compiler:
                     raise CompileError("expected `const NAME = expr`", number, line)
                 if found.group(1) in RESERVED:  # `S=R` moves register R, whatever a constant R holds
                     raise CompileError("%s is a reserved word" % found.group(1), number, line)
-                self.consts[found.group(1)] = self.value(found.group(2), number)
+                self.consts[found.group(1)] = self.value(found.group(2), number, line)
                 continue
             if key == "machine":
                 if pending_labels:
-                    raise CompileError("label %s has no line after it" % pending_labels[0], number, line)
+                    name, number, line = pending_labels[0]
+                    raise CompileError("label %s has no line after it" % name, number, line)
                 if len(self.machines) == E.MAX_MACHINES:
                     raise CompileError("at most %d machines" % E.MAX_MACHINES, number, line)
-                machine = Machine(rest.strip() or "m%d" % len(self.machines), len(self.machines))
+                machine = Machine(rest.strip() or "m%d" % len(self.machines), len(self.machines), number, line)
                 self.machines.append(machine)
                 continue
             if machine is None:
@@ -295,7 +314,7 @@ class Compiler:
                     if name in machine.given:
                         raise CompileError("crc %s is set twice: it holds for the whole machine" % name, number, line)
                     machine.given.add(name)
-                    value = self.value(expr, number)
+                    value = self.value(expr, number, line)
                     if not 0 <= value <= 0xFFFFFFFF:
                         raise CompileError("crc %s = %d is outside 0 to 0xFFFFFFFF, the LFSR's 32 bits"
                                            % (name, value), number, line)
@@ -305,20 +324,21 @@ class Compiler:
             label = LABEL_RE.match(line)
             if label:
                 if label.group(1) in RESERVED or label.group(1) in machine.ins or label.group(1) in machine.outs:
-                    raise CompileError("`%s` is a reserved word or a pin, not a label" % label.group(1), number, line)
-                pending_labels.append(label.group(1))
+                    raise CompileError(NOT_A_LABEL % label.group(1), number, line)
+                pending_labels.append((label.group(1), number, line))
                 line = label.group(2)
                 if not line:
                     continue
             position = len(machine.items)
-            for name in pending_labels:
+            for name, at, source in pending_labels:
                 if name in machine.labels:
-                    raise CompileError("label %s is defined twice" % name, number, line)
+                    raise CompileError("label %s is defined twice" % name, at, source)
                 machine.labels[name] = position
-            self._parse_step(machine, number, line, pending_labels[0] if pending_labels else "")
+            self._parse_step(machine, number, line, pending_labels[0][0] if pending_labels else "")
             pending_labels = []
         if pending_labels:
-            raise CompileError("label %s has no line after it" % pending_labels[0])
+            name, number, line = pending_labels[0]
+            raise CompileError("label %s has no line after it" % name, number, line)
         if not self.machines:
             raise CompileError("no machine")
 
@@ -328,7 +348,7 @@ class Compiler:
             if not machine.items:
                 raise CompileError("a machine cannot start with `goto`, which takes no turn; write `nop => %s`"
                                    % goto.group(1), number, line)
-            machine.items.append(Goto(goto.group(1)))
+            machine.items.append(Goto(goto.group(1), number, line))
             return
         state = State(number, line)
         state.name = label
@@ -350,7 +370,7 @@ class Compiler:
             elif item.startswith("hold "):
                 if hold is not None:
                     state.fail("one `hold` per line")
-                hold = self.value(item[5:], number)
+                hold = self.value(item[5:], number, line)
             elif item == "ret":
                 if state.fields["nop"] in (E.N_DEC, E.N_INC):
                     state.fail(RET_CHANGES_N)
@@ -375,21 +395,23 @@ class Compiler:
             state.rules = [(until + literals, target) for literals, target in state.rules]
             if not any(literals == until for literals, _ in state.rules):
                 state.rules.append((until, NEXT))
-        if state.wait or halt:
-            state.default = STAY
-            if hold is not None:
-                state.fail("`hold` and `wait` do not go together")
-            f = state.fields
-            if any(f[k] for k in ("src", "dst", "shift", "crc", "nop", "kj", "tload")) or E.P_TOGGLE in (f["p0op"], f["p1op"]):
-                state.fail("a waiting state repeats its actions every clock, so it may only set pins")
         if state.call or state.ret:
-            if state.rules or state.wait or halt or hold is not None or (state.call and state.ret):
-                state.fail("`call` and `ret` stand alone: no rules, `wait` or `hold` on their line")
+            if state.call and state.ret:
+                state.fail("`call` and `ret` cannot share a line")
+            if state.rules or state.wait or halt or hold is not None:
+                state.fail("`call` and `ret` stand alone: no rules, `wait`, `halt` or `hold` on their line")
             if state.call and state.imm_users:
                 state.fail("a call uses the immediate for its return address; move %s to another line"
                            % state.imm_users[0][2])
             if state.call:
                 state.rules.append(([], state.call))
+        if state.wait or halt:
+            state.default = STAY
+            if hold is not None:
+                state.fail("`hold` and `%s` do not go together" % ("halt" if halt else "wait"))
+            f = state.fields
+            if any(f[k] for k in ("src", "dst", "shift", "crc", "nop", "kj", "tload")) or E.P_TOGGLE in (f["p0op"], f["p1op"]):
+                state.fail("a waiting state repeats its actions every clock, so it may only set pins")
         if state.fields["shift"] and state.fields["dst"] == E.DST_S:
             state.fail("S is shifted or loaded in one state, not both")
         if state.fields["dst"] == E.DST_N and state.fields["nop"] in (E.N_DEC, E.N_INC):
@@ -411,7 +433,7 @@ class Compiler:
             return E.C_D
         equal = re.match(r"^S\s*==\s*(.+)$", name)
         if equal:
-            value = self.value(equal.group(1), state.line)
+            value = self.value(equal.group(1), state.line, state.text)
             state.use_imm(0x00FF, value, "S==%d" % value)
             return ("eq", value)
         state.fail("unknown condition `%s`" % name)
@@ -491,6 +513,10 @@ class Compiler:
                     state.fail("pin operations are gated by one condition")
                 state.gate = literal[0]
             return
+        if lhs in machine.ins:
+            state.fail("`%s` is an `in` pin; declare it with `out` as well to drive it" % lhs)
+        if lhs not in BUS_DSTS and lhs not in ("crc", "T", "K", "J"):
+            state.fail("unknown register or pin `%s`" % lhs)
         if when:
             state.fail("only pin operations can be gated with `when`")
         if lhs == "crc":
@@ -501,25 +527,23 @@ class Compiler:
             if f["tload"]:
                 state.fail("T is loaded once per state")
             f["tload"] = 1
-            value = self.value(rhs, state.line)
+            value = self.value(rhs, state.line, state.text)
             state.use_imm(0xFFFF, value, "T=%d" % value)
         elif lhs in ("K", "J"):
-            value = self.value(rhs, state.line)
+            value = self.value(rhs, state.line, state.text)
             if not 0 <= value <= 15:
                 state.fail("%s holds 0 to 15" % lhs)
             self._kj(state, lhs, E.LOAD)
             state.use_imm(0x0F00 if lhs == "K" else 0xF000, value << (8 if lhs == "K" else 12), "%s=%d" % (lhs, value))
-        elif lhs in BUS_DSTS:
+        else:  # a bus destination
             if rhs in BUS_SRCS:
                 self._bus(state, BUS_SRCS[rhs], BUS_DSTS[lhs])
             else:
-                value = self.value(rhs, state.line)
+                value = self.value(rhs, state.line, state.text)
                 if not 0 <= value <= 255:
                     state.fail("the bus carries one byte")
                 self._bus(state, E.SRC_IMM, BUS_DSTS[lhs])
                 state.use_imm(0x00FF, value, "%s=%d" % (lhs, value))
-        else:
-            state.fail("unknown register or pin `%s`" % lhs)
 
     def _bus(self, state: State, src: int, dst: int) -> None:
         f = state.fields
@@ -548,9 +572,11 @@ class Compiler:
             return
         if hold < 1:
             state.fail("hold needs at least one clock")
+        if hold > HOLD_MAX:
+            state.fail("`hold` lasts %d turns at most, all that the 16-bit timer counts" % HOLD_MAX)
         rules, state.rules = state.rules, []
         if any(what.startswith("S==") for _, _, what in state.imm_users):
-            state.fail("test `S==` on a line of its own, not at the end of a hold")
+            state.fail("test `S==` on a line of its own, not on a `hold` line")
         tests_data_bit = any(lit[0] == E.C_D for lits, _ in rules for lit in lits)
         machine.items.append(state)
 
@@ -579,6 +605,10 @@ class Compiler:
             last.rules = rules
             last.dsel = state.dsel if tests_data_bit else None
             return
+        tested = {key for literals, _ in rules for key, _ in literals} - {E.C_TZ}
+        if len(tested) > 1:  # only here: the `.pad` of a short hold has no timer to test and takes two
+            state.fail("the rules of a `hold` line test one condition besides the timer's `tz`; these test %d"
+                       % len(tested))
         waiter = extra(".hold")
         waiter.wait = True
         waiter.default = STAY
@@ -601,16 +631,17 @@ class Compiler:
                 position_of_state[position] = len(machine.states)
                 machine.states.append(item)
 
-        def at(position: int, seen: Tuple[int, ...] = ()) -> Optional[int]:
+        def at(position: int) -> Optional[int]:
             """The state reached by entering `items` at `position`, following gotos."""
-            if position >= len(items):
-                return None
-            item = items[position]
-            if isinstance(item, State):
-                return position_of_state[position]
-            if position in seen or item.target not in machine.labels:
-                raise CompileError("machine %s: goto %s leads nowhere" % (machine.name, item.target))
-            return at(machine.labels[item.target], seen + (position,))
+            seen: Set[int] = set()
+            while position < len(items) and isinstance(items[position], Goto):
+                goto = items[position]
+                if position in seen or goto.target not in machine.labels:
+                    raise CompileError("machine %s: goto %s leads nowhere" % (machine.name, goto.target),
+                                       goto.line, goto.text)
+                seen.add(position)
+                position = machine.labels[goto.target]
+            return position_of_state.get(position)
 
         for position, item in enumerate(items):
             if not isinstance(item, State):
@@ -629,10 +660,7 @@ class Compiler:
                     return following
                 if name not in machine.labels:
                     item.fail("no label `%s` in machine %s" % (name, machine.name))
-                found = at(machine.labels[name])
-                if found is None:
-                    item.fail("label `%s` has no state" % name)
-                return found
+                return at(machine.labels[name])  # always a state: parse refuses a label with no line after it
 
             if item.ret:
                 # The link register decides where a return goes, so it has no successors in the table. Its cA
@@ -675,7 +703,7 @@ class Compiler:
         self.parse()
         for machine in self.machines:
             if not any(isinstance(item, State) for item in machine.items):
-                raise CompileError("machine %s has no states" % machine.name)
+                raise CompileError("machine %s has no states" % machine.name, machine.line, machine.text)
             self._resolve(machine)
 
         Key = Tuple[int, int]  # (machine, state)
@@ -759,9 +787,14 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
     outs = {index: name for name, index in machine.outs.items()}
     ins = {E.C_A + index: name for name, index in machine.ins.items()}
     data = "c" if f["dsel"] else "d"  # the data bit: the shifter's end bit, or LFSR bit 0
+    serial = str(f["din"]) if f["din"] < E.DIN_A else ins[E.C_A + f["din"] - E.DIN_A]
 
     def cond(c: int) -> str:
-        return data if c == E.C_D else ins.get(c, E.CONDS[c])
+        if c == E.C_D:
+            return data
+        if c == E.C_EQ:
+            return "S==%d" % (f["imm"] & 0xFF)
+        return ins.get(c, E.CONDS[c])
 
     parts = []
     for slot in ("p0", "p1"):
@@ -777,8 +810,10 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
         source = "%d" % (f["imm"] & 0xFF) if f["src"] == E.SRC_IMM else E.SRCS[f["src"]]
         parts.append("%s=%s" % (E.DSTS[f["dst"]], source) if f["dst"] else source)
     if f["shift"]:
-        parts.append("shift %s" % ("0", "1", "A", "B")[f["din"]])
-    if f["crc"]:
+        parts.append("shift %s" % serial)
+    if f["crc"] == E.CRC_STEP_IN:
+        parts.append("crc+=%s" % serial)
+    elif f["crc"]:
         parts.append("crc%s" % E.CRC_OPS[f["crc"]])
     if f["nop"]:
         parts.append(("N-=1", "N+=1", "ret")[f["nop"] - 1])
@@ -825,7 +860,10 @@ def arithmetic(expr: str, names: Dict[str, float]) -> float:
             raise ValueError("no constant named %s" % node.id)
         raise ValueError("only numbers, constants, + - * / // %, round, int, min and max are allowed")
 
-    return walk(ast.parse(expr.strip(), mode="eval").body)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # newer Pythons warn on stderr about `1or`, ahead of the error
+        tree = ast.parse(expr.strip(), mode="eval")
+    return walk(tree.body)
 
 
 def split_items(text: str) -> List[str]:
@@ -869,7 +907,8 @@ def compile_text(text: str, filename: str = "<source>") -> Result:
 
 
 def compile_file(path: Path) -> Result:
-    return compile_text(Path(path).read_text(), str(path))
+    # A byte-order mark is dropped. A byte that is not UTF-8 is harmless in a comment; elsewhere its line is refused.
+    return compile_text(Path(path).read_text(encoding="utf-8-sig", errors="replace"), str(path))
 
 
 def main() -> int:
