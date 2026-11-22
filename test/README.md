@@ -8,6 +8,7 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 | `make -B` | The cocotb tests of the whole chip through its pins (`test.py`), on Icarus | about 2 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
 | `make mutants` | 21 planted bugs, one at a time; the lockstep suite must catch each | about 40 s |
+| `python3 -m unittest discover -s flow` | The layout flow's own scripts on synthetic databases and reports (`flow/`): the SRAM pin buffers and diodes, the config they rely on, and CI's layout report | 1 s |
 | `make lint` | Verilator lint of `src/`, every warning on | 1 s |
 | `make synth` | Yosys: generic cells, IHP cells and the decision-loop delay (`synth/`) | a few seconds; fetches 1.8 MB once |
 

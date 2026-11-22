@@ -18,6 +18,12 @@ jobs:
         with:
           pdk: ihp-sg13cmos5l # or ihp-sg13g2
 
+      # protoemu: LibreLane's own table is cut short in the log and the violating pins are only in an artifact.
+      # This prints both, also after a failed layout, and fails on a violation or a missing figure.
+      - name: Layout report
+        if: always()
+        run: python3 .github/scripts/layout_report.py runs/wokwi
+
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
@@ -39,6 +45,8 @@ jobs:
 
   viewer:
     needs: gds
+    # protoemu: the public Pages viewer shows main's layout only, never an unmerged branch's.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       pages: write # to deploy to Pages

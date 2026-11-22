@@ -113,6 +113,8 @@ make -C test lockstep
 `make -C test mutants` plants 21 bugs in the RTL, one at a time, and checks that the lockstep suite catches each.
 `make -C test lint` runs Verilator lint with every warning on, and `make -C test/synth` runs Yosys synthesis
 (generic cells, then IHP cells at the slow corner) and estimates the delay of the one-clock decision loop.
+`python3 -m unittest discover -s test/flow`, from the repository's root, tests the layout flow's own scripts on
+synthetic databases and reports. It does not run OpenROAD: only the GDS build shows their effect on the layout.
 
 ## External hardware
 
