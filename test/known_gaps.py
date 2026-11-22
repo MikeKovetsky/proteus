@@ -84,15 +84,6 @@ async def gap_ps2_rx_resync(dut):
     await chip.expect(ch1=b"\x5a", within=100 * US)
 
 
-@cocotb.test(timeout_time=10, timeout_unit="ms")
-async def gap_onewire_shorted_bus(dut):
-    """onewire: a line shorted to ground is no device. It reports present with a good CRC (all zeros have one)."""
-    chip = await boot(dut, "onewire", open_drain=[P0], far_end=lambda board: board.drive({P0: 0}), poll=20 * US)
-    await chip.until(lambda: len(chip.task.received[2]) >= 1, "status", 7000 * US)
-    await chip.wait(50 * US)
-    assert chip.task.received[2][:1] == b"\x01", "a shorted bus gave %s" % chip.state()
-
-
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def gap_usb_tx_handshake(dut):
     """usb_ls_tx: a device must send ACK, which is SYNC, PID, EOP. Every packet gets a CRC-16."""

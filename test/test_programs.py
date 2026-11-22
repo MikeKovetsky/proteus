@@ -15,10 +15,10 @@ import cocotb
 from bench import boot, now
 from host_link import PROGRAMS, ST_OVERFLOW
 from bakeoff.cand_table.compiler import compile_text
-from protocols import i2c, spi, uart, ws2812
+from protocols import i2c, onewire, spi, uart, ws2812
 from protocols.wave import CLK, EPS, US, Wave, bytes_msb
-from test_scenarios import (ACKED, ADDRESS_W, I2C_100KHZ, I2C_FEW, SLOW_POLL, i2c_retimed, i2c_run, rng,
-                            some_bytes, some_phase)
+from test_scenarios import (ACKED, ADDRESS_W, I2C_100KHZ, I2C_FEW, ONEWIRE_RISE, SLOW_POLL, i2c_retimed, i2c_run,
+                            rng, some_bytes, some_phase)
 
 P0, P1, P2, P3 = 0, 1, 2, 3
 SPI_PINS = SCK, MOSI, MISO, CS = P0, P1, P2, P3
@@ -549,3 +549,34 @@ async def test_ws2812_v5(dut):
     await chip.wait(350 * US)
     got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), ws2812.WS2812B_V5)
     assert got == [b"\x0f\xf0\x55"], "the line carried %s" % [g.hex() for g in got]
+
+
+# ---- 1-Wire
+
+
+@cocotb.test(timeout_time=6, timeout_unit="ms")
+@cocotb.parametrize(short_at=[0, 900, 1950])  # us: from the start, in the rest of the presence slot, in the read
+async def test_onewire_short(dut, short_at):
+    """onewire: a line shorted to ground gives only 0x01, as no device does, and also when it goes short after
+    the presence pulse or in the first byte read. Scenario 9 has no short."""
+
+    def plug_in(board):
+        if not short_at:
+            board.drive({P0: 0})
+            return
+        onewire.Device(board, P0, b"\xff" * 8, pdh=30 * US, pdl=240 * US, zero_low=30 * US)
+        board.later(short_at * US, lambda: board.drive({P0: 0}))
+
+    chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: ONEWIRE_RISE}, far_end=plug_in, poll=SLOW_POLL)
+    await chip.expect(ch2=b"\x01", within=3000 * US)
+    await chip.quiet([P0], 500 * US, 1000 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=10, timeout_unit="ms")
+async def test_onewire_shorted_bus(dut):
+    """onewire: a line shorted to ground is no device, though all zeros have a good CRC."""
+    chip = await boot(dut, "onewire", open_drain=[P0], far_end=lambda board: board.drive({P0: 0}), poll=20 * US)
+    await chip.until(lambda: len(chip.task.received[2]) >= 1, "status", 7000 * US)
+    await chip.wait(50 * US)
+    assert chip.task.received[2][:1] == b"\x01", "a shorted bus gave %s" % chip.state()

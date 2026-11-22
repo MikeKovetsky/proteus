@@ -97,6 +97,7 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `spi_target_m0` | SPI target in mode 0 | `0x01` for each byte clocked out with none queued (it is `0x00`) |
 | `i2c_ctrl`, `i2c_ctrl_100k` | I2C controller at 400 and at 100 kHz: a write then a read, or a write alone when the read count is 0 | `0x00` done, `0x01` NACK, `0x02` bus stuck |
 | `ws2812_tx` | WS2812B and its V5: 75 clocks a bit, 282 us of latch | `0x01` each time the host was late inside a frame |
+| `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short |
 
 What to know before using them:
 
@@ -117,7 +118,7 @@ What to know before using them:
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 70 tests in about 2 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 74 tests in about 2 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
@@ -138,19 +139,19 @@ were written from each protocol's definition and share no code with the golden m
 | `spi_target_m0` | A 2 MHz controller; MISO stable round the sampling edge and released with CS high |
 | `i2c_ctrl` | UM10204's controller timing (`i2c_ctrl_100k` too), stretching, every form of request, each place a NACK can come |
 | `ws2812_tx` | WS2812B's and the V5's pulse widths and latch, 50 and 280 us |
-| `onewire` | Reset, presence at both ends of its range, slot timing, and Read ROM with a good and a bad CRC-8 |
+| `onewire` | Reset, presence at both ends of its range, slot timing, Read ROM with a good and a bad CRC-8, and shorts |
 | `ps2_rx` | A device at 10, 12.5 and 16.7 kHz, and one bad parity |
 | `usb_ls_tx`, `usb_ls_rx` | NRZI, stuffing, CRC-16, EOP and packet spacing; receive at 1.5% off with a device's and a host's allowed jitter |
 | `eth10_tx`, `eth10_rx` | Manchester, TP_IDL, gap and FCS up to a full frame, in real time; receive at 200 ppm off with 5.5 ns of jitter |
 
-The transmit tests also require each push-pull pin to be driven, because a pin left to its pull reads the same.
-One test checks the judges' CRCs against the RevEng catalogue's check values and codewords. Four more run I2C on
-fast mode's slowest edges, with a late host and, with sharp edges, retimed to 400 and 100 kHz.
-`test/test_programs.py` holds the programs to the section above: the other UART rates and SPI modes, both I2C
-programs as shipped with the sharpest and slowest edges and the time-out, the V5's WS2812 timing, bad stop bits,
-queued bytes and late hosts. The seven in `test/test.py` cover what the scenarios do not: the loader with reset and reload, both host
-ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model reports a
-wrong tie only with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in CI).
+The transmit tests also require each push-pull pin to be driven, because a pin left to its pull reads the same. One
+test checks the judges' CRCs against the RevEng catalogue's check values and codewords. Four more run I2C on fast
+mode's slowest edges, with a late host and, with sharp edges, retimed to 400 and 100 kHz. `test/test_programs.py`
+holds the programs to the section above: the other UART rates and SPI modes, both I2C programs as shipped with the
+sharpest and slowest edges and the time-out, the V5's WS2812 timing, a shorted 1-Wire bus, bad stop bits, queued
+bytes and late hosts. The seven in `test/test.py` cover what the scenarios do not: the loader with reset and reload,
+both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model
+reports a wrong tie only with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in CI).
 
 What the shipped programs do not yet do:
 
@@ -160,7 +161,7 @@ What the shipped programs do not yet do:
    raised, under a valid CRC.
 3. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
    changing it waits for Mike's decision.
-4. `test/known_gaps.py` has these and the other gaps, 11 tests that fail until each is closed:
+4. `test/known_gaps.py` has these and the other gaps, 10 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random

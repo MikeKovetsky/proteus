@@ -361,7 +361,8 @@ middle of the cell.
 Other forms of the same idea:
 
 1. **A plain time-out on a level:** [onewire.fsm](../bakeoff/cand_table/programs/onewire.fsm) releases the bus
-   for 70 us and then tests whether a device pulled it low: `DQ=z, hold 70*US` followed by `=> DQI: absent`.
+   and, 10 us later, finds a short if it is still low: `DQ=z, hold 10*US`, `=> !DQI: absent`. 60 us after that it
+   tests whether a device pulled it low: `hold 60*US`, `=> DQI: absent`.
 2. **Waiting for the other side, but not for ever:** [i2c_ctrl.fsm](../bakeoff/cand_table/programs/i2c_ctrl.fsm)
    releases SCL and takes `wait => SCLI: high | tz: tick`, so a target that stretches the clock is waited for.
    T alone counts to 1.09 ms. The program makes that 25 ms with a spare LFSR as a round counter:
