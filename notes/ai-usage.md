@@ -182,3 +182,7 @@ A dated log, written as the work happens. The verification write-up's AI section
     three golden-model bugs that the tests and earlier reviews had missed. The main session re-ran the proofs,
     replayed the model bugs, showed the lost byte with a pin test of its own, measured the turn order and latency
     on the model and corrected the docs. The proofs went to a fresh Opus 5.5 reviewer at max effort.
+40. **Mike's landing decision.** Mike said they didn't know how to answer the two open questions. The main session
+    reduced them to one, whether to merge the fixes with 12 added behaviours and five gaps open for now, and Mike
+    answered "merge". The main session recorded the question, the answer and its limits in
+    `notes/landing-decision.md`, for the two original reviewers to check their open findings against.

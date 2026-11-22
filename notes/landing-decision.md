@@ -1,6 +1,30 @@
 # Decision for Mike: landing the pin tests and the program fixes
 
-Written by the main session on 2026-11-22. Nothing on this page is approved yet.
+Written by the main session on 2026-11-22. Mike answered it that morning.
+
+## Mike's answer, 2026-11-22, about 09:19 PST
+
+The main session asked, with the buttons "Yes, merge" and "Not yet":
+
+> Merge fixes once GitHub tests pass, accepting 12 behaviour changes and 5 gaps left open for now?
+
+The message above the question linked this page and said:
+
+> **Say yes to the merge.** It fixes real bugs and can be reverted. It accepts the 12 behaviour changes, leaves
+> five gaps open until Wed–Thu, and runs the chip-level test on GitHub instead of downloading files to your Mac.
+
+Mike typed: **"merge"**.
+
+The main session reads that as a yes to the three lines under "What 'Yes, land them' means", and to nothing more:
+
+1. The five gaps are waived for this merge only, not for the submission. Changing a scenario or the RTL to close
+   one still needs Mike's yes.
+2. The 12 added behaviours are accepted, and the scenarios stay as written.
+3. The local gate-level run (P4) is waived. Each branch still passes GitHub's tests, gate-level simulation
+   included, before it reaches `main`.
+
+It does not accept the write-up, pick the novel feature, approve a download or purchase, or change the golden
+model, the repository's description or any old branch.
 
 **Recommended answer: "Yes, land them."** It lets the UART, SPI and I2C requirement (R3) be met, and it changes no
 scenario, reference model or RTL.

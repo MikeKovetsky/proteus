@@ -216,15 +216,18 @@ make it novel". The main session's reading of it:
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
 4. **The pin tests (branch `pin-tests`, 021e895): the full review ended NOT CLEAN on one line.** The suite has
    never run on the routed netlist, with IHP's cell models or on cocotb 2.0.1, and proving that here needs about
-   5.2 MB of downloads, which wait for Mike's yes. The rest is fixed: 28 of 28 pass on RTL, each limit names its
-   source, and `test/known_gaps.py` holds 18 failing reproductions. The branch is unmarked, so it is not pushed.
+   5.2 MB of downloads. Mike waived that local run on 2026-11-22 ("merge", recorded in
+   [the landing decision](notes/landing-decision.md)): GitHub's gate-level run on the branch must pass instead,
+   before it lands. The rest is fixed: 28 of 28 pass on RTL, each limit names its
+   source, and `test/known_gaps.py` holds 18 failing reproductions. It is pushed once its reviewer marks it against that waiver.
 5. **The program fixes (branch `program-fixes-on-pins`, e64d638, on the pin tests): the full review ended NOT
    CLEAN on 2026-11-22, only on gaps that wait for Mike.** 13 of the 18 gaps are closed, and the review fixed three
    more bugs: a false I2C success with SDA held low, an Ethernet length of 0 and an unreported late WS2812 byte.
    The main session reproduced all three and re-ran the branch merged with `main`: 116 of 116 pin tests pass and
    the five open gaps fail as intended. [The landing decision](notes/landing-decision.md) lists the five gaps, the
-   12 behaviours added where a scenario is silent and the pin tests' waiver, with a recommendation. The branch is
-   unmarked, so it is not pushed, and it has one README conflict with `main` to resolve and review when it lands.
+   12 behaviours added where a scenario is silent and the pin tests' waiver, and Mike's "merge" of 2026-11-22
+   approves all three for this merge. The gaps are not waived for the submission. The branch lands once its
+   reviewer marks it, its one README conflict with `main` is resolved and reviewed, and GitHub's runs pass.
 6. **The proofs (branch `formal`, 63b2dc4): built, in full review since 2026-11-22.** They prove the reset state
    from any power-up values, every entry field, the host link, the FIFOs and machine isolation, on RTL and on two
    synthesised netlists. The main session re-ran them: 23 of 23 checks pass. The builder reports 286 of 286 planted
