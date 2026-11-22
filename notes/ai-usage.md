@@ -168,3 +168,8 @@ A dated log, written as the work happens. The verification write-up's AI section
     60 MHz can tell apart, instead of tuning the program to the test. The main session re-ran the suites,
     compared every gap test's body by syntax tree and left the five open gaps to Mike. It also put the compiler,
     model and lockstep suites into CI on a branch. Both changes went to fresh Opus 5.5 reviewers at max effort.
+37. **The CI suites' review.** A fresh Opus 5.5 reviewer at max effort found that the main session's new CI job
+    would have failed on every push: it never installed cocotb, which the test Makefile needs, and the main session
+    had only run the commands on a Mac that has it. The main session reproduced the failure. The reviewer fixed it,
+    replaced a guard test that 17 planted faults got past and made each suite prove that it can fail. The main
+    session landed the chain after GitHub's own test and layout runs passed on the branch.

@@ -89,7 +89,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. All four jobs passed again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, with the compiler fix and unchanged layout inputs. With the slew fix, [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) passes gds, precheck and gl_test, with 0 routing, LVS and antenna violations; its viewer job is skipped by design off `main`. On `main`, [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811) passes all four jobs and the viewer deploys from `c2912e7`. The flow's waivers are unchanged (`src/config.json` says why for each). It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
-| R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI does not run those tests yet ("Open work", 8). The programs' own bugs are R3 |
+| R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI runs those tests on every push ([run 45016223262](https://github.com/MikeKovetsky/protoemu/actions/runs/45016223262)). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix, and on `main` in [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811) |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
@@ -233,10 +233,14 @@ make it novel". The main session's reading of it:
    mutation coverage are being built.
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
    container engine and is not needed while CI builds in about 40 minutes.
-8. **CI runs too little (branch `ci-checks`, in full review since 2026-11-22).** On `main`, CI runs the pin
-   tests, flow tests, docs and layout. The branch adds a job for the compiler's tests, the bake-off, both
-   self-checks, the guide's example and lockstep with its planted bugs. It also corrects three overclaims, in
-   `info.yaml`, `lockstep.cpp` and a comment in `config.json`. It has not run on GitHub yet.
+8. **The CI suites: landed on 2026-11-22.** A second job in `test.yaml` runs the compiler's tests, the benches'
+   self-test, the golden model's self-check, the 14 benches, the guide's example and lockstep with its 21 planted
+   bugs, and [it passed on GitHub's Ubuntu](https://github.com/MikeKovetsky/protoemu/actions/runs/45016223262).
+   The same chain corrected `info.yaml`'s description and two comments, and its
+   [layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/45016223421) gives `main`'s slacks with
+   0 slew, capacitance, setup and hold violations. Four limits remain: CI does not run lint or the two losing
+   candidates, a suite that shrinks still passes, a crashed simulator counts as a caught bug in
+   `test/lockstep/mutants.py`, and a failed flow test still skips the pin tests.
 
 ### Layout (target)
 
