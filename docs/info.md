@@ -85,22 +85,47 @@ loader byte after the load. It stays set until reset.
 
 ## How to test
 
-The default test runs the whole chip through its pins on Icarus (about 2 s, also on the gate-level netlist):
+The default test runs the whole chip through its 24 pins on Icarus: 27 tests in about 45 seconds. The same tests
+run on a gate-level netlist (`GATES=yes`) in minutes: so far on generic gates, not yet on the routed netlist.
 
 ```sh
 cd test
 make -B
+python3 -m cocotb_tools.check_results results.xml
 ```
 
-It loads compiled programs through the loader and checks, with its own decoders: `uart_tx` sending three bytes as
-115200-baud frames on P0; `uart_rx` returning three frames from P1 to the host; `uart_3m` with two machines sending
-and receiving at 3 Mbaud at once; `spi_target_m0` trading a byte each way with a mode-0 controller, and the pads'
-timing, which the lockstep suite below does not see: a gated pin operation answers a pin on the third clock (two
-synchroniser flops in, one register out, as the golden model's harness has it); port 1 with an echo program and
-the OVERFLOW bit; ROOM and OVERFLOW when the host writes to a full channel 0 or 3, and port 3 taking nothing; and
-reset in the middle of a frame, reload, and running again with the same and another program. Every test also checks
-that both SRAM macros have `A_DLY` tied high: IHP's model reports a wrong tie only with a `$stop`, which Icarus
-runs past when nothing answers on its stdin, as in CI.
+The tests load compiled programs through the loader and talk to them through the host link. The 14 scenarios of
+`bakeoff/README.md` are judged on the protocol pins, at 60 MHz, by decoders and far ends in `test/protocols/` that
+were written from each protocol's definition and share no code with the golden model or the bake-off harness:
+
+| Scenario | What the test requires |
+|---|---|
+| `uart_tx`, `uart_rx`, `uart_3m` | 8N1 at 115200 and 3 Mbaud, both ways at once at 3M, edges and senders within 2% |
+| `spi_ctrl_m0`, `spi_ctrl_m3` | 5 MHz: period, phase, CS lead and trail, setup and hold; a target up to 50 ns late |
+| `spi_target_m0` | A 2 MHz controller; MISO stable round the sampling edge and released with CS high |
+| `i2c_ctrl` | UM10204's controller timing, clock stretching, repeated START, a NACK at each place one can come |
+| `ws2812_tx` | WS2812B pulse widths and the 50 us latch |
+| `onewire` | Reset, presence at both ends of its range, slot timing, and Read ROM with a good and a bad CRC-8 |
+| `ps2_rx` | A device at 10, 12.5 and 16.7 kHz, and one bad parity |
+| `usb_ls_tx`, `usb_ls_rx` | NRZI, stuffing, CRC-16, EOP and turnaround; receive at 1.5% off with the allowed jitter |
+| `eth10_tx`, `eth10_rx` | Manchester, TP_IDL, gap and FCS up to a full frame, in real time; receive at 200 ppm off |
+
+One test checks the judges' CRCs against the RevEng catalogue's check values and codewords, and three more run I2C
+with the slowest edges and at 400 and 100 kHz. The seven in `test/test.py` cover what the scenarios do not: the
+loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the
+SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which Icarus runs past when nothing
+answers on its stdin, as in CI).
+
+What the shipped programs do not yet do:
+
+1. I2C runs at about 350 kHz. The tests reach 400 and 100 kHz only by replacing the program's two timing
+   constants before compiling it.
+2. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses a transmitter's 3.5 ns.
+   Ethernet transmit sends no link pulses.
+3. A host that falls behind a transmit program gets zeros on the wire and no flag. On Ethernet they go out under
+   a valid FCS.
+4. `test/known_gaps.py` has these and the other gaps, 17 tests that fail until each is closed:
+   `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
 programs with random pins and random host traffic, replays every trace into the RTL core with Verilator, and

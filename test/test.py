@@ -8,24 +8,19 @@ nibble host link, and judges the protocol pins with its own decoder, not the gol
 the top-level ports, so they also run on the gate-level netlist (GATES=yes). The one exception is
 check_sram_ties, which looks inside both SRAM macros and finds them in either netlist.
 
+The 14 bake-off scenarios, protocol by protocol and in absolute time, are in test_scenarios.py.
+
 The cycle-by-cycle comparison with the golden model is the lockstep suite in test/lockstep/ (make lockstep).
 """
 
-import sys
-from pathlib import Path
-
 import cocotb
-from cocotb.clock import Clock
 from cocotb.handle import HierarchyObject
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from host_link import (PORT_CH0_CH1, PORT_CH3_CH2, PORT_LOADER, PORT_NONE, ST_HAS, ST_OVERFLOW, ST_ROOM,
+                       ST_RUNNING, Host, program, reset, start_clock)
+from bakeoff.cand_table.compiler import compile_text  # host_link puts the repository on the path
 
-from bakeoff.cand_table.compiler import compile_file, compile_text  # noqa: E402
-
-PROGRAMS = ROOT / "bakeoff" / "cand_table" / "programs"
 UART_BIT = 521  # clocks per bit in uart_tx.fsm and uart_rx.fsm (60 MHz / 115200)
 UART3M_BIT = 20  # clocks per bit in uart_3m.fsm
 
@@ -37,89 +32,14 @@ idle:   wait rx3
         push2=S => idle
 """
 
-ST_ROOM, ST_HAS, ST_RUNNING, ST_OVERFLOW = 0x10, 0x20, 0x40, 0x80
-PORT_CH0_CH1, PORT_CH3_CH2, PORT_LOADER, PORT_NONE = 0, 1, 2, 3
-
 SCK, MOSI, MISO, CS = 0, 1, 2, 3  # the pins of spi_target_m0.fsm
 SPI_HALF = 12  # clocks per half period of SCK (2.5 MHz), slow next to the 3-clock pads
 
 
-def program(name):
-    return compile_file(PROGRAMS / (name + ".fsm")).image
-
-
-class Host:
-    """The host's side of the pins: ui_in[3:0] nibble, ui_in[5:4] port, ui_in[6] write and ui_in[7] read
-    strobes (every edge moves one nibble), uo_out[3:0] nibble out and uo_out[7:4] status."""
-
-    def __init__(self, dut):
-        self.dut = dut
-        self.nib = 0
-        self.port = 0
-        self.wr = 0
-        self.rd = 0
-
-    def drive(self):
-        self.dut.ui_in.value = self.nib | self.port << 4 | self.wr << 6 | self.rd << 7
-
-    def status(self):
-        return int(self.dut.uo_out.value)
-
-    async def clocks(self, n):
-        await ClockCycles(self.dut.clk, n)
-
-    async def select(self, port):
-        if port != self.port:
-            self.port = port
-            self.drive()
-            await self.clocks(4)  # the port goes through the synchroniser too
-
-    async def wait_for(self, mask, what, limit):
-        for _ in range(limit):
-            if self.status() & mask:
-                return
-            await self.clocks(1)
-        raise AssertionError("no %s within %d clocks (uo_out = %02x)" % (what, limit, self.status()))
-
-    async def write(self, port, byte):
-        """One byte, low nibble first. The nibble is set a clock before its strobe edge and held 4 after."""
-        await self.select(port)
-        for nib in (byte & 15, byte >> 4):
-            self.nib = nib
-            self.drive()
-            await self.clocks(1)
-            self.wr ^= 1
-            self.drive()
-            await self.clocks(4)
-
-    async def send(self, port, data, limit=20000):
-        for byte in data:
-            await self.select(port)
-            await self.wait_for(ST_ROOM, "room on port %d" % port, limit)
-            await self.write(port, byte)
-
-    async def read(self, port, limit=20000):
-        """One byte from the port's read channel: low nibble, a strobe edge, high nibble, an edge that pops."""
-        await self.select(port)
-        await self.wait_for(ST_HAS, "byte on port %d" % port, limit)
-        low = self.status() & 15
-        self.rd ^= 1
-        self.drive()
-        await self.clocks(4)
-        high = self.status() & 15
-        self.rd ^= 1
-        self.drive()
-        await self.clocks(4)
-        return low | high << 4
-
-    async def load(self, image):
-        await self.send(PORT_LOADER, image)
-        await self.wait_for(ST_RUNNING, "running after the load", 1000)
-
-
 async def start(dut):
-    """Clock at 60 MHz (16 ns here), pins idle high, reset for 10 clocks, SRAM ties checked. Returns the host."""
-    cocotb.start_soon(Clock(dut.clk, 16, unit="ns").start())
+    """Clock at 60 MHz, pins idle high, reset for 10 clocks, SRAM ties checked. Returns the host. These tests
+    count clocks, not nanoseconds."""
+    start_clock(dut)
     host = Host(dut)
     dut.ena.value = 1
     dut.uio_in.value = 0xFF
@@ -152,18 +72,6 @@ def check_sram_ties(dut):
         dly = next((pin for pin in ram if pin._name == "A_DLY"), None)
         assert dly is not None, "%s has no A_DLY pin" % ram._name
         assert str(dly.value) == "1", "%s.A_DLY is %s; the SRAM needs it tied to 1" % (ram._name, dly.value)
-
-
-async def reset(dut, host):
-    """The strobes are low during reset, so the first edge after it is a real one."""
-    host.nib = host.port = host.wr = host.rd = 0
-    host.drive()
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
-    assert int(dut.uio_oe.value) == 0, "uio_oe is %02x in reset" % int(dut.uio_oe.value)
-    assert host.status() & (ST_RUNNING | ST_OVERFLOW) == 0, "uo_out is %02x in reset" % host.status()
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 5)
 
 
 class Pads:

@@ -645,7 +645,7 @@ The demo board's RP2350 loads an image through the host pins:
 
 [info.md](info.md#the-host-link) gives the pin-level timing of a byte, and
 [info.md](info.md#loading-a-program) the loader's rules: a new program needs a reset, and the chip loses its
-program when it is deselected. The `Host` class in [test/test.py](../test/test.py) (lines 51 to 117) does all of
+program when it is deselected. The `Host` class in [test/host_link.py](../test/host_link.py) does all of
 this against the RTL, and is the reference for host firmware.
 
 ## 8. Compiler quirks
