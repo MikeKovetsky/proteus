@@ -129,11 +129,11 @@ What to know before using them:
 6. **USB is data packets only.** Both programs give every packet a CRC-16, as scenarios 11 and 12 say: transmit
    cannot send a handshake or a token, and receive reports both as bad. Receive also reports seven 1s as bad, and
    accepts six just before EOP, as the harness's decoder does. A packet with seven 1s ends at its EOP, or once the
-   bus has been J for 16 bit times. A short glitch to K on an idle bus reads as such a packet, with no bytes, and
-   a packet that starts within 16 us after the glitch is lost with it. Receive takes its edges from D+ alone, and
-   loses some packets when 75 ns of jitter between neighbouring edges comes with a long SE0 inside transitions:
-   above 140 ns at 1.5% off in rate, and above 190 ns at the exact rate. Either one, at its limit and 1.5% off in
-   rate, is received.
+   bus has been J for 16 bit times. A glitch to K of one clock to one bit time on an idle bus reads as such a
+   packet, with no bytes, and a packet that starts within 16 us after the glitch can be lost with it. Receive takes
+   its edges from D+ alone, and loses some packets when 75 ns of jitter between neighbouring edges comes with a
+   long SE0 inside transitions: above 140 ns at 1.5% off in rate, and above 190 ns at the exact rate. Either one,
+   at its limit and 1.5% off in rate, is received.
 7. **A USB or Ethernet transmitter that was cut short waits for the rest** of that packet or frame from the host,
    and drops it, before it starts the next.
 8. **Read channel 2** of every program that has a status there. It holds 4 bytes. While it is full the chip
