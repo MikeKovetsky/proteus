@@ -1,0 +1,64 @@
+# The query engine for an SPI target (mode 0, MSB first). The host sends operations on channel 0:
+#   00 r b   reset: nRESET low for r us, then wait b us
+#   01       select (CS low)
+#   02       deselect (CS high)
+#   03 x     clock one byte: x goes out on MOSI
+#   04 n     pause for n x 25 us
+# Every operation but reset and pause answers one byte on channel 1: the byte read from MISO, or 0.
+# learn/programs/build.py sets HALF for each rate and packs the image into learn/host/probes.py.
+
+machine spi_probe
+    out   SCK=P0, MOSI=P1, CS=P3, NRST=P4
+    in    MISO=P2
+    order msb
+    const HALF = 12              # clocks in half a period of SCK
+    const US   = 60
+
+start:  SCK=0, CS=1
+        NRST=1, MOSI=0
+idle:   wait rx0
+        S=pop0
+        => S==0: reset
+        => S==1: select
+        => S==2: deselect
+        => S==3: xfer
+        wait rx0                 # 04: pause
+        N=pop0
+ploop:  => nz: idle
+        hold 25*US - 2
+        N-=1 => ploop
+
+reset:  CS=1, SCK=0
+        hold HALF
+        NRST=0
+        wait rx0
+        N=pop0
+        call delay
+        NRST=1
+        wait rx0
+        N=pop0
+        call delay
+        nop => idle
+
+select: CS=0, hold 2*HALF
+        nop => zero
+deselect: hold HALF
+        CS=1, hold 2*HALF
+zero:   wait tx1
+        push1=0 => idle
+
+xfer:   wait rx0
+        S=pop0, K=7
+bit:    SCK=0, MOSI=d, hold HALF        # falling edge, data out
+        SCK=1, hold 3                   # rising edge
+        shift MISO, K-=1 => kz: last    # MISO as it was at that edge
+        hold HALF - 4 => bit
+last:   hold HALF - 4
+        SCK=0, hold HALF
+        wait tx1
+        push1=S => idle
+
+delay:  => nz: back
+        hold US - 2
+        N-=1 => delay
+back:   ret
