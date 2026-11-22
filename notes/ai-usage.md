@@ -143,3 +143,6 @@ A dated log, written as the work happens. The verification write-up's AI section
     1.644 seconds and reports success. Three earlier entries here overstate: the first layout's 382 "shorts"
     were 369 shorts and 13 spacing errors, the 64 extra planted bugs were reported with no list or script kept,
     and "checked every claim" against the code was the docs agent's report, which later checks contradicted.
+31. **A correction to entry 30.** Entry 30 says the write-up's agent checked every public claim. The agent
+    reported that it did not: it checked the claims it collected for the write-up and the passages around them,
+    and did not read every public document in full. Other overstatements may remain in the public docs.
