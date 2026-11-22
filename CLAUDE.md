@@ -234,7 +234,9 @@ stranger test for 2026-11-27 and the write-up for 2026-11-28. A changed scenario
    ([the landing decision](notes/landing-decision.md)). The same commit's
    [build](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274) passed layout, LVS, precheck and all
    122 pin tests on the routed netlist, and
-   [its test run](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257354) passed the same 122 on RTL. Five gaps are waived for that merge only, and each is closed or waived again before
+   [its test run](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257354) passed the same 122 on RTL.
+   `main`'s own build, [run 45066943431](https://github.com/MikeKovetsky/protoemu/actions/runs/45066943431), passed
+   all four jobs, 122 of 122 on the routed netlist included, and its layout is on the public viewer. Five gaps are waived for that merge only, and each is closed or waived again before
    submission:
    1. I2C has no plain read.
    2. USB can't send handshakes or tokens.
