@@ -31,8 +31,8 @@ that the compiler only does arithmetic. The third prints a program's listing: ev
 | ws2812_tx | pass | 25 | 23 | 31 | 267 |
 | ps2_rx | pass | 25 | 20 | 30 | 259 |
 | onewire | pass | 33 | 37 | 41 | 347 |
-| usb_ls_tx | pass | 39 | 56 | 67 | 555 |
-| usb_ls_rx | pass | 40 | 42 | 60 | 499 |
+| usb_ls_tx | pass | 47 | 65 | 84 | 691 |
+| usb_ls_rx | pass | 51 | 43 | 82 | 675 |
 | eth10_tx | pass | 43 | 41 | 45 | 379 |
 | eth10_rx | pass | 24 | 21 | 23 | 203 |
 

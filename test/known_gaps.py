@@ -16,7 +16,7 @@ import cocotb
 from bench import boot, now
 from host_link import ST_OVERFLOW
 from protocols import crc, eth10, i2c, usb_ls
-from protocols.wave import CLK, EPS, US, bits_lsb
+from protocols.wave import CLK, EPS, US
 
 P0, P1, P2 = 0, 1, 2
 USB_PINS = DP, DM = P0, P1
@@ -77,40 +77,6 @@ async def gap_usb_rx_handshake(dut):
     events, _ = usb_ls.send(USB_PINS, bytes([ACK]), now() + 1 * US)
     await chip.board.play(events)
     await chip.expect(ch1=bytes([ACK]), ch2=b"\x00\x01", within=20 * US)
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_usb_rx_dribble(dut):
-    """usb_ls_rx: hubs can stretch the last bit before EOP, and a receiver must accept up to six whole bit
-    times with no transition there (7.1.9.1). Here one bit becomes two. This one reports a bad CRC from a
-    stretch of just over half a bit."""
-    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
-    packet = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12\x34")
-    events, _ = usb_ls.send(USB_PINS, packet, now() + 1 * US)
-    events = events[:-3] + [(t + usb_ls.BIT, levels) for t, levels in events[-3:]]
-    await chip.board.play(events)
-    await chip.expect(ch1=packet, ch2=bytes([0, len(packet)]), within=20 * US)
-
-
-@cocotb.test(timeout_time=1, timeout_unit="ms")
-async def gap_usb_rx_stuff_error(dut):
-    """usb_ls_rx: seven 1s in a row is a bit-stuffing error and the packet is void (7.1.9), CRC right or not."""
-    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
-    packet = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\xff")
-    events, state, t = [], usb_ls.J, now() + 1 * US
-    for bit in [0] * 7 + [1] + bits_lsb(packet):  # NRZI with no stuffing
-        if not bit:
-            state = usb_ls.K if state == usb_ls.J else usb_ls.J
-            events.append((t, {DP: state[0], DM: state[1]}))
-        t += usb_ls.BIT
-    events += [(t, {DP: 0, DM: 0}), (t + 2 * usb_ls.BIT, {DM: 1}), (t + 3 * usb_ls.BIT, {DP: None, DM: None})]
-    sound = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12")
-    following, _ = usb_ls.send(USB_PINS, sound, t + 8 * usb_ls.BIT)
-    await chip.board.play(events + following)
-    await chip.until(lambda: len(chip.task.received[2]) >= 2, "status", 20 * US)
-    assert chip.task.received[2][0] != 0, "a stuffing error was reported as a good packet"
-    await chip.until(lambda: len(chip.task.received[2]) >= 4, "status for the packet after it", 20 * US)
-    assert chip.task.received[2][2:4] == bytes([0, len(sound)]), "the good packet after it was not accepted"
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")

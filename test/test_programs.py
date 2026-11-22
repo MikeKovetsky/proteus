@@ -15,14 +15,16 @@ import cocotb
 from bench import boot, now
 from host_link import PROGRAMS, ST_OVERFLOW
 from bakeoff.cand_table.compiler import compile_text
-from protocols import i2c, onewire, ps2, spi, uart, ws2812
-from protocols.wave import CLK, EPS, US, Wave, bytes_msb
-from test_scenarios import (ACKED, ADDRESS_W, I2C_100KHZ, I2C_FEW, ONEWIRE_RISE, SLOW_POLL, i2c_retimed, i2c_run,
-                            rng, some_bytes, some_phase)
+from protocols import crc, i2c, onewire, ps2, spi, uart, usb_ls, ws2812
+from protocols.wave import CLK, EPS, US, Wave, bits_lsb, bytes_msb
+from test_scenarios import (I2C_100KHZ, I2C_FEW, ONEWIRE_RISE, SLOW_POLL, STUFFED_AT_END, i2c_retimed, i2c_run, rng,
+                            some_bytes, some_phase, usb_packet)
 
 P0, P1, P2, P3 = 0, 1, 2, 3
 SPI_PINS = SCK, MOSI, MISO, CS = P0, P1, P2, P3
 I2C_SCL, I2C_SDA = P0, P1
+USB_PINS = DP, DM = P0, P1
+DATA0, DATA1 = usb_ls.DATA0, usb_ls.DATA1
 
 
 def code_of(name):
@@ -657,3 +659,193 @@ async def test_ps2_rx_resync(dut):
     again, _ = ps2.frame(P0, P1, 0x5A, start + 2000 * US, 16.7, late=False)
     await chip.board.play(cut + again)
     await chip.expect(ch1=b"\x5a", within=100 * US)
+
+
+# ---- low-speed USB
+#
+# Scenarios 11 and 12 put a CRC-16 on every packet, so every packet here is a data packet with one.
+
+
+def usb_heard(board, since):
+    return usb_ls.decode((board.line[DP], board.line[DM]), (board.chip[DP], board.chip[DM]), since)
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_tx_waits_for_pid(dut):
+    """usb_ls_tx: nothing is driven before the PID has come, and an n of 0 is ignored. Scenario 11 has neither."""
+    chip = await boot(dut, "usb_ls_tx", outputs=USB_PINS, pulled_low=[DP])
+    since = now()
+    chip.send(b"\x01")  # the PID follows 30 us later
+    await chip.wait(30 * US)
+    for pin in USB_PINS:
+        assert chip.board.chip[pin].at(now()) is None, "the bus is driven before the PID has come"
+    chip.send(bytes([DATA0, 0, 2, DATA1, 0x42, 0, 0, 1, DATA1]))
+    await chip.sent(400 * US)
+    await chip.quiet(USB_PINS, 30 * US, 100 * US)
+    got = usb_heard(chip.board, since)
+    want = [usb_packet(DATA0, b""), usb_packet(DATA1, b"\x42"), usb_packet(DATA1, b"")]
+    assert got == want, "the bus carried %s, expected %s" % ([g.hex() for g in got], [w.hex() for w in want])
+    await chip.finish()
+
+
+USB_CUT_SHORT = [(DATA0, 0), (DATA0, 1), (DATA1, 5)]  # the PID, and the bytes that come in time
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+@cocotb.parametrize(cut=range(len(USB_CUT_SHORT)))
+async def test_usb_tx_underrun(dut, cut):
+    """usb_ls_tx: the host stops inside a packet. The packet ends in a bit-stuffing error, never under a good
+    CRC, 0x01 says so, and the late bytes are not read as the next packet. Scenario 11's host is never late."""
+    pid, given = USB_CUT_SHORT[cut]
+    chip = await boot(dut, "usb_ls_tx", outputs=USB_PINS, pulled_low=[DP])
+    since = now()
+    chip.send(bytes([given + 3, pid]) + b"\xff" * given)
+    await chip.expect(ch2=b"\x01", within=100 * US)
+    await chip.quiet(USB_PINS, 20 * US, 100 * US)
+    try:
+        usb_heard(chip.board, since)
+    except AssertionError as error:
+        assert "seven 1s" in str(error), "the cut-short packet broke another rule: %s" % error
+    else:
+        raise AssertionError("the cut-short packet went out as a good one")
+    since = now()
+    chip.send(b"\x01\x01" + bytes([2, DATA1, 0x42]))
+    await chip.sent(100 * US)
+    await chip.quiet(USB_PINS, 20 * US, 100 * US)
+    assert usb_heard(chip.board, since) == [usb_packet(DATA1, b"\x42")], "the packet after it is not right"
+    await chip.finish()
+
+
+def stretched(stretch, **how):
+    """usb_ls.send through a hub that stretches the last bit before EOP by `stretch` of a bit."""
+
+    def send(packet, start):
+        events, back_to_j = usb_ls.send(USB_PINS, packet, start, **how)
+        late = stretch * usb_ls.BIT / how.get("rate", 1)
+        return events[:-3] + [(t + late, levels) for t, levels in events[-3:]], back_to_j + late
+
+    return send
+
+
+def unstuffed(skew=0.0):
+    """A sender that leaves out every stuffed bit."""
+
+    def send(packet, start):
+        events, state, t = [], usb_ls.J, start
+        for bit in [0] * 7 + [1] + bits_lsb(packet):
+            if not bit:
+                state = usb_ls.K if state == usb_ls.J else usb_ls.J
+                rising, falling = (DP, DM) if state == usb_ls.K else (DM, DP)
+                if skew:
+                    events += [(t - skew / 2, {falling: 0}), (t + skew / 2, {rising: 1})]
+                else:
+                    events.append((t, {falling: 0, rising: 1}))
+            t += usb_ls.BIT
+        back_to_j = t + 2 * usb_ls.BIT
+        events += [(t, {DP: 0, DM: 0}), (back_to_j, {DM: 1}), (back_to_j + usb_ls.BIT, {DP: None, DM: None})]
+        return events, back_to_j
+
+    return send
+
+
+async def usb_rx_run(dut, packets, source):
+    """`packets` are (bytes, who sends them, what channel 1 gets, good or not), 2 bit times apart."""
+    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
+    events, ch1, ch2, t = [], b"", b"", some_phase(source)
+    for packet, send, read, good in packets:
+        more, back_to_j = send(packet, t)
+        events += more
+        t = back_to_j + usb_ls.PACKET_GAP + source.uniform(1, CLK)
+        ch1 += read
+        ch2 += bytes([0 if good else 1, len(read)])
+    player = chip.board.play(events)
+    await chip.expect(ch1=ch1, ch2=ch2, within=t - now() + 50 * US)
+    await player
+    await chip.finish()
+
+
+def ends_in_ones(data, count):
+    bits = usb_ls.stuff([0] * 7 + [1] + bits_lsb(usb_packet(DATA0, data)))
+    return bits[-count:] == [1] * count and bits[-count - 1] == 0
+
+
+FIVE_ONES_AT_END = next(bytes([a, b]) for a in range(256) for b in range(256) if ends_in_ones(bytes([a, b]), 5))
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+@cocotb.parametrize(stretch=[25, 55, 80, 100])
+async def test_usb_rx_stretch(dut, stretch):
+    """usb_ls_rx: hubs can stretch the last bit before EOP by up to a bit, and a receiver must accept it
+    (7.1.9.1). So too at both rate limits and with the longest SE0 inside transitions, after a stuffed bit,
+    and when the stretch looks like a sixth 1."""
+    tolerance, packets = usb_ls.RATE_TOLERANCE, []
+    for rate, skew in ((1, 0), (1 + tolerance, 0), (1 - tolerance, 0), (1 + tolerance, usb_ls.TRANSITION_SE0)):
+        send = stretched(stretch / 100, rate=rate, skew=skew)
+        for packet in (usb_packet(DATA0, b"\x12\x34"), usb_packet(DATA0, STUFFED_AT_END),
+                       usb_packet(DATA0, FIVE_ONES_AT_END), usb_packet(DATA1, b"")):
+            packets.append((packet, send, packet, True))
+    await usb_rx_run(dut, packets, rng("usb dribble %d" % stretch))
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_seven_ones(dut):
+    """usb_ls_rx: seven 1s in a row void the packet (7.1.9), CRC right or not, with the longest SE0 inside
+    transitions too, and the packet after it is read. Scenario 12 has no stuffing error. The chip reports it
+    as 0x01 and pushes no more of that packet's bytes."""
+    data = usb_packet(DATA1, b"\x5a")
+    seven = usb_packet(DATA0, b"\xff")
+    packets = [
+        (seven, unstuffed(), bytes([DATA0]), False),
+        (data, stretched(0), data, True),
+        (seven, unstuffed(usb_ls.TRANSITION_SE0), bytes([DATA0]), False),
+        (data, stretched(0), data, True),
+    ]
+    await usb_rx_run(dut, packets, rng("usb stuff error"))
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_no_eop(dut):
+    """usb_ls_rx: a glitch to K with no EOP after it is one bad packet, and does not swallow the next one.
+    Scenario 12 does not define it."""
+    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
+    t = now() + 1 * US
+    glitch = [(t, {DP: 1, DM: 0}), (t + usb_ls.BIT, {DP: None, DM: None})]
+    data = usb_packet(DATA1, b"\x5a")
+    events, _ = usb_ls.send(USB_PINS, data, t + 25 * US)
+    player = chip.board.play(glitch + events)
+    await chip.expect(ch1=data, ch2=bytes([1, 0, 0, len(data)]), within=100 * US)
+    await player
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_dribble(dut):
+    """usb_ls_rx: hubs can stretch the last bit before EOP, and a receiver must accept up to six whole bit
+    times with no transition there (7.1.9.1). Here one bit becomes two."""
+    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
+    packet = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12\x34")
+    events, _ = usb_ls.send(USB_PINS, packet, now() + 1 * US)
+    events = events[:-3] + [(t + usb_ls.BIT, levels) for t, levels in events[-3:]]
+    await chip.board.play(events)
+    await chip.expect(ch1=packet, ch2=bytes([0, len(packet)]), within=20 * US)
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_stuff_error(dut):
+    """usb_ls_rx: seven 1s in a row is a bit-stuffing error and the packet is void (7.1.9), CRC right or not."""
+    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
+    packet = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\xff")
+    events, state, t = [], usb_ls.J, now() + 1 * US
+    for bit in [0] * 7 + [1] + bits_lsb(packet):  # NRZI with no stuffing
+        if not bit:
+            state = usb_ls.K if state == usb_ls.J else usb_ls.J
+            events.append((t, {DP: state[0], DM: state[1]}))
+        t += usb_ls.BIT
+    events += [(t, {DP: 0, DM: 0}), (t + 2 * usb_ls.BIT, {DM: 1}), (t + 3 * usb_ls.BIT, {DP: None, DM: None})]
+    sound = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12")
+    following, _ = usb_ls.send(USB_PINS, sound, t + 8 * usb_ls.BIT)
+    await chip.board.play(events + following)
+    await chip.until(lambda: len(chip.task.received[2]) >= 2, "status", 20 * US)
+    assert chip.task.received[2][0] != 0, "a stuffing error was reported as a good packet"
+    await chip.until(lambda: len(chip.task.received[2]) >= 4, "status for the packet after it", 20 * US)
+    assert chip.task.received[2][2:4] == bytes([0, len(sound)]), "the good packet after it was not accepted"

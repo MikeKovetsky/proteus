@@ -354,9 +354,10 @@ byte:   push1=S, N+=1, K=8           # edge + 3
 In Manchester code every bit has an edge in its middle. The receiver takes the bit one clock after that edge,
 then looks away for three clocks, past any edge between two bits, and waits for the next middle edge. Each edge
 reloads T, so the frame ends when the line stops changing.
-[usb_ls_rx.fsm](../bakeoff/cand_table/programs/usb_ls_rx.fsm) does the same for NRZI: `wait => edge: zero | tz:
-one`, where an edge is a 0, a whole cell with no edge is a 1, and every edge restarts the timer to sample the
-middle of the cell.
+[usb_ls_rx.fsm](../bakeoff/cand_table/programs/usb_ls_rx.fsm) does the same for NRZI: `wait => edge: data0 | tz:
+data1`, where an edge is a 0, a whole cell with no edge is a 1, and every edge restarts the timer. `edge` is seen
+only on a line that tests it, so the work of a bit must end before the soonest next edge can come: there the line
+that tests the CRC after a byte tests `edge` as well.
 
 Other forms of the same idea:
 

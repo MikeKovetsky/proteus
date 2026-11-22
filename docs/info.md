@@ -99,6 +99,8 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `ws2812_tx` | WS2812B and its V5: 75 clocks a bit, 282 us of latch | `0x01` each time the host was late inside a frame |
 | `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short |
 | `ps2_rx` | PS/2 from a device at 10 to 16.7 kHz | `0xFF` for a wrong start, parity or stop bit, or a clock that stops for 250 us inside a frame |
+| `usb_ls_tx` | Low-speed USB data packets: every packet gets the CRC-16 of the bytes after its PID | `0x01` for a packet the host was late in. It goes out with a stuffing error |
+| `usb_ls_rx` | Low-speed USB packets, judged by CRC-16, with a hub's extra bit before EOP let through | `0x00` good or `0x01` bad, then the byte count |
 
 What to know before using them:
 
@@ -117,10 +119,18 @@ What to know before using them:
    first WS2812B 600 at most. A slow output edge counts against that. The latch is 2 us over the V5's 280.
 5. **`extra/four_at_once`** drops a UART byte whose stop bit is 0, and a bad PS/2 frame, without a report:
    channel 2 is PS/2's data there.
+6. **USB is data packets only.** Both programs give every packet a CRC-16, as scenarios 11 and 12 say: transmit
+   cannot send a handshake or a token, and receive reports both as bad. Receive also reports seven 1s as bad, and
+   accepts six just before EOP, as the harness's decoder does. It takes its edges from D+ alone, and loses some
+   packets when 75 ns of jitter between neighbouring edges comes with a long SE0 inside transitions: above 140 ns
+   at 1.5% off in rate, and above 190 ns at the exact rate. Either one, at its limit and 1.5% off in rate, is
+   received.
+7. **A USB transmitter that was cut short waits for the rest of that packet** from the host, and drops it, before it
+   starts the next.
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 86 tests in about 3 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 98 tests in about 3 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
@@ -151,20 +161,24 @@ test checks the judges' CRCs against the RevEng catalogue's check values and cod
 mode's slowest edges, with a late host and, with sharp edges, retimed to 400 and 100 kHz. `test/test_programs.py`
 holds the programs to the section above: the other UART rates and SPI modes, both I2C programs as shipped with the
 sharpest and slowest edges and the time-out, the V5's WS2812 timing, a shorted 1-Wire bus, bad and abandoned PS/2
-frames, bad stop bits, queued bytes and late hosts. The seven in `test/test.py` cover what the scenarios do not: the
-loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the
-SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which Icarus runs past when nothing
-answers on its stdin, as in CI).
+frames, bad stop bits, a hub's extra bit and stuffing errors on USB, queued bytes and late hosts. The seven in
+`test/test.py` cover what the scenarios do not: the loader with reset and reload, both host ports, ROOM and
+OVERFLOW, the pads' three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only
+with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in CI).
 
 What the shipped programs do not yet do:
 
 1. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
-   sending station may add. Ethernet transmit sends no link pulses.
-2. The USB and Ethernet transmit programs do not wait for a host that falls behind: zeros go out and no flag is
-   raised, under a valid CRC.
+   sending station may add.
+2. The Ethernet transmit program does not wait for a host that falls behind: zeros go out and no flag is raised,
+   under a valid CRC.
 3. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
    changing it waits for Mike's decision.
-4. `test/known_gaps.py` has these and the other gaps, 8 tests that fail until each is closed:
+4. USB has no handshakes or tokens (`gap_usb_tx_handshake`, `gap_usb_rx_handshake`). Scenarios 11 and 12 ask for
+   a CRC-16 on every packet, so changing it waits for Mike's decision.
+5. Ethernet transmit sends no link pulses (`gap_eth10_link_pulses`). Scenario 13 asks for both lines low when
+   idle, so changing it waits for Mike's decision.
+6. `test/known_gaps.py` has these and the other gaps, 6 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random

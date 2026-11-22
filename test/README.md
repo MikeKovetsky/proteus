@@ -5,8 +5,8 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 86 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
-| `make -B COCOTB_TEST_MODULES=known_gaps` | 8 known gaps, one test each. All fail until they are closed | about 40 s |
+| `make -B` | 98 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
+| `make -B COCOTB_TEST_MODULES=known_gaps` | 6 known gaps, one test each. All fail until they are closed | about 40 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
 | `make mutants` | 21 planted bugs, one at a time; the lockstep suite must catch each | about 40 s |
 | `make lint` | Verilator lint of `src/`, every warning on | 1 s |
@@ -86,7 +86,7 @@ the Ethernet interframe gap from the end of TP_IDL.
 
 A gap test states what should happen, so it fails today, and a chip that does nothing passes none of them. When one
 passes, move it into `test_programs.py` with its body unchanged. A gap that contradicts a scenario's wording, as
-`gap_i2c_plain_read` does, waits for Mike instead. `test_scenarios.py` and `protocols/` don't change for a program.
+`gap_i2c_plain_read`, the two USB handshake gaps and `gap_eth10_link_pulses` do, waits for Mike instead. `test_scenarios.py` and `protocols/` don't change for a program.
 
 ## Gate-level simulation
 
