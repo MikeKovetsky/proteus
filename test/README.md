@@ -3,6 +3,10 @@
 All targets run from this folder and need the [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build)
 on the path. `docs/info.md`, "How to test", says what each one checks.
 
+On every push, `.github/workflows/test.yaml` runs two jobs. One runs the flow's tests and `make`. The other runs
+the compiler's tests, the benches' self-test, the golden model's self-check, the 14 benches on the model, the
+programming guide's example and `make mutants` (lockstep first). `make lint` and `make synth` run only by hand.
+
 | Command | What it runs | Time |
 |---|---|---|
 | `make -B` | The cocotb tests of the whole chip through its pins (`test.py`), on Icarus | about 2 s |
@@ -14,10 +18,6 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 `make lockstep RANDOM=1000 SEED=7` runs more random tests, or other ones. A lockstep failure names the trace, the
 clock (step), the signal, and what the model and the RTL gave.
-
-On every push, `.github/workflows/test.yaml` runs two jobs. One runs the flow's tests and `make`. The other runs
-the compiler's tests, the benches' self-test, the golden model's self-check, the 14 benches on the model, the
-programming guide's example and `make mutants` (lockstep first). `make lint` and `make synth` run only by hand.
 
 ## Gate-level simulation
 
