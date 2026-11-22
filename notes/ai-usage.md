@@ -119,3 +119,6 @@ A dated log, written as the work happens. The verification write-up's AI section
     re-checked the pause note against GitHub and the post. The electrical fix's green build had missed its bar
     (slew and capacitance violations remain, which only warn), R10 went back to NOT MET until the compiler fix
     lands, and the checklist gained R15, the post's open-source rule, which the first reading had left out.
+25. **The held-out folder.** Mike allowed one reviewer agent to open it ("Allow one reviewer", 2026-11-21) to
+    check the stranger test's benches and export the scenario sheet. It reads and runs but does not write there,
+    and reports only a verdict and counts, so what the benches hold reaches neither the builders nor the stranger.

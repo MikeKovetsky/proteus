@@ -206,8 +206,9 @@ The compiler fix lands first. The stranger test does not wait for the electrical
    (`SCENARIOS.md`) and benches for CAN, JTAG and SWD, with reference codecs, behavioural fakes and `run.py`,
    which judges a compiled image on the golden model. The self-test passes 77 of 77 checks. The agent was stopped
    while checking one hex constant in the sheet, so its README may be unfinished. Not reviewed. Before the test:
-   Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches, then the
-   stranger runs with only `SCENARIOS.md`, `docs/` and the compiler.
+   Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
+   one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
+   stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
 4. **Not started.**
    1. The write-up (R11).
    2. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
@@ -401,7 +402,11 @@ is among the 14 bake-off benches. The roles below are the main session's default
 
 ## Rules for agents working here
 
-1. Never edit `judge/` or a frozen test, and never read or write `../protoemu-holdout/`.
+1. Never edit `judge/` or a frozen test, and never read or write `../protoemu-holdout/`. One exception: asked
+   "May one reviewer agent open protoemu-holdout to check the benches and export the scenario sheet?", Mike
+   answered "Allow one reviewer" on 2026-11-21. That one agent may read and run what is there and export the
+   sheet. It may not write there or tell any other agent what the benches hold, and no other agent may open the
+   folder, the main session included.
 2. Tests are gates. A commit never lowers the number of passing tests, and its message gives the count.
 3. In the optimisation loop, make one change per round. The driver keeps it if the score rose and reverts it if
    not.
