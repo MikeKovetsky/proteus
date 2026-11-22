@@ -203,3 +203,17 @@ A dated log, written as the work happens. The verification write-up's AI section
 45. **The program fixes landed.** An agent wrote them and fresh Opus 5.5 reviewers checked them, the last at max
     effort. The main session pushed the reviewed merge to its own branch, read GitHub's logs for 122 of 122 tests
     on RTL and on the routed netlist, and only then fast-forwarded `main` to it. No person reviewed the code.
+46. **A plan for what is left.** Mike asked what was left for a winning submission. The main session tested a
+    candidate feature on the golden model, found that a rival had published the idea, and asked one question about
+    the plan. Mike answered "Yes, run it". While writing the requirements, the main session found that it had
+    overstated the feature: the host, not the chip, writes the learned program.
+47. **The host writes the learned program.** The main session told Mike about that overclaim and asked whether a
+    host computer may write the program. Mike answered "Yes, that's fine", and the requirement now says so.
+48. **Learn it, become it.** An Opus 5.5 agent built the feature from `notes/learn-and-become.md`: the learner, its
+    test suites, the two table generators, a judge that alone sees the truth, the baselines and the demonstration.
+    It improved the host on three of its negative controls, then froze it (a0acf17), committed ten seeded device
+    families (4eb2196) and ran them once. The result was 106 exact, 15 refused and 39 copied wrong with a warning.
+    It kept that result and left the host frozen. A scratch fix tried afterwards repaired 4 of the 7 unintended
+    misses in a simulation without RTL, and it was not committed, since it was made looking at those devices. The
+    same agent wrote the host, the devices, the families and the judge, so none of this is independent. The main
+    session rebuilt the work on `main` without its private notes, with the code unchanged.
