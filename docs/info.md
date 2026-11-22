@@ -129,8 +129,8 @@ What to know before using them:
    received.
 7. **A USB or Ethernet transmitter that was cut short waits for the rest** of that packet or frame from the host,
    and drops it, before it starts the next.
-8. **Read channel 2** of every program that has a status there. It holds 4 bytes: a fifth that nobody has made
-   room for is dropped and sets OVERFLOW, which stays set.
+8. **Read channel 2** of every program that has a status there. It holds 4 bytes. While it is full the chip
+   drops the next status and sets OVERFLOW, which stays set until a reset.
 
 ## How to test
 
