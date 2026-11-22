@@ -85,13 +85,13 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` checks only the cell types, which does not prove freedom from power-up values); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
-| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
-| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
+| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners. The latest build of `main`, [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, also has 0 of each in all three; its log cuts the slack figures short |
+| R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. All four jobs passed again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) on `9e640fb`, with the compiler fix and unchanged layout inputs. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI does not run those tests yet ("Open work", 8). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
-| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
+| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
@@ -203,6 +203,12 @@ make it novel". The main session's reading of it:
    `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 in every corner and setup,
    hold, routing and LVS are still clean. The SRAM's timing at those pins is extrapolated until then. That
    branch's build also deployed its layout to the public viewer, over `main`'s.
+   A second fix replaces it on the branch `slew-fix` (ee9667f, reviewed at the full tier): a buffer at each of the
+   216 live SRAM pins, a build that fails on slew or capacitance violations, and a viewer that only `main` can
+   deploy from that workflow. Its first layout build,
+   [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402), started on 2026-11-21 at
+   about 23:28 PST. It lands by the same bar, with precheck and gate-level simulation passing. `electrical-fix` is
+   not to be merged, pushed or re-run: it and `rtl-sram-flow` still carry the old viewer job.
 2. **The compiler fix: landed on 2026-11-21.** Its full review added four commits, closed 14 silent miscompiles
    beyond the five bugs the docs found, and left nothing on the checklist open. The language is stricter: a line
    that sets something twice is refused. Every shipped program compiles to the image it did before.
@@ -216,7 +222,7 @@ make it novel". The main session's reading of it:
    Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
    one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
-4. **The pin tests (branch `pin-tests`, 9662164, not reviewed yet).** All 14 scenarios run through the pins, 27 of
+4. **The pin tests (branch `pin-tests`, 9662164, in full review).** All 14 scenarios run through the pins, 27 of
    27 tests pass on RTL, and `test/known_gaps.py` holds 17 failing reproductions of program gaps. They have not
    run on the routed netlist. Their timing limits were typed from a model's memory and need checking against
    the standards.

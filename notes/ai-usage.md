@@ -146,3 +146,7 @@ A dated log, written as the work happens. The verification write-up's AI section
 31. **A correction to entry 30.** Entry 30 says the write-up's agent checked every public claim. The agent
     reported that it did not: it checked the claims it collected for the write-up and the passages around them,
     and did not read every public document in full. Other overstatements may remain in the public docs.
+32. **The slew fix's review.** A fresh Opus 5.5 reviewer at max effort found that the new layout check could pass
+    on a pre-layout estimate, that antenna violations failed nothing, and that the main-only rule for the public
+    viewer never applied. It fixed all three before any layout was built. The main session confirmed the viewer
+    rule in GitHub's settings, replayed the reviewed patch onto main, re-ran the checks and started the build.
