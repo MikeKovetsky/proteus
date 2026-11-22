@@ -7,8 +7,8 @@ far end on uio. The judges are the decoders, far ends and limits in protocols/, 
 definition: the bake-off harness and the golden model are not used, and nothing inside the chip is read, so
 the same tests run on the routed netlist (GATES=yes).
 
-Time is absolute, on a chip at 60 MHz (bench.py). Where a protocol allows a range, the far end uses its ends.
-What the programs cannot do is in known_gaps.py.
+Time is absolute, on a chip at 60 MHz (bench.py). Where a protocol allows a range, the far end uses its ends,
+unless a test says otherwise. What the programs cannot do is in known_gaps.py.
 """
 
 import random
@@ -28,7 +28,8 @@ SPI_PINS = SCK, MOSI, MISO, CS = P0, P1, P2, P3
 I2C_SCL, I2C_SDA = P0, P1
 USB_PINS = DP, DM = P0, P1
 SLOW_POLL = 20 * US  # for protocols whose bytes are tens of microseconds apart
-DATA0, DATA1 = 0xC3, 0x4B  # USB PIDs
+DATA0, DATA1 = usb_ls.DATA0, usb_ls.DATA1
+ONEWIRE_RISE = 1 * US  # how long a released 1-Wire bus takes to read high: the test's own choice
 
 
 def rng(name):
@@ -72,6 +73,7 @@ async def test_scenario_uart_tx(dut):
     chip.send(data)
     await chip.sent(3000 * US)
     await chip.quiet([P0], 12 * bit, 1000 * US)
+    chip.driven([P0])
     got, _ = uart.decode(chip.board.line[P0], baud, chip.board.since)
     assert got == data, "P0 carried %s, the host sent %s" % (got.hex(), data.hex())
     assert chip.board.chip[P0].at(now()) == 1, "TX is not driven high when idle"
@@ -107,6 +109,7 @@ async def test_scenario_uart_3m(dut):
         await chip.expect(ch1=back, within=200 * US)
         await player
         await chip.quiet([P0], 5 * US, 200 * US)
+        chip.driven([P0])
         got, span = uart.decode(chip.board.line[P0], 3e6, since)
         assert got == out, "P0 carried %s, the host sent %s" % (got.hex(), out.hex())
         overlap = min(end, span[1]) - max(first, span[0])
@@ -122,7 +125,8 @@ async def spi_controller(dut, mode):
     once, as in the scenario, and then 50 ns after the edge that launches each bit, as a real part does."""
     source = rng("spi %d" % mode)
     out = [some_bytes(source, n) for n in (16, 1, 5)]
-    back = [(some_bytes(source, len(data)), valid) for data, valid in zip(out, (0, 50, 50))]
+    valid_after = (0, spi.TARGET_VALID, spi.TARGET_VALID)
+    back = [(some_bytes(source, len(data)), valid) for data, valid in zip(out, valid_after)]
     chip = await boot(dut, "spi_ctrl_m%d" % mode, outputs=[SCK, MOSI, CS],
                       pulled_low=[SCK] if spi.IDLE[mode] == 0 else [])
     target = spi.Target(chip.board, SPI_PINS, mode, back)
@@ -131,6 +135,9 @@ async def spi_controller(dut, mode):
     await chip.quiet([SCK, MOSI, CS], 2 * US, 20 * US)
     line = chip.board.line
     got = spi.check_controller(line[SCK], line[MOSI], line[CS], mode, chip.board.since)
+    chip.driven([SCK, CS])
+    first_rise = next(t for t, level in line[SCK].changes(chip.ready) if level)
+    chip.driven([MOSI], since=first_rise - spi.DATA_MARGIN)
     assert got == out, "MOSI carried %s, the host sent %s" % ([g.hex() for g in got], [o.hex() for o in out])
     assert target.received == out, "the target read %s" % [g.hex() for g in target.received]
     assert chip.board.chip[CS].at(now()) == 1, "CS is not driven high when idle"
@@ -152,12 +159,14 @@ async def test_scenario_spi_ctrl_m3(dut):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def test_scenario_spi_target_m0(dut):
-    """6. spi_target_m0: 8 bytes each way from a controller at 2 MHz, then 8 more the host queued afterwards."""
+    """6. spi_target_m0: 8 bytes each way from a controller at 2 MHz, then 8 more the host queued afterwards, one
+    reply starting with a 0 and one with a 1. Last, CS rises in the middle of a byte with SCK high."""
     source = rng("spi target")
     chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
     idle_since = chip.board.since
-    for _ in range(2):
+    for first_bit in (0, 1):
         out, back = some_bytes(source, 8), some_bytes(source, 8)
+        back = bytes([back[0] & 0x7F | first_bit << 7]) + back[1:]  # the bit that goes out as CS falls
         chip.send(back)
         await chip.wait(3 * US)  # the host fills channel 0 before CS falls
         events, rises, end = spi.controller_mode0(SPI_PINS, out, some_phase(source))
@@ -169,6 +178,18 @@ async def test_scenario_spi_target_m0(dut):
         assert got == back, "MISO carried %s, the host queued %s" % (got.hex(), back.hex())
         idle_since = end + spi.TARGET_DISABLE
     assert not chip.board.chip[MISO].changes(idle_since), "MISO is driven while CS is high"
+
+    chip.send(b"\x00")
+    await chip.wait(3 * US)
+    start = some_phase(source)
+    rise = start + spi.TARGET_LEAD
+    up = rise + spi.TARGET_PERIOD / 2
+    await chip.board.play([(start, {CS: 0, SCK: 0}), (rise, {SCK: 1}), (up, {CS: 1})])
+    await chip.wait(1 * US)
+    assert chip.board.chip[MISO].at(rise) == 0, "MISO is not driven in a transaction that is cut short"
+    released = up + spi.TARGET_DISABLE
+    assert chip.board.chip[MISO].at(released) is None and not chip.board.chip[MISO].changes(released), (
+        "MISO is still driven after CS rose in the middle of a byte")
     await chip.finish()
 
 
@@ -187,11 +208,13 @@ I2C_ALL = (
     (0x2A, b"", 2, ACKED),
 )
 I2C_FEW = ((0x50, b"\x10\xa5", 2, ACKED), (0x33, b"\x01", 2, ADDRESS_W), (0x2A, b"", 1, ACKED))
+I2C_100KHZ = dict(low=310, high=285)  # the program's two constants for standard mode
+I2C_400KHZ = dict(low=80, high=62)  # and for a full fast mode
 
 
-async def i2c_run(dut, image, mode, rise, requests):
-    """Back-to-back requests. The target stretches for 20 us after the ACK before the first repeated START
-    and after the first ACK the controller gives."""
+async def i2c_run(dut, image, mode, rise, requests, host_gap=0):
+    """Back-to-back requests, or one byte of them each `host_gap` ns. The target stretches for 20 us after the
+    ACK before the first repeated START and after the first ACK the controller gives."""
     left = {addr: list(data) for addr, data in I2C_READS.items()}
     request, read, statuses, expected = bytearray(), bytearray(), bytearray(), []
     refuse, clocks = [], 0  # ninth clocks so far
@@ -224,7 +247,16 @@ async def i2c_run(dut, image, mode, rise, requests):
 
     chip = await boot(dut, image, open_drain=[I2C_SCL, I2C_SDA], rise={I2C_SCL: rise, I2C_SDA: rise}, poll=2 * US)
     i2c.Target(chip.board, I2C_SCL, I2C_SDA, I2C_READS, mode, rise, stretch, refuse)
-    chip.send(request)
+
+    async def dribble():
+        for byte in request:
+            chip.send(bytes([byte]))
+            await chip.wait(host_gap)
+
+    if host_gap:
+        cocotb.start_soon(dribble())
+    else:
+        chip.send(request)
     await chip.expect(ch1=read, ch2=statuses, within=3000 * US)
     await chip.quiet([I2C_SCL, I2C_SDA], 10 * US, 50 * US)
     for pin in (I2C_SCL, I2C_SDA):
@@ -264,16 +296,24 @@ async def test_i2c_fast_slowest_edges(dut):
 
 @cocotb.test(timeout_time=5, timeout_unit="ms")
 async def test_i2c_400khz(dut):
-    """i2c_ctrl retimed by its two constants to a full 400 kHz (as shipped it runs at about 350 kHz)."""
-    periods = await i2c_run(dut, i2c_retimed(low=80, high=62), i2c.FAST, 20, I2C_FEW)
+    """i2c_ctrl retimed by its two constants to a full 400 kHz (as shipped it runs at about 355 kHz), with sharp
+    edges only: with slow ones it breaks tBUF (gap_i2c_bus_free_slow_edges)."""
+    periods = await i2c_run(dut, i2c_retimed(**I2C_400KHZ), i2c.FAST, 20, I2C_FEW)
     assert max(periods) <= 1e9 / 400e3 * 1.02, "SCL is %.1f kHz, not 400" % (1e6 / max(periods))
 
 
 @cocotb.test(timeout_time=8, timeout_unit="ms")
 async def test_i2c_100khz(dut):
-    """i2c_ctrl retimed by its two constants to standard mode's 100 kHz, every standard-mode limit kept."""
-    periods = await i2c_run(dut, i2c_retimed(low=310, high=285), i2c.STANDARD, 20, I2C_FEW)
+    """i2c_ctrl retimed by its two constants to standard mode's 100 kHz, held to every standard-mode limit, with
+    sharp edges only: with slow ones it breaks tBUF (gap_i2c_bus_free_slow_edges)."""
+    periods = await i2c_run(dut, i2c_retimed(**I2C_100KHZ), i2c.STANDARD, 20, I2C_FEW)
     assert max(periods) <= 1e9 / 100e3 * 1.02, "SCL is %.1f kHz, not 100" % (1e6 / max(periods))
+
+
+@cocotb.test(timeout_time=5, timeout_unit="ms")
+async def test_i2c_late_host(dut):
+    """i2c_ctrl as shipped, fed by a host slower than the bus: it waits for each byte, in a refused request too."""
+    await i2c_run(dut, "i2c_ctrl", i2c.FAST, 20, I2C_FEW, host_gap=80 * US)
 
 
 # ---- WS2812, 1-Wire, PS/2
@@ -287,7 +327,8 @@ async def test_scenario_ws2812_tx(dut):
     chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
     chip.send(b"".join(bytes([len(frame) // 3]) + frame for frame in frames))
     await chip.sent(1000 * US)
-    await chip.quiet([P0], ws2812.WS2812B.reset + 5 * US, 300 * US)
+    await chip.quiet([P0], ws2812.WS2812B_V5.reset + 5 * US, 1000 * US)  # any part's latch is shorter
+    chip.driven([P0])
     got = ws2812.decode(chip.board.line[P0], chip.board.since, now())
     assert got == frames, "P0 carried %s, the host sent %s" % ([g.hex() for g in got], [f.hex() for f in frames])
     assert chip.board.chip[P0].at(now()) == 0, "the line is not held low when idle"
@@ -301,7 +342,7 @@ async def onewire_run(dut, rom, pdh=None, pdl=None, zero_low=None):
         if rom:
             devices.append(onewire.Device(board, P0, rom, pdh, pdl, zero_low))
 
-    chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: 1 * US}, far_end=plug_in, poll=SLOW_POLL)
+    chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: ONEWIRE_RISE}, far_end=plug_in, poll=SLOW_POLL)
     if rom:
         good = crc.crc(crc.CRC8_MAXIM, rom[:7]) == rom[7]
         await chip.expect(ch1=rom, ch2=bytes([0, 0 if good else 1]), within=7000 * US)
@@ -317,9 +358,10 @@ async def onewire_run(dut, rom, pdh=None, pdl=None, zero_low=None):
 
 @cocotb.test(timeout_time=10, timeout_unit="ms")
 async def test_scenario_onewire_good_crc(dut):
-    """9A. onewire: a published ROM. Presence is the earliest and shortest allowed, and a 0 is held only
-    for the 15 us that tRDV promises."""
-    await onewire_run(dut, crc.CODEWORDS[0][1], pdh=15 * US, pdl=60 * US, zero_low=15 * US)
+    """9A. onewire: a published ROM. Presence is the earliest and shortest allowed, and a 0 is on the line
+    only for the 15 us that tRDV promises: the device lets go a rise time before each ends."""
+    await onewire_run(dut, crc.CODEWORDS[0][1], pdh=onewire.PDH[0], pdl=onewire.PDL[0] - ONEWIRE_RISE,
+                      zero_low=onewire.RDV - ONEWIRE_RISE)
 
 
 @cocotb.test(timeout_time=10, timeout_unit="ms")
@@ -328,7 +370,8 @@ async def test_scenario_onewire_bad_crc(dut):
     for the whole slot."""
     rom = bytearray(crc.CODEWORDS[1][1])
     rom[3] ^= 0x10
-    await onewire_run(dut, bytes(rom), pdh=60 * US, pdl=240 * US, zero_low=60 * US)
+    await onewire_run(dut, bytes(rom), pdh=onewire.PDH[1], pdl=onewire.PDL[1] - ONEWIRE_RISE,
+                      zero_low=onewire.SLOT - ONEWIRE_RISE)
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")
@@ -392,18 +435,24 @@ async def test_scenario_usb_ls_tx(dut):
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")
 async def test_scenario_usb_ls_rx(dut):
-    """12. usb_ls_rx: the scenario's four packets with random jitter, then the specification's worst: most
-    jitter at both rate limits, shortest EOP, longest SE0 inside a transition, a stuffed bit before EOP, and
-    packets 2 bit times apart."""
+    """12. usb_ls_rx: the scenario's four packets with random jitter, then the specification's limits: a
+    device receiver's most jitter at both rate limits, shortest EOP, longest SE0 inside a transition, a stuffed
+    bit before EOP and packets 2 bit times apart, then a host receiver's larger jitter at both rate limits."""
     source = rng("usb rx")
     chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
-    tolerance, paired = usb_ls.RATE_TOLERANCE, usb_ls.RECEIVER_JITTER_PAIRED / 2
+    tolerance, paired = usb_ls.RATE_TOLERANCE, usb_ls.DEVICE_JITTER_PAIRED / 2
 
     def wander(n):
         return source.uniform(-paired, paired)  # so neither figure can be exceeded
 
     def alternate(n):
-        return (0.5 if n % 2 else -0.5) * usb_ls.RECEIVER_JITTER_NEXT  # the most from one edge to the next
+        return (0.5 if n % 2 else -0.5) * usb_ls.DEVICE_JITTER_NEXT  # the most from one edge to the next
+
+    def host_next(n):
+        return (0.5 if n % 2 else -0.5) * usb_ls.HOST_JITTER_NEXT
+
+    def host_paired(n):
+        return (-0.5, 0, 0.5, 0)[n % 4] * usb_ls.HOST_JITTER_PAIRED  # the most from one edge to the next but one
 
     bad = bytearray(usb_packet(DATA1, some_bytes(source, 4)))
     bad[-1] ^= 0x04
@@ -417,13 +466,17 @@ async def test_scenario_usb_ls_rx(dut):
         (usb_packet(DATA0, b""), dict(eop=usb_ls.EOP_ACCEPTED)),
         (usb_packet(DATA1, some_bytes(source, 3)), dict(skew=usb_ls.TRANSITION_SE0)),
         (usb_packet(DATA0, STUFFED_AT_END), {}),
+        (usb_packet(DATA1, some_bytes(source, 8)), dict(rate=1 + tolerance, jitter=host_next)),
+        (usb_packet(DATA0, some_bytes(source, 8)), dict(rate=1 - tolerance, jitter=host_next)),
+        (usb_packet(DATA1, some_bytes(source, 8)), dict(rate=1 + tolerance, jitter=host_paired)),
+        (usb_packet(DATA0, some_bytes(source, 8)), dict(rate=1 - tolerance, jitter=host_paired)),
     )
     events, ch1, ch2, t = [], b"", b"", some_phase(source)
     for n, (packet, how) in enumerate(packets):
         more, back_to_j = usb_ls.send(USB_PINS, packet, t, **how)
         events += more
-        # The first four come at random phases, and the rest as close as the specification allows.
-        t = back_to_j + 2 * usb_ls.BIT + (3 * US + source.uniform(0, CLK) if n < 4 else 1)
+        # The four after packet 5 follow as close as the specification allows, the rest at random phases.
+        t = back_to_j + usb_ls.PACKET_GAP + (1 if 4 <= n < 8 else 3 * US + source.uniform(0, CLK))
         ch1 += packet
         ch2 += bytes([1 if n == 3 else 0, len(packet)])
     player = chip.board.play(events)
@@ -445,6 +498,7 @@ async def test_scenario_eth10_tx(dut):
     chip.send(b"".join(len(frame).to_bytes(2, "little") + frame for frame in frames))
     await chip.sent(3000 * US)
     await chip.quiet([P0, P1], 15 * US, 100 * US)
+    chip.driven([P0, P1])
     board = chip.board
     got = eth10.decode((board.line[P0], board.line[P1]), board.since)
     assert len(got) == len(frames), "%d frames on the wire, not %d" % (len(got), len(frames))
@@ -459,12 +513,14 @@ async def test_scenario_eth10_tx(dut):
 @cocotb.test(timeout_time=5, timeout_unit="ms")
 async def test_scenario_eth10_rx(dut):
     """14. eth10_rx: frames of 64, 65 and 300 bytes and a full 1518, 9.6 us apart, 200 ppm off either way,
-    with a transmitter's jitter, read by the host in real time. The third has a flipped bit."""
+    with the most jitter a whole sending station may add, read by the host in real time. The third has a
+    flipped bit. The 13.5 ns a receiver must take is gap_eth10_rx_jitter."""
     source = rng("eth rx")
     chip = await boot(dut, "eth10_rx", pulled_low=[P2])
 
     def wander(n):
-        return source.uniform(-eth10.TRANSMIT_JITTER, eth10.TRANSMIT_JITTER)
+        most = eth10.STATION_JITTER
+        return source.choice((-most, most, source.uniform(-most, most)))
 
     events, ch1, ch2, t = [], b"", b"", some_phase(source)
     worst = 2 * eth10.PPM  # the two stations' clocks, each at its limit

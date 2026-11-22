@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""I2C from NXP's UM10204: the byte format, START and STOP, clock stretching, and the timing table.
+"""I2C from NXP's UM10204, revision 7.0 (2021-10-01): the byte format, START and STOP, clock stretching, and
+Table 11's timing. Every figure below was read from that table and its notes (test/README.md, "Where the limits
+come from").
 
 Where a limit is measured depends on the edge. A low time and a setup time before a rise end when the line is
 released (the start of its rise). A high time and a setup time after a rise begin when the line has reached
@@ -11,9 +13,13 @@ from collections import namedtuple
 
 from .wave import EPS, US, bytes_msb, change_times
 
+# Table 11, one column per mode: fSCL, tHD;STA, tLOW, tHIGH, tSU;STA, tSU;DAT, tVD;DAT, tSU;STO, tBUF, tr.
 Mode = namedtuple("Mode", "name fmax hd_sta low high su_sta su_dat vd_dat su_sto buf tr_max")
 STANDARD = Mode("standard", 100e3, 4.0 * US, 4.7 * US, 4.0 * US, 4.7 * US, 250, 3.45 * US, 4.0 * US, 4.7 * US, 1000)
 FAST = Mode("fast", 400e3, 0.6 * US, 1.3 * US, 0.6 * US, 0.6 * US, 100, 0.9 * US, 0.6 * US, 1.3 * US, 300)
+# Note 2: SDA must not move until SCL is below 0.3 VDD, and a sender that cannot see that happen waits out the
+# fall time, whose maximum is 300 ns. NXP's PCA9685 data sheet words it as 300 ns of hold inside the controller.
+HOLD = 300.0
 
 
 class Target:
@@ -24,7 +30,7 @@ class Target:
     def __init__(self, board, scl, sda, reads, mode, rise, stretch=None, refuse=()):
         self.board, self.scl, self.sda = board, scl, sda
         self.reads = {addr: list(data) for addr, data in reads.items()}
-        self.delay = mode.vd_dat - rise - 10
+        self.delay = mode.vd_dat - rise - 10  # 10 ns inside tVD;DAT: the test's own margin
         self.stretch, self.refuse = dict(stretch or {}), set(refuse)
         self.acks = 0  # ninth clocks seen
         self.role, self.bits, self.pending, self.token = None, [], None, 0
@@ -128,9 +134,11 @@ def check(board, scl, sda, mode, since):
             released = c_wire.last_change(t, 1)
             low = released - fall
             least(low, mode.low, "tLOW", t)
+            for change, _ in board.chip[sda].changes(fall - EPS, released):  # the chip's own changes
+                least(change - fall, HOLD, "the SDA hold after SCL falls", change)
             for change in in_low:
-                assert change > fall, "I2C: no data hold"
-                # The table's maximum only binds a device that does not lengthen the low time (its note 4).
+                # Note 3 frees a device that lengthens the low time from the maximum, if it keeps tSU;DAT. This
+                # is the test's stricter reading: tVD;DAT grows only by as much as the low time did.
                 latest = mode.vd_dat + max(0.0, low - mode.low)
                 assert change - fall <= latest + EPS, "I2C %s-mode: tVD;DAT is %.1f ns" % (mode.name, change - fall)
             if in_low:

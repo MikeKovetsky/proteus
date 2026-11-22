@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""The three CRCs, from the parameters in the RevEng catalogue (reveng.sourceforge.io/crc-catalogue).
+"""The three CRCs, from the parameters in the RevEng catalogue (reveng.sourceforge.io/crc-catalogue), which also
+gives the check values and the codewords below.
 
 The register shifts left with the polynomial as the standards print it and is reflected at the end. The chip's
 LFSR shifts right with reflected constants, so the two share neither constants nor form.

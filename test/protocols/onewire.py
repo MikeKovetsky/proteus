@@ -1,18 +1,22 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""1-Wire at standard speed, from the AC tables of Maxim's DS18B20 and DS2401 data sheets."""
+"""1-Wire at standard speed, from the AC electrical characteristics of Maxim's DS18B20 and DS2401 data sheets
+(test/README.md, "Where the limits come from"). Both tables give every figure below, except that only the
+DS2401's caps the reset pulse, at 960 us. The DS18B20's note allows more unless it runs on parasite power.
+"""
 
 from .wave import EPS, US, bits_lsb, bytes_lsb
 
-RSTL = (480 * US, 960 * US)
-RSTH = 480 * US
-PDH = (15 * US, 60 * US)
-PDL = (60 * US, 240 * US)
-SLOT = 60 * US
-REC = 1 * US
-LOW0 = (60 * US, 120 * US)
-LOW1 = (1 * US, 15 * US)  # also the controller's low in a read slot
-RDV = 15 * US  # a device's bit is valid only this long from the slot's start
+RSTL = (480 * US, 960 * US)  # tRSTL
+RSTH = 480 * US  # tRSTH
+PDH = (15 * US, 60 * US)  # tPDHIGH
+PDL = (60 * US, 240 * US)  # tPDLOW
+SLOT = 60 * US  # tSLOT
+REC = 1 * US  # tREC
+LOW0 = (60 * US, 120 * US)  # tLOW0
+LOW1 = (1 * US, 15 * US)  # tLOW1, also the controller's low in a read slot
+RDV = 15 * US  # tRDV: a device's bit is valid only this long from the slot's start
+DEVICE_SAMPLE = 30 * US  # the test device's own choice, inside the 15 to 60 us a device may sample in
 
 
 class Device:
@@ -49,7 +53,7 @@ class Device:
             if not self.present:
                 return
             if len(self.command) < 8:
-                self.board.later(30 * US, lambda: self.command.append(self.board.level(self.pin)))
+                self.board.later(DEVICE_SAMPLE, lambda: self.command.append(self.board.level(self.pin)))
             elif bytes_lsb(self.command) == b"\x33" and self.rom:
                 if self.rom.pop(0) == 0:
                     self.hold(self.zero_low)

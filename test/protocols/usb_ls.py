@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""Low-speed USB signalling, from the USB 2.0 specification: 7.1.7 to 7.1.15, its timing table 7-10, and 8.3.5.
+"""Low-speed USB, from the USB 2.0 specification (test/README.md, "Where the limits come from"): 7.1.7 to 7.1.18,
+its timing table 7-10, the packet IDs of table 8-1, and 8.3.5 for the CRC.
 
 1.5 Mbit/s. J is D- high and D+ low, K the opposite, SE0 both low. A packet is SYNC (KJKJKJKK), bytes LSB
 first with a 0 stuffed after six 1s, NRZI (a 0 toggles the line), and EOP: two bits of SE0, then one of J.
@@ -9,13 +10,16 @@ first with a 0 stuffed after six 1s, NRZI (a 0 toggles the line), and EOP: two b
 from .wave import CLK, EPS, bits_lsb, bytes_lsb, change_times
 
 BIT = 2000 / 3  # ns
-RATE_TOLERANCE = 0.015  # TLDRATE
+RATE_TOLERANCE = 0.015  # TLDRATE, 1.4775 to 1.5225 Mb/s
 SOURCE_JITTER_NEXT, SOURCE_JITTER_PAIRED = 25.0, 14.0  # TDDJ1, TDDJ2: the stricter, downstream, figures
-RECEIVER_JITTER_NEXT, RECEIVER_JITTER_PAIRED = 75.0, 45.0  # TDJR1, TDJR2
+DEVICE_JITTER_NEXT, DEVICE_JITTER_PAIRED = 75.0, 45.0  # TDJR1, TDJR2: what a device's receiver must take
+HOST_JITTER_NEXT, HOST_JITTER_PAIRED = 152.0, 200.0  # TUJR1, TUJR2: what a host's receiver must take
 GRID = 2 * CLK  # the scenario's: every edge this close to the grid from SOP. It holds the rate inside TLDRATE
 EOP_SENT = (1250.0, 1500.0)  # TLEOPT
 EOP_ACCEPTED = 670.0  # TLEOPR
 TRANSITION_SE0 = 210.0  # TLST: an SE0 this long inside a transition is not an EOP
+PACKET_GAP = 2 * BIT  # 7.1.18.1: from SE0-to-J to the next J-to-K, at least
+DATA0, DATA1, ACK = 0xC3, 0x4B, 0xD2  # table 8-1, each with its check nibble
 J, K, SE0 = (0, 1), (1, 0), (0, 0)
 
 
@@ -74,7 +78,7 @@ def decode(line, driven, since):
         assert state == K, "USB: SOP is not J to K at %.0f ns" % t0
         assert all(w.at(t0) is not None for w in driven), "USB: SOP is not driven"
         if previous_end is not None:
-            assert t0 - previous_end >= 2 * BIT - EPS, "USB: under 2 bit times between packets"
+            assert t0 - previous_end >= PACKET_GAP - EPS, "USB: under 2 bit times between packets"
         edges = [t0]
         i += 1
         while i < len(states) and states[i][1] != SE0:

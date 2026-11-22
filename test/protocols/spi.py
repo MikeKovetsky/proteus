@@ -1,24 +1,29 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""SPI modes 0 and 3 as Motorola's SPI block guide defines them, MSB first, CS active low.
+"""SPI modes 0 and 3 as Motorola's SPI Block Guide V02.07 defines them, MSB first, CS active low.
 
 Both sample on the rising edge of SCK and change data on the falling edge. Mode 0 idles SCK low and puts the
 first bit out as CS falls; mode 3 idles it high and puts the first bit out on the first falling edge. SPI has
-no timing standard, so the timing limits are the scenario's, with data stable for most of each half period.
+no timing standard, so each limit says where it comes from: the block guide, the scenario (bakeoff/README.md,
+4 to 6), or the test's own choice. A real part for scale is Microchip's 25LC256 (its AC characteristics).
 """
 
 from .wave import CLK, EPS, bits_msb, bytes_msb
 
 IDLE = {0: 0, 3: 1}  # SCK while CS changes
-PERIOD = 200.0  # 5 MHz
-PERIOD_TOLERANCE = CLK
-CS_SETUP = 6 * CLK  # CS low to the first rising edge, and to the first edge at all (the block guide's tL)
-CS_HOLD = PERIOD / 2  # the last edge of SCK to CS high (the block guide's tT)
-DATA_MARGIN = PERIOD / 2 - CLK  # setup and hold of MOSI round the rising edge
-TARGET_PERIOD = 500.0  # 2 MHz
-TARGET_LEAD = 60 * CLK  # CS low to the first rising edge
-TARGET_SETUP = 3 * CLK  # MISO before the rising edge. It holds to the falling edge, which is when mode 0 shifts
-TARGET_DISABLE = 100.0  # CS high to MISO released: a common serial memory's limit
+PERIOD = 200.0  # the scenario's 5 MHz
+PERIOD_TOLERANCE = CLK  # the scenario's
+CS_SETUP = 6 * CLK  # CS low to the first edge: the scenario's, and the block guide's tL of half a period
+CS_HOLD = PERIOD / 2  # the last edge of SCK to CS high: the block guide's tT, at least half a period
+CS_HIGH = PERIOD / 2  # CS high between transactions: the block guide's tI, at least half a period
+DATA_MARGIN = PERIOD / 2 - CLK  # MOSI round the rising edge, and each phase of SCK: the test's own, stricter
+                                # than a 25LC256 at 5 V asks (10 ns setup, 20 ns hold, 50 ns a phase)
+TARGET_VALID = 50.0  # how late the test's slower target answers: a 25LC256's tV at 4.5 to 5.5 V
+TARGET_PERIOD = 500.0  # the scenario's 2 MHz
+TARGET_LEAD = 60 * CLK  # CS low to the first rising edge: the scenario's
+TARGET_SETUP = 3 * CLK  # MISO before the rising edge: the scenario's. It holds to the falling edge, where mode 0
+                        # shifts, which is stricter than the scenario's one clock
+TARGET_DISABLE = 100.0  # CS high to MISO released: the test's own (a 25LC256 takes 40 to 160 ns by supply)
 
 
 class Target:
@@ -75,7 +80,7 @@ def check_controller(sck, mosi, cs, mode, since):
     out, high_since = [], since
     for (down, _), (up, _) in zip(cs_edges[::2], cs_edges[1::2]):
         assert not sck.changes(high_since, down), "SPI: SCK moved while CS was high"
-        assert high_since == since or down - high_since >= PERIOD / 2, "SPI: CS was high for too short a time"
+        assert high_since == since or down - high_since >= CS_HIGH, "SPI: CS was high for too short a time"
         for t in (down, up):
             assert sck.at(t) == IDLE[mode] and all(at != t for at, _ in sck.changes(t - 1, t + 1)), (
                 "SPI: SCK is not idle (%d) as CS changes at %.0f ns" % (IDLE[mode], t))

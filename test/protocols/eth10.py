@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""10BASE-T from IEEE 802.3: clause 3 (the frame and its FCS), 7 (Manchester) and 14 (the twisted-pair MAU).
+"""10BASE-T as IEEE 802.3 defines it: clause 3 (the frame and its FCS), 7 (Manchester) and 14 (the twisted-pair
+MAU). IEEE's text was not read. The figures are as two transceivers' data sheets give them, Cirrus Logic's
+CS8900A and Level One's LXT901A (test/README.md, "Where the limits come from"), which are secondary sources.
 
 A bit is 100 ns. A 1 is low then high, a 0 high then low, on the differential signal TX+ less TX-. Bytes go
 LSB first. After the last bit comes TP_IDL, a positive level of at least 250 ns, then silence.
@@ -9,12 +11,16 @@ LSB first. After the last bit comes TP_IDL, a positive level of at least 250 ns,
 from .wave import EPS, US, bits_lsb, bytes_lsb, change_times
 
 BIT, HALF = 100.0, 50.0
-PPM = 100  # of each station's clock
-TRANSMIT_JITTER = 3.5  # at a transmitter's output, through the cable model
-RECEIVE_JITTER = 13.5  # what a receiver must take
-IDL_FROM_EDGE = 250.0  # the last transition to the end of TP_IDL, at least
+PPM = 100  # of each station's clock: both ask 20 MHz within 0.01%
+TRANSMIT_JITTER = 3.5  # the MAU's share after the line model (LXT901A, table 8's note 3). The test's use of it
+                       # on the chip's bare pins is stricter: CS8900A allows 8 ns into 100 ohms with no line
+STATION_JITTER = 3.5 + 1.5 + 0.5  # a whole sending station: the MAU, the AUI cable and the encoder (that note)
+RECEIVE_JITTER = 13.5  # what a receiver must take, at a bit's centre and its boundary (CS8900A, tTRX1, tTRX2)
+IDL_FROM_EDGE = 250.0  # the last transition to the end of TP_IDL, at least (CS8900A's positive hold at end of packet)
 IDL_AFTER_BIT = (200.0, 400.0)  # the scenario's: 12 to 24 clocks after the last bit
-IFG = 9.6 * US
+IFG = 9.6 * US  # CS8900A, 3.9.5. The decoder counts from the end of TP_IDL, up to 0.4 us stricter
+LINK_PULSE = (60.0, 200.0)  # a link pulse's width (CS8900A, tLN3)
+LINK_PERIOD = (8000 * US, 24000 * US)  # between link pulses (CS8900A, tLN2, and LXT901A, table 9)
 PREAMBLE = b"\x55" * 7 + b"\xd5"
 
 

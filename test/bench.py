@@ -21,7 +21,8 @@ from host_link import (CLOCK_PS, PORT_CH0_CH1, PORT_CH3_CH2, ST_HAS, ST_OVERFLOW
 from protocols.wave import CLK, Wave
 
 PS_PER_NS = CLOCK_PS / CLK
-PAD_DELAY = 2.0  # ns from the clock edge to a settled pad. It also lets uio_out and uio_oe change together
+PAD_DELAY = 2.0  # ns from the clock edge to a settled pad, the test's own figure (Tiny Tapeout estimates about
+                 # 10 ns for a round trip). It also lets uio_out and uio_oe change together
 
 
 def now():
@@ -214,6 +215,7 @@ class HostTask:
 class Bench:
     def __init__(self, dut, board, host, poll):
         self.dut, self.board, self.host = dut, board, host
+        self.ready = now()  # the program runs and has set its idle levels
         self.task = HostTask(dut, host, poll)
 
     def send(self, data):
@@ -249,6 +251,15 @@ class Bench:
             assert got[channel][:len(want)] == want, "channel %d gave %s, expected %s" % (
                 channel, got[channel][:len(want)].hex(), bytes(want).hex())
             del got[channel][:len(want)]
+
+    def driven(self, pins, since=None):
+        """The chip drives these push-pull pins from `since` (the end of boot) to now. A pin it lets go reads as
+        the board's pull, so the line alone cannot show this."""
+        since = self.ready if since is None else since
+        for pin in pins:
+            wave = self.board.chip[pin]
+            released = wave.at(since) is None or any(level is None for _, level in wave.changes(since))
+            assert not released, "P%d is left to the board's pull, not driven" % pin
 
     async def quiet(self, pins, span, within):
         """Wait until the chip has left `pins` alone for `span` ns."""

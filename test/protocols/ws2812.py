@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""WS2812B, from Worldsemi's first data sheet: every bit a high then a low, MSB first, and 50 us low latches.
+"""WS2812B, from the data transfer tables of Worldsemi's first data sheet and of WS2812B-V5's (test/README.md,
+"Where the limits come from"): every bit a high then a low, MSB first, and a long low latches.
 
-Parts marked V4 and later have tighter highs and need 280 us to latch; known_gaps.py holds the chip to those.
+The first part latches after 50 us. V5 has tighter highs and needs 280 us; known_gaps.py holds the chip to it.
 """
 
 from collections import namedtuple
@@ -10,6 +11,7 @@ from collections import namedtuple
 from .wave import EPS, US, bytes_msb
 
 Part = namedtuple("Part", "name high0 high1 low0 low1 reset")  # each time is (min, max) in ns
+# T0H, T1H, T0L, T1L and RES. The first sheet gives 0.4, 0.8, 0.85 and 0.45 us, each 150 ns either way.
 WS2812B = Part("WS2812B", (250, 550), (650, 950), (700, 1000), (300, 600), 50 * US)
 WS2812B_V5 = Part("WS2812B-V5", (220, 380), (580, 1000), (580, 1000), (580, 1000), 280 * US)
 

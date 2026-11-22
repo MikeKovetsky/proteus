@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""UART, 8N1: the line idles high; a low start bit, 8 data bits LSB first, a high stop bit, all one bit long."""
+"""UART, 8N1: the line idles high; a low start bit, 8 data bits LSB first, a high stop bit, all one bit long.
+
+UART has no timing standard here. The baud rates and the 2% are the scenarios' (bakeoff/README.md, 1 to 3).
+"""
 
 from .wave import bits_lsb, bytes_lsb
 
-TOLERANCE = 0.02  # of a bit, for every edge, counted from the frame's start edge
+TOLERANCE = 0.02  # of a bit, for every edge, counted from the frame's start edge: scenario 1's
 
 
 def decode(line, baud, since):
@@ -32,11 +35,11 @@ def decode(line, baud, since):
     return bytes(data), (starts[0], starts[-1] + 10 * bit) if starts else None
 
 
-def send(pin, data, baud, start):
+def send(pin, data, baud, start, stop=1):
     """Back-to-back frames, each start bit straight after a stop bit. Returns the events and their end."""
     bit, events, t = 1e9 / baud, [], start
     for byte in data:
-        for level in [0] + bits_lsb([byte]) + [1]:
+        for level in [0] + bits_lsb([byte]) + [stop]:
             events.append((t, {pin: level}))
             t += bit
     return events, t
