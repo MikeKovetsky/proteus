@@ -2,16 +2,18 @@
 
 An entry for Jane Street's
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/): a small
-programmable chip meant to speak UART, SPI and I2C, and protocols it was not designed for (R3 is not met, and the stranger test has not run). AI agents build and review
+programmable chip that speaks UART, SPI and I2C in simulation and is meant to run protocols it was not designed
+for (the stranger test has not run). AI agents build and review
 it with tests as gates, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requirements are met"), after a pause
-from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). At 22:55 they set the order:
-**"let's complete without novelty first and then right after it brainstorm how to make it novel"**. The
-bake-off is done, and Mike picked the table-driven architecture. Its RTL core matches the golden model on every recorded clock,
-the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup, hold, slew and capacitance limits met at 60 MHz (max-fanout warnings remain), and the architecture
-and instruction set docs are written. "Progress" below has the detail, and "Open work" says
-where each open piece stands.
+Status, 2026-11-22, 12:40 PST: **the program fixes are on `main`.** 12 of the 15 requirement lines are MET, several
+of them in simulation only. R11 (the write-up), R13 (submission) and R14 (novelty) are not. Two pieces of work are
+open besides them: the pin tests must fail on netlist mutants, which they don't yet, and five program gaps must be
+closed or waived before submission. Mike resumed the project on 2026-11-21 ("resume until all requirements are
+met") and set the order ("let's complete without novelty first and then right after it brainstorm how to make it
+novel"). The RTL core matches the golden model on every recorded clock, and the real chip, with both SRAMs, passes
+Tiny Tapeout's whole flow with setup, hold, slew and capacitance limits met at 60 MHz (max-fanout warnings remain).
+"Progress" below has the history, and "Open work" says where each open piece stands.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -82,7 +84,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 |---|---|---|---|
 | R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
-| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 reads 65,536 bytes and then reports success, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program. All of these are fixed in simulation on `program-fixes-on-pins`, which is reviewed, waits for Mike's decision on its open gaps and is not on `main` ("Open work", 5) |
+| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | MET in simulation; one I2C gap is open | `539d19e`, on `main` since 2026-11-22: UART at 9600, 115200, 921600 and 3M baud, an SPI controller in modes 0 to 3 with a target in mode 0, and an I2C controller at 400 and 100 kHz. The bugs that reopened this line are fixed: all 122 pin tests pass on RTL and on the [routed netlist](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274). I2C has no plain read, waived for the merge only: it is closed or waived before submission ("Open work", 5). Nothing has run on hardware, and no outside decoder has judged the waveforms |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` checks only the cell types, which does not prove freedom from power-up values); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) at 16.6 ns, the slew fix's build, on extracted parasitics: worst setup slack 4.0960 ns (slow corner), worst hold slack 0.0955 ns (fast corner), and 0 setup, hold, slew and capacitance violations in all three corners, so timing at the SRAM pins is no longer extrapolated. `main`'s own build, [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811) on `c2912e7`, gives the same figures. 97 max-fanout warnings remain and do not fail the build |
@@ -91,7 +93,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI runs those tests on every push ([run 45016223262](https://github.com/MikeKovetsky/protoemu/actions/runs/45016223262)). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
-| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix, and on `main` in [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811). It passed again in [run 45018868047](https://github.com/MikeKovetsky/protoemu/actions/runs/45018868047) on `ef34af5`, with the CI suites. With the pin tests, all 28 pass on the routed netlist of `a60b878` in [run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947) |
+| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix, and on `main` in [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811). It passed again in [run 45018868047](https://github.com/MikeKovetsky/protoemu/actions/runs/45018868047) on `ef34af5`, with the CI suites. With the pin tests, all 28 pass on the routed netlist of `a60b878` in [run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947). With the program fixes, all 122 pass on the routed netlist of `539d19e` in [run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274) |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
@@ -192,6 +194,10 @@ make it novel". The main session's reading of it:
 3. The stranger test and its bench review wait for the brainstorm, because the test runs once on frozen RTL and
    the brainstorm may change the RTL. R14 is deferred, not waived.
 
+**Update, 2026-11-22.** Mike's "Yes, run it" ([the landing decision](notes/landing-decision.md)) accepted the dates
+below and left small technical calls to the main session. The USB and Ethernet gaps are for 2026-11-25 and 26, the
+stranger test for 2026-11-27 and the write-up for 2026-11-28. A changed scenario still needs Mike's yes.
+
 1. **The slew fix: landed on 2026-11-22.** It puts a buffer at each of the 216 live SRAM pins, fails the build on
    slew, capacitance or antenna violations, and lets only `main` deploy the public viewer from that workflow. Its
    [layout build](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) met the bar: 0 slew and 0
@@ -204,8 +210,8 @@ make it novel". The main session's reading of it:
 2. **The compiler fix: landed on 2026-11-21.** Its full review added four commits, closed 14 silent miscompiles
    beyond the five bugs the docs found, and left nothing on the checklist open. The language is stricter: a line
    that sets something twice is refused. Every shipped program compiles to the image it did before.
-3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design), waiting for the
-   brainstorm.** Their review was paused on 2026-11-21, before it reported or exported anything. One of its runs
+3. **The stranger test's benches (`../protoemu-holdout/stranger/`, never committed by design), planned for
+   2026-11-27.** Their review was paused on 2026-11-21, before it reported or exported anything. One of its runs
    left output in the session's temp folder, against its instructions: that reviewer removes it on resuming,
    no other agent opens it, and the stranger's sandbox denies that whole folder. The pieces are a scenario sheet
    (`SCENARIOS.md`) and benches for CAN, JTAG and SWD, with reference codecs, behavioural fakes and `run.py`,
@@ -218,19 +224,23 @@ make it novel". The main session's reading of it:
    the pins, 28 of 28 pass on RTL, and [the same commit's build](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947)
    passes all 28 on the routed netlist, with precheck. Mike waived only the local gate-level run ("merge", recorded
    in [the landing decision](notes/landing-decision.md)), on the condition that GitHub's run passed, and it did.
-   `test/known_gaps.py` holds 18 failing reproductions, which the program fixes address.
+   `test/known_gaps.py` held 18 failing reproductions then. The program fixes closed 13 of them.
    `main`'s own build, [run 45055027272](https://github.com/MikeKovetsky/protoemu/actions/runs/45055027272),
    passed all four jobs, 28 of 28 on the routed netlist included, and its layout is on the public viewer.
    One hole was found after they landed: with P4 to P7 dead in and out, all 28 still pass (reproduced on RTL on
    2026-11-22). Tests that catch this and the other surviving mutants are being written on the proofs' branch.
-5. **The program fixes (branch `program-fixes-on-pins`, e64d638, on the pin tests): the full review ended NOT
-   CLEAN on 2026-11-22, only on gaps that wait for Mike.** 13 of the 18 gaps are closed, and the review fixed three
-   more bugs: a false I2C success with SDA held low, an Ethernet length of 0 and an unreported late WS2812 byte.
-   The main session reproduced all three and re-ran the branch merged with `main`: 116 of 116 pin tests pass and
-   the five open gaps fail as intended. [The landing decision](notes/landing-decision.md) lists the five gaps, the
-   12 behaviours added where a scenario is silent and the pin tests' waiver, and Mike's "merge" of 2026-11-22
-   approves all three for this merge. The gaps are not waived for the submission. The branch lands once its
-   reviewer marks it, its one README conflict with `main` is resolved and reviewed, and GitHub's runs pass.
+5. **The program fixes: landed on 2026-11-22 as `539d19e`, reviewed at the full tier.** They close 13 of the 18
+   gaps and change 17 behaviours that no scenario tests, which Mike accepted
+   ([the landing decision](notes/landing-decision.md)). The same commit's
+   [build](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274) passed layout, LVS, precheck and all
+   122 pin tests on the routed netlist, and
+   [its test run](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257354) passed the same 122 on RTL. Five gaps are waived for that merge only, and each is closed or waived again before
+   submission:
+   1. I2C has no plain read.
+   2. USB can't send handshakes or tokens.
+   3. USB can't receive handshakes or tokens.
+   4. Ethernet sends no link pulses.
+   5. Ethernet receive takes 8 ns of jitter, not 13.5 ns, which needs an RTL change.
 6. **The proofs (branch `formal-on-main`, 14183ef): the full review ended NOT CLEAN on 2026-11-22**, because
    the pin tests miss mutants of the netlist and the mutation run doesn't yet include the 21 new ones. They prove the reset state
    from any power-up values, every entry field, the host link, the FIFOs and machine isolation, on RTL and on two

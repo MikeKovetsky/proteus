@@ -1,6 +1,7 @@
 # cand_table: a state table in SRAM, compiled from a state-machine language
 
-All 14 scenarios pass, and the programs still have known bugs. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
+All 14 scenarios pass, and the programs have five known gaps ([docs/info.md](../../docs/info.md#how-to-test)).
+The chip is one 512-entry table of 64-bit states and a small generic datapath. A
 machine reads one entry per clock, branches four ways on two inputs, and runs several operations
 in that same clock. It was budgeted at 1,202 flops (the RTL has 1,172) and both SRAM macros. Programs are large: 107 to 843 bytes.
 

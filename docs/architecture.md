@@ -280,7 +280,8 @@ Tiny Tapeout's flow in CI.
    Setup, hold, slew and capacitance limits are met at a 16.6 ns clock in all three corners, with 4.0960 ns of
    worst setup slack at the slow corner in that run. A buffer at each of the 216 live SRAM pins keeps the edges
    there inside the library's limits. 97 max-fanout warnings remain and do not fail the build, as
-   [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records.
+   [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records. With today's programs and 122 pin tests
+   the flow passes again ([CI run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274)).
 5. **Where the flops go:** a third of them (384) are the LFSRs' configured polynomial, start and match values.
    They let one unit serve CRCs of up to 32 bits.
 

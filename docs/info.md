@@ -142,9 +142,9 @@ What to know before using them:
 ## How to test
 
 The default test runs the whole chip through its 24 pins on Icarus: 122 tests in 3 to 4 minutes. They are
-written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them passed on the routed netlist under
-CI's cocotb 2.0.1 ([run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947), on
-`a60b878`). These programs and the other 94 tests are newer than that run.
+written to run on a gate-level netlist too (`GATES=yes`), and all 122 passed on the routed netlist with these
+programs, under CI's cocotb 2.0.1 ([run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274),
+on `539d19e`).
 
 ```sh
 cd test

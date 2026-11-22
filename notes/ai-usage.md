@@ -192,3 +192,14 @@ A dated log, written as the work happens. The verification write-up's AI section
 42. **A hole in the pin tests.** The proofs' reviewer found from netlist mutations that the pin tests miss broken
     chips. The main session reproduced the largest case on RTL: with P4 to P7 dead, all 28 tests pass. A fresh
     agent was given the requirement in the project's words, "the tests must fail on the mutants", to fix it.
+43. **Five changes the decision page left out.** The fixes' reviewer found that the page built by the main session
+    omitted five behaviour changes. Mike then accepted them and left small technical calls to the main session,
+    keeping spending, what counts as correct, public claims and submission. The record is in
+    `notes/landing-decision.md`.
+44. **A regression the review caught.** The fixes' reviewer found that the SPI target lost a reply queued between
+    CS and the first clock. The main session reproduced it, compared both timings, kept the safer one as a small
+    technical call and had the deadline documented and tested from both sides. The review also showed that two of
+    the five changes had understated the old programs' faults, which the main session replayed and corrected.
+45. **The program fixes landed.** An agent wrote them and fresh Opus 5.5 reviewers checked them, the last at max
+    effort. The main session pushed the reviewed merge to its own branch, read GitHub's logs for 122 of 122 tests
+    on RTL and on the routed netlist, and only then fast-forwarded `main` to it. No person reviewed the code.

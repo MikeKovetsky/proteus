@@ -1,6 +1,7 @@
 # Decision for Mike: landing the pin tests and the program fixes
 
-Written by the main session on 2026-11-22. Mike answered it that morning.
+Written by the main session on 2026-11-22. Mike answered it twice that morning, and the corrections made since are
+marked as such.
 
 ## Mike's answer, 2026-11-22, about 09:19 PST
 
@@ -26,8 +27,61 @@ The main session reads that as a yes to the three lines under "What 'Yes, land t
 It does not accept the write-up, pick the novel feature, approve a download or purchase, or change the golden
 model, the repository's description or any old branch.
 
-**Recommended answer: "Yes, land them."** It lets the UART, SPI and I2C requirement (R3) be met, and it changes no
+**The main session's recommendation, written before Mike answered: "Yes, land them."** It lets the UART, SPI and I2C requirement (R3) be met, and it changes no
 scenario, reference model or RTL.
+
+## Mike's second answer, 2026-11-22, about 09:58 PST
+
+The fixes' reviewer found that this page left out five behaviour changes. That was the main session's mistake: it
+built the list from a review summary and didn't check it against the code. It then showed Mike these five:
+
+| # | Case | Old programs | New programs |
+|---|---|---|---|
+| 13 | PS/2 in the four-at-once demo gets a broken frame | Passes the byte on as good | Drops it silently |
+| 14 | The host stalls mid-packet on USB or Ethernet send | No warning | Flags `0x01`, then waits for the rest of that packet, so a host that starts a new packet instead loses it |
+| 15 | The SPI target has nothing to send | The controller reads `0xFF` from a released pin | It sends `0x00` and flags it |
+| 16 | The host never reads the status channel | No error | OVERFLOW can stay set with no data lost |
+| 17 | A glitch hits USB receive | Reports nothing | Reports one bad, empty packet |
+
+It then asked one question about the week's plan. The parts about this merge and about who decides are quoted, and
+each […] is a part about other planned work:
+
+> Shall I […] make small technical calls myself, starting with the bug fixes?
+
+The message above the question said:
+
+> It was whether five small error-handling changes in the bug fixes are OK. They are, and you shouldn't have to
+> judge that, so I've replaced it with one question about the whole plan.
+>
+> **"Yes, run it" means** I […] merge the fixes including those five changes once tests pass, and make technical
+> calls of that size myself. I'll still ask you before spending money, changing what the tests count as correct,
+> making public claims or submitting.
+
+Mike answered: **"Yes, run it"**.
+
+So the five changes are accepted, 17 in all, and small technical calls are the main session's, to be logged.
+Spending, what the tests count as correct, public claims and submission are still Mike's, as are downloads and
+deletions, which the answer doesn't mention.
+
+**A technical call made under that answer, after a correction to row 15.** When a reply is queued after CS falls
+and before the first clock, the old SPI target sent it. The new one sends `0x00` with `0x01` and stays one byte
+behind. The fixes' reviewer found this, and the main session reproduced it and kept the new timing: on the golden
+model the old one sent a nearly late `0x21` as `0xA1` with no status. The deadline is in `docs/info.md`, tested from
+both sides.
+
+**Two corrections found after Mike answered, replayed on the golden model by the main session.** Both make the old
+programs worse than the table says. In row 15, `0xFF` holds only for a transaction with nothing queued from its
+start: short in the middle of one, the old program sent `0x00` with no status. In row 17, the old program didn't
+report nothing: after a glitch of 1, 10 or 40 clocks it passed on `0xFF` as data for as long as it was watched,
+102 bytes in 550 us, with no status.
+
+In the tables below, gaps 2 and 3 also cover USB token packets, and addition 5's stuck-bus limit is 25 ms.
+
+## What happened next
+
+The pin tests reached `main` as `a60b878` and the fixes as `539d19e`, each after a full review and after GitHub's
+tests passed on that commit, gate-level simulation included: 28 of 28, then
+[122 of 122](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274) on the routed netlist.
 
 ## What "Yes, land them" means
 
@@ -69,7 +123,7 @@ Additions 4 and 9 are the reviewer's two judgement calls. The recommendation is 
 | 11 | Ethernet transmit | It ignores a length of 0, and it cuts and flags an underrun. |
 | 12 | The UART 8E1 example | It reports a framing error's byte on the status channel. |
 
-## What the evidence shows, and what it can't
+## What the evidence showed when Mike was asked, and what it couldn't
 
 1. The main session merged `e64d638` with `main` on Mike's Mac: 116 of 116 pin tests pass, the five gaps fail as
    intended, 14 of 14 benches pass and lockstep matches 323 of 323 traces. It also reproduced the three bugs that
