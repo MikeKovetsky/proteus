@@ -253,8 +253,8 @@ def summary(part, test, got, total):
         "test fails on a wrong byte sent": not test_passes(got["broken sent"]),
         "test fails on a wrong compare": not test_passes(got["broken compare"]),
         "delays": {"device": device["delays"], "clone": clone["delays"]},
-        "problems": [got[k]["faults"] + [got[k].get("bus_check")] for k in ("device", "clone")
-                     if got[k]["faults"] or got[k].get("bus_check")],
+        "problems": [got[k]["faults"] + ([got[k]["bus_check"]] if got[k].get("bus_check") else [])
+                     for k in ("device", "clone") if got[k]["faults"] or got[k].get("bus_check")],
     }
     if bus == "i2c":  # on SPI the answers are all that the target puts on the bus
         out["same bus"] = bool(device.get("decoded")) and device["decoded"] == clone.get("decoded")
