@@ -31,5 +31,5 @@ pixel:  => nz: latch                 # no pixels left
 load:   wait => tz: late | rx0: fetch
 late:   push2=1                      # the bit is over and its next byte is not here
         wait rx0
-fetch:  S=pop0, K=8, J-=1 => rest
+fetch:  S=pop0, K=8, J-=1 => tz: bit | rest   # here at the last clock: the next bit starts on time
 latch:  hold LATCH => idle           # the LEDs take the data

@@ -2,7 +2,7 @@
 
 All 14 scenarios pass, and the programs still have known bugs. The chip is one 512-entry table of 64-bit states and a small generic datapath. A
 machine reads one entry per clock, branches four ways on two inputs, and runs several operations
-in that same clock. It was budgeted at 1,202 flops (the RTL has 1,172) and both SRAM macros. Programs are large: 107 to 827 bytes.
+in that same clock. It was budgeted at 1,202 flops (the RTL has 1,172) and both SRAM macros. Programs are large: 107 to 843 bytes.
 
 ```bash
 python3 -m bakeoff.run --candidate cand_table
@@ -27,13 +27,13 @@ that the compiler only does arithmetic. The third prints a program's listing: ev
 | spi_ctrl_m0 | pass | 20 | 22 | 28 | 243 |
 | spi_ctrl_m3 | pass | 19 | 21 | 27 | 235 |
 | spi_target_m0 | pass | 23 | 19 | 34 | 291 |
-| i2c_ctrl | pass | 72 | 92 | 101 | 827 |
+| i2c_ctrl | pass | 73 | 93 | 103 | 843 |
 | ws2812_tx | pass | 25 | 23 | 31 | 267 |
 | ps2_rx | pass | 25 | 20 | 30 | 259 |
 | onewire | pass | 33 | 37 | 41 | 347 |
 | usb_ls_tx | pass | 47 | 65 | 84 | 691 |
 | usb_ls_rx | pass | 51 | 43 | 82 | 675 |
-| eth10_tx | pass | 57 | 57 | 64 | 531 |
+| eth10_tx | pass | 58 | 58 | 66 | 547 |
 | eth10_rx | pass | 24 | 21 | 23 | 203 |
 
 ## The machine

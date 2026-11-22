@@ -319,6 +319,25 @@ async def test_spi_target_underrun(dut):
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_spi_target_deselect_high(dut):
+    """spi_target_m0: CS rises while SCK is still high. After a byte's last clock the byte taken early for the
+    next one is kept, and inside a byte that byte is dropped. Scenario 6 raises CS once, with SCK low."""
+    chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
+    chip.send(b"\xa5\x3c\x96")
+    for clocks, want in ((8, 0xA5), (3, 0x3C), (8, 0x96)):
+        await chip.wait(3 * US)
+        events, rises, _ = spi.controller_mode0(SPI_PINS, b"\x81", now() + 1 * US)
+        off = rises[clocks - 1] + spi.TARGET_PERIOD / 4
+        cut = [(t, levels) for t, levels in events if t < off]
+        await chip.board.play(cut + [(off, {CS: 1}), (off + spi.TARGET_PERIOD, {SCK: 0})])
+        got = [chip.board.line[MISO].at(t - 3 * CLK) for t in rises[:clocks]]
+        assert got == [want >> (7 - n) & 1 for n in range(clocks)], "MISO carried %s for %02x" % (got, want)
+        assert chip.board.chip[MISO].at(off + spi.TARGET_DISABLE) is None, "MISO is driven with CS high"
+    await chip.expect(ch1=b"\x81\x81", within=10 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
 async def test_spi_ctrl_samples_early(dut):
     """spi_ctrl_m0: a target whose data is valid 20 ns before the rising edge of a 5 MHz clock is read."""
     chip = await boot(dut, "spi_ctrl_m0", outputs=[SCK, MOSI, CS], pulled_low=[SCK])
@@ -444,10 +463,10 @@ async def test_i2c_scl_stuck(dut):
 @cocotb.test(timeout_time=40, timeout_unit="ms")
 async def test_i2c_timeout_length(dut):
     """i2c_ctrl as shipped waits 25 ms for SCL and no more than 35, SMBus's limits: about 25 s of real time."""
-    chip = await boot(dut, "i2c_ctrl", open_drain=[I2C_SCL, I2C_SDA], poll=250 * US)
+    chip = await boot(dut, "i2c_ctrl", open_drain=[I2C_SCL, I2C_SDA], poll=50 * US)  # the test's resolution
     chip.board.drive({I2C_SCL: 0})
     chip.send(bytes([0x50, 0, 1]))
-    await chip.wait(24900 * US)
+    await chip.wait(25000 * US)
     assert not chip.task.received[2], "it gave up on SCL before 25 ms"
     await chip.expect(ch2=b"\x02", within=10000 * US)
     await chip.finish()
@@ -482,6 +501,32 @@ async def test_i2c_sda_stuck(dut):
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")
+@cocotb.parametrize(speed=list(I2C_SHIPPED))
+async def test_i2c_sda_stuck_before_sr(dut, speed):
+    """i2c_ctrl and i2c_ctrl_100k, SDA held low from an ACK to past where the repeated START would be: status
+    0x02 and no clock after it. With no START there, address+R would read as data and end as a success."""
+    image, _ = I2C_SHIPPED[speed]
+    chip = await boot(dut, image, open_drain=[I2C_SCL, I2C_SDA], poll=5 * US)
+    board, falls = chip.board, []
+
+    def hold_sda(t, changed):
+        if changed.get(I2C_SCL) == 0:
+            falls.append(t)
+            if len(falls) in (9, 20):  # 9: the address's ACK comes next. 20: address+R's is over
+                level = 0 if len(falls) == 9 else None
+                board.later(100, lambda: board.drive({I2C_SDA: level}))
+
+    board.listen(hold_sda)
+    chip.send(bytes([0x50, 0, 2]))
+    await chip.expect(ch2=b"\x02", within=600 * US)
+    assert len(falls) == 10, "it clocked on, %d times, with no repeated START" % (len(falls) - 10)
+    board.drive({I2C_SDA: None})
+    chip.send(bytes([0x33, 0, 0]))  # nobody is there: the request was dropped and the bus is free
+    await chip.expect(ch2=b"\x01", within=600 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=3, timeout_unit="ms")
 async def test_i2c_write_only(dut):
     """i2c_ctrl, [addr][1][byte][0]: a write with nothing to read ends with STOP and a status."""
     chip = await boot(dut, "i2c_ctrl", open_drain=[P0, P1])
@@ -509,6 +554,9 @@ async def test_i2c_bus_free_slow_edges(dut):
 
 
 # ---- WS2812
+
+# The first WS2812B's highs, with any low short of its latch: what a frame whose host was late carries.
+WS2812B_WAITED = ws2812.WS2812B._replace(low0=(700, 45 * US), low1=(300, 45 * US))
 
 
 @cocotb.test(timeout_time=4, timeout_unit="ms")
@@ -541,6 +589,34 @@ async def test_ws2812_late_host(dut):
     await chip.expect(ch2=b"\x01", within=100 * US)
     chip.send(b"\x40\x50\x60")
     await chip.quiet([P0], 330 * US, 1500 * US)
+    got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), WS2812B_WAITED)
+    assert got == [b"\x10\x20\x30\x40\x50\x60"], "the late host's line carried %s" % [g.hex() for g in got]
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=2, timeout_unit="ms")
+async def test_ws2812_late_by_a_clock(dut):
+    """ws2812_tx: each byte comes a clock later than the one before it, from in time to too late. A bit of more
+    than 75 clocks and a 0x01 always go together."""
+    chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
+    board, frame, rises = chip.board, some_bytes(rng("ws2812 a clock late"), 24), []
+
+    def next_byte(t, changed):
+        if changed.get(P0) == 1:
+            rises.append(t)
+            n, bit = divmod(len(rises), 8)
+            if not bit and n < len(frame):  # a byte's last bit has begun
+                board.later((47 + n) * CLK, lambda: chip.send(frame[n:n + 1]))
+
+    board.listen(next_byte)
+    chip.send(b"\x08" + frame[:1])
+    await chip.until(lambda: len(rises) == 8 * len(frame), "last bit", 500 * US)
+    await chip.wait(60 * US)
+    got = ws2812.decode(board.line[P0], board.since, now(), WS2812B_WAITED)
+    assert got == [frame], "the line carried %s" % [g.hex() for g in got]
+    late = sum(abs(b - a - 75 * CLK) > CLK / 2 for a, b in zip(rises, rises[1:]))
+    assert 0 < late < len(frame) - 1, "the test did not straddle the last clock: %d late" % late
+    await chip.expect(ch2=b"\x01" * late, within=20 * US)
     await chip.finish()
 
 
@@ -572,6 +648,34 @@ async def test_onewire_short(dut, short_at):
 
     chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: ONEWIRE_RISE}, far_end=plug_in, poll=SLOW_POLL)
     await chip.expect(ch2=b"\x01", within=3000 * US)
+    await chip.quiet([P0], 500 * US, 1000 * US)
+    await chip.finish()
+
+
+ONEWIRE_PASSING = {"reset": (1, 600), "presence": (781, 1040)}  # us from reset's start: low from, until
+
+
+@cocotb.test(timeout_time=6, timeout_unit="ms")
+@cocotb.parametrize(short=list(ONEWIRE_PASSING))
+async def test_onewire_passing_short(dut, short):
+    """onewire: a short that lets go again is no presence pulse, whether the line was low as soon as reset was
+    released or still low when every presence pulse is over. Only 0x01. Scenario 9 has no short."""
+    low, high = ONEWIRE_PASSING[short]
+
+    def plug_in(board):
+        onewire.Device(board, P0, b"\xff" * 8, pdh=30 * US, pdl=240 * US, zero_low=30 * US)
+        begun = []
+
+        def on_reset(t, changed):
+            if not begun and changed.get(P0) == 0:
+                begun.append(t)
+                board.later(low * US, lambda: board.drive({P0: 0}))
+                board.later(high * US, lambda: board.drive({P0: None}))
+
+        board.listen(on_reset)
+
+    chip = await boot(dut, "onewire", open_drain=[P0], rise={P0: ONEWIRE_RISE}, far_end=plug_in, poll=SLOW_POLL)
+    await chip.expect(ch2=b"\x01", within=2000 * US)
     await chip.quiet([P0], 500 * US, 1000 * US)
     await chip.finish()
 
@@ -633,6 +737,32 @@ async def test_ps2_rx_abandoned(dut, receiver, clocks):
         events, _ = ps2.frame(clk, data, 0x00, start, 16.7, late=False)
         last = events[3 * clocks - 1][0]
         return events[:3 * clocks] + [(last + 10 * US, {data: None})], last + resume * US
+
+    await ps2_run(dut, receiver, broken, 1)
+
+
+@cocotb.test(timeout_time=3, timeout_unit="ms")
+@cocotb.parametrize(receiver=list(PS2_RECEIVERS))
+async def test_ps2_rx_parity(dut, receiver):
+    """ps2_rx and its copy in four_at_once: wrong parity is not a good byte, and the frame after it is read."""
+
+    def broken(clk, data, start):
+        return ps2.frame(clk, data, 0x42, start, 16.7, late=False, bad_parity=True)
+
+    await ps2_run(dut, receiver, broken, 1)
+
+
+@cocotb.test(timeout_time=3, timeout_unit="ms")
+@cocotb.parametrize(receiver=list(PS2_RECEIVERS))
+async def test_ps2_rx_clock_stops_low(dut, receiver):
+    """ps2_rx and its copy in four_at_once: the clock stops low inside a frame. That times out as a clock that
+    stops high does, and the frame after the line is released is read whole."""
+
+    def broken(clk, data, start):
+        events, _ = ps2.frame(clk, data, 0x00, start, 16.7, late=False)
+        fell = [n for n, (_, levels) in enumerate(events) if levels.get(clk, 1) == 0][4]  # the fifth fall
+        released = events[fell][0] + 500 * US
+        return events[:fell + 1] + [(released, {clk: None, data: None})], released + 50 * US
 
     await ps2_run(dut, receiver, broken, 1)
 
@@ -805,6 +935,20 @@ async def test_usb_rx_seven_ones(dut):
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_not_whole(dut):
+    """usb_ls_rx: a hub adds one bit at most, so two are bad. A right CRC part of the way through a packet does
+    not make the bytes after it good: scenario 12's CRC is the whole packet's."""
+    data = usb_packet(DATA0, b"\x12\x34")
+    longer = data + b"\x5a"
+    packets = [
+        (data, stretched(2), data, False),
+        (longer, stretched(0), longer, False),
+        (data, stretched(0), data, True),
+    ]
+    await usb_rx_run(dut, packets, rng("usb not whole"))
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
 async def test_usb_rx_no_eop(dut):
     """usb_ls_rx: a glitch to K with no EOP after it is one bad packet, and does not swallow the next one.
     Scenario 12 does not define it."""
@@ -892,3 +1036,17 @@ async def test_eth10_tx_underrun(dut):
     for sent in frames:
         valid = sent[-4:] == zlib.crc32(sent[:-4]).to_bytes(4, "little")
         assert not valid, "30 bytes became a valid frame: %s" % sent.hex()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_eth10_tx_no_length(dut):
+    """eth10_tx: a length of 0 is no frame and is ignored. The chip used to take the next 65,536 bytes as its
+    frame. Scenario 13's frames are 60 bytes or more."""
+    frame = bytes(range(1, 61))
+    chip = await boot(dut, "eth10_tx", outputs=[P0, P1], pulled_low=[P0, P1])
+    chip.send(b"\x00\x00\x00\x00\x3c\x00" + frame)
+    await chip.sent(150 * US)
+    await chip.quiet([P0, P1], 15 * US, 150 * US)
+    got = eth10.decode((chip.board.line[P0], chip.board.line[P1]), chip.board.since)
+    assert got == [crc.with_crc(crc.CRC32_ETHERNET, frame)], "the line carried %s" % [sent.hex() for sent in got]
+    await chip.finish()

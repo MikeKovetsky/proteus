@@ -101,7 +101,7 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `ps2_rx` | PS/2 from a device at 10 to 16.7 kHz | `0xFF` for a wrong start, parity or stop bit, or a clock that stops for 250 us inside a frame |
 | `usb_ls_tx` | Low-speed USB data packets: every packet gets the CRC-16 of the bytes after its PID | `0x01` for a packet the host was late in. It goes out with a stuffing error |
 | `usb_ls_rx` | Low-speed USB packets, judged by CRC-16, with a hub's extra bit before EOP let through | `0x00` good or `0x01` bad, then the byte count |
-| `eth10_tx` | 10 Mbit Ethernet frames, with preamble and FCS. No link pulses | `0x01` for a frame the host was late in. It goes out cut short, with a wrong FCS |
+| `eth10_tx` | 10 Mbit Ethernet frames, with preamble and FCS. A length of 0 is ignored. No link pulses | `0x01` for a frame the host was late in. It goes out cut short, with a wrong FCS |
 | `eth10_rx` | 10 Mbit Ethernet receive, up to 8 ns of jitter | `0x00` good or `0x01` bad FCS, then the length, low byte first |
 
 What to know before using them:
@@ -115,8 +115,8 @@ What to know before using them:
 3. **I2C is a single controller** with 7-bit addresses. A read always follows address+W and a repeated START,
    even with nothing to write, as scenario 7 asks: it cannot read a target that will not take its write address.
    It gives up on an SCL held low for 25 ms. It also gives `0x02`, and does not clock the bus free, when SDA is
-   low before START or at STOP. While it waits for the host's next byte in a write, it holds SCL low for as long
-   as that takes.
+   low at START, repeated START or STOP. It does not look at SDA inside a byte, where a line held low reads as 0s
+   and as ACKs. While it waits for the host's next byte in a write, it holds SCL low for as long as that takes.
 4. **WS2812's timing has 3 ns to spare** on one limit: a 1 is low for 583 ns, the V5 wants 580 at least and the
    first WS2812B 600 at most. A slow output edge counts against that. The latch is 2 us over the V5's 280.
 5. **`extra/four_at_once`** drops a UART byte whose stop bit is 0, and a bad PS/2 frame, without a report:
@@ -132,7 +132,7 @@ What to know before using them:
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 103 tests in about 3 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 115 tests in about 3 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 

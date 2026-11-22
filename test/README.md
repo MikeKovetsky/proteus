@@ -5,7 +5,7 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 103 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
+| `make -B` | 115 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
 | `make -B COCOTB_TEST_MODULES=known_gaps` | 5 known gaps, one test each. All fail until they are closed | about 30 s |
 | `python3 eth10_jitter_limit.py` | Builds two good frames that no receiver sampling at 60 MHz can tell apart | 1 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |

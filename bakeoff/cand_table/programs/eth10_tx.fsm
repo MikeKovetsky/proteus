@@ -1,4 +1,4 @@
-# 10 Mbit Ethernet transmitter. Channel 0 gives [len low][len high][len bytes].
+# 10 Mbit Ethernet transmitter. Channel 0 gives [len low][len high][len bytes], and a len of 0 is ignored.
 # The chip sends the preamble, the frame and its CRC-32, Manchester coded on TX+ and TX-.
 # A host that is late inside a frame ends it there, with every bit of its CRC wrong: the chip puts 0x01 on
 # channel 2 and drops the rest of that frame's bytes before it takes the next length.
@@ -14,6 +14,7 @@ idle:   TXP=0, TXN=0, wait rx0
         N=pop0                       # frame length
         wait rx0
         Nhi=pop0
+        => nz: idle                  # no frame: N would count down through 65,535 bytes
         S=0x55, K=8                  # preamble: seven bytes of 0x55 ...
         J=6
 

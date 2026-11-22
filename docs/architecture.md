@@ -279,8 +279,8 @@ Tiny Tapeout's flow in CI.
 
 ## Limits
 
-1. **512 entries for all machines together,** and a state is 8 bytes. Copies add up: the I2C controller's 92
-   states take 101 entries (827 bytes). One subroutine level (`call`, `ret`) is the main way to share code.
+1. **512 entries for all machines together,** and a state is 8 bytes. Copies add up: the I2C controller's 93
+   states take 103 entries (843 bytes). One subroutine level (`call`, `ret`) is the main way to share code.
 2. **Two conditions per state.** A decision on three things takes two states, so two clocks.
 3. **One byte on the bus, one LFSR operation and one immediate per state,** and two pin operations.
 4. **Small counters:** K and J hold 15 at most and S holds 8 bits, so longer words need nested counters and a
