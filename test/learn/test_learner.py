@@ -6,6 +6,7 @@ import unittest
 
 from common import Ideal, learn, verdict
 from learn.host import bus as bus_module
+from learn.host import learner as learner_module
 from learn.host import session
 from learn.host.search import Search
 from learn.host.spi import Spi
@@ -70,23 +71,43 @@ class Learner(unittest.TestCase):
                 table = getattr(devices, name)()
                 self.assertEqual(verdict(table, learn(table, seed=seed, **told)), judge.EXACT, (name, seed))
 
+    def missing_from_sweep(self, engine, search, model, tried):
+        """The Wp tests with no extra state that `tried` lacks: from every state its phase's W, and every symbol
+        the bus allows there followed by each word of W for the state it leads to. The symbols come from the
+        bus's grammar, not from the search's own list of them."""
+        missing = []
+        for q in range(model.n):
+            phase = model.phases[q]
+            for word in search.whole[phase]:
+                if (q, tuple(word)) not in tried:
+                    missing.append((q, tuple(word)))
+            for s in range(engine.SYMBOLS):
+                if engine.allows(phase, s):
+                    for word in search.identify[model.step(q, s)[0]]:
+                        if (q, (s,) + tuple(word)) not in tried:
+                            missing.append((q, (s,) + tuple(word)))
+        return missing
+
     def test_the_last_sweep_tries_every_symbol_from_every_state(self):
         """The guarantee's first line rests on this: on the pass that found nothing, the sweep put every symbol the
-        bus allows to every state of the final model."""
+        bus allows to every state of the final model, each followed by every word that identifies where it
+        leads. Whole tests are recorded, not their first symbols, since a first symbol can come from another
+        test that proves nothing about it. Here both last sweeps start at state 0's first symbol, so the next
+        test is the one that starts a sweep inside a state."""
         sweep, test = Search.sweep, Search.test
         sweeps = []
 
         def recorded_sweep(search, model):
-            sweeps.append((model, set()))
-            search.tried = sweeps[-1][1]
+            sweeps.append((search, model, set(), search.sweep_from))
+            search.tried = sweeps[-1][2]
             try:
                 return sweep(search, model)
             finally:
                 search.tried = None
 
         def recorded_test(search, model, q, word, *rest):
-            if getattr(search, "tried", None) is not None and word:
-                search.tried.add((q, word[0]))
+            if getattr(search, "tried", None) is not None:
+                search.tried.add((q, tuple(word)))
             return test(search, model, q, word, *rest)
 
         Search.sweep, Search.test = recorded_sweep, recorded_test
@@ -97,13 +118,43 @@ class Learner(unittest.TestCase):
                 self.assertTrue(result["ok"], result["reason"])
                 engine = session.BUSES[table.bus](session.settings({"bus": table.bus}))
                 self.assertTrue(sweeps, "no sweep ran")
-                model, tried = sweeps[-1]
+                search, model, tried, _ = sweeps[-1]
                 self.assertEqual(model.n, result["stats"]["states"])
-                missing = [(q, s) for q, phase in enumerate(result["model"]["phases"])
-                           for s in range(engine.SYMBOLS) if engine.allows(phase, s) and (q, s) not in tried]
-                self.assertEqual(missing, [], table.name)
+                self.assertEqual(self.missing_from_sweep(engine, search, model, tried), [], table.name)
         finally:
             Search.sweep, Search.test = sweep, test
+
+    def test_a_sweep_that_starts_inside_a_state_still_covers_it(self):
+        """A sweep resumes where the last counterexample was found, inside some state's symbols, and has to come
+        round to that state again for the symbols before it. Started at chosen places on a model that is already
+        exact, it must find nothing and leave no test out."""
+        for table in (devices.thermometer(), cloning.two_byte(6, 3)):
+            told = session.settings({"bus": table.bus})
+            engine = session.BUSES[table.bus](told)
+            learner = learner_module.Learner(engine, Ideal(table), told)
+            search = Search(learner)
+            model = learner.learn(search)
+            self.assertEqual(verdict(table, {"ok": True, "told": told, "model": session.exported(model, engine),
+                                             "stats": {"extra": search.extra}, "warnings": ["w"]}), judge.EXACT)
+            search.prepare(model)
+            widest = max(range(model.n), key=lambda q: engine.count(model.phases[q]))
+            starts = [(widest, 1), (widest, engine.count(model.phases[widest]) - 1),
+                      (model.n - 1, engine.count(model.phases[model.n - 1]) // 2), (0, 0)]
+            for first, at in starts:
+                tried = set()
+
+                def recorded(model_, q, word, *rest):
+                    tried.add((q, tuple(word)))
+                    return Search.test(search, model_, q, word, *rest)
+
+                search.test = recorded
+                search.sweep_from = (first, at)
+                try:
+                    self.assertIsNone(search.sweep(model), (table.name, first, at))
+                finally:
+                    del search.test
+                self.assertEqual(self.missing_from_sweep(engine, search, model, tried), [],
+                                 "%s, from state %d at %d" % (table.name, first, at))
 
     def test_a_declared_size_is_not_refused_while_the_model_is_still_small(self):
         table = cloning.two_byte(32, 32)
