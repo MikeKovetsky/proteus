@@ -115,3 +115,7 @@ A dated log, written as the work happens. The verification write-up's AI section
     GitHub Pages, picked the table-driven architecture from the bake-off table, and chose CAN, JTAG and SWD for
     the stranger test. On 2026-11-17 at 07:30 PST he paused the work: "pause, document the progress and push
     everything".
+24. **The resume.** On 2026-11-21 Mike wrote "resume until all requirements are met". The main session first
+    re-checked the pause note against GitHub and the post. The electrical fix's green build had missed its bar
+    (slew and capacitance violations remain, which only warn), R10 went back to NOT MET until the compiler fix
+    lands, and the checklist gained R15, the post's open-source rule, which the first reading had left out.

@@ -5,11 +5,12 @@ An entry for Jane Street's
 programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
 tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
-Status, 2026-11-17, 07:35 PST: **paused by Mike** ("pause, document the progress and push everything"). The
+Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requirements are met"), after a pause
+from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). The
 bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on every clock,
 the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with timing closed at 60 MHz, and the architecture
-and instruction set docs are written. "Progress" below has the detail, and "Paused work, and how to resume" says
-exactly where each open piece stands.
+and instruction set docs are written. "Progress" below has the detail, and "Open work" says
+where each open piece stands.
 
 ## The competition, from the post (read 2026-11-16)
 
@@ -83,15 +84,16 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R3 | UART, SPI and I2C demonstrated by programs | MET in simulation | UART and the SPI target end to end at the pins (`test/test.py`); the SPI controller (modes 0 and 3) and I2C match the golden model on every clock of their benches (`make -C test lockstep`); not yet on silicon |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py` |
-| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
+| R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every claim checked against the code, every example run |
-| R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open; not yet moved to `asm/` |
+| R10 | Assembler or toolchain with example programs | NOT MET until the compiler fix lands | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open, some silent (19 of the fix's 23 tests fail on `main`); not yet moved to `asm/` |
 | R11 | Verification write-up, including how AI was used | NOT MET | |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET | |
+| R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
 
 ## Plan: simulator first, loop second
 
@@ -177,20 +179,21 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
     stopped looking 11 bits before the end of the capture, and three wrong claims in the guide. The docs name no
     program for CAN, JTAG or SWD.
 
-### Paused work, and how to resume
+### Open work
 
-Every piece below is committed or saved; nothing is lost. Resume them in this order.
+The compiler fix lands first. The stranger test does not wait for the electrical fix, which changes no RTL.
 
 1. **The electrical fix (branch `electrical-fix`, pushed, reviewed at the light tier).** It adds four LibreLane
    settings to `src/config.json`: design repair after global routing (`RUN_POST_GRT_DESIGN_REPAIR`, with
    `GRT_DESIGN_REPAIR_MAX_SLEW_PCT` 65 and `GRT_DESIGN_REPAIR_MAX_CAP_PCT` 50) and hold repair after it
    (`RUN_POST_GRT_RESIZER_TIMING`). All four exist in LibreLane 3.1.0.dev4's source. Its layout build,
    [run 44111759734](https://github.com/MikeKovetsky/protoemu/actions/runs/44111759734), was still running at the
-   pause. To resume: read that run's `runs/wokwi/final/metrics.json`. It lands only if
-   `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 (they were 78 and 1),
-   `design__max_fanout_violation__count` is about 82 (the clock leaves, which have fast edges), and setup, hold,
-   routing and LVS stay clean. Then merge `main` into the branch (its CLAUDE.md and notes/ai-usage.md edits will
-   conflict with main's), give the merge a conflict-scoped review, and push `main`.
+   pause, and finished at 07:41 PST. All four jobs passed, **but the fix missed its bar, so it did not land**: the
+   log's final timing table shows 1 max-cap violation and at least 10 max-slew violations in each of the three
+   corners (the log cuts the slew count short). Setup, hold, routing and LVS stayed clean. It lands only when
+   `design__max_slew_violation__count` and `design__max_cap_violation__count` are 0 in every corner and setup,
+   hold, routing and LVS are still clean. The SRAM's timing at those pins is extrapolated until then. That
+   branch's build also deployed its layout to the public viewer, over `main`'s.
 2. **The compiler fix (local branch `worktree-agent-a4b95512cb9f20160`, not pushed, not reviewed).** Two commits,
    b51267f and b31c43d, fix the five compiler bugs the docs found: `N-=1, ret` is refused in either order (one
    entry cannot hold both), `X=1 when A, ret` now compiles its gate, `crc init = 1 + 2` evaluates in full,
