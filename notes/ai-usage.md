@@ -173,3 +173,7 @@ A dated log, written as the work happens. The verification write-up's AI section
     had only run the commands on a Mac that has it. The main session reproduced the failure. The reviewer fixed it,
     replaced a guard test that 17 planted faults got past and made each suite prove that it can fail. The main
     session landed the chain after GitHub's own test and layout runs passed on the branch.
+38. **The program fixes' review.** A fresh Opus 5.5 reviewer at max effort found three program bugs that 103 pin
+    tests had passed, and 15 of its 65 planted bugs that those tests missed. It fixed the bugs and tightened the
+    tests. It did not mark the branch, because only Mike can waive the five open gaps. The main session reproduced
+    each bug on the old programs, re-ran the suites merged with main and wrote the decision on one page for Mike.
