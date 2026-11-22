@@ -2,9 +2,9 @@
 
     python3 -m bakeoff.cand_table.test_compiler
 
-Each class is one bug the compiler had. A program that used to miscompile must now compile to the entry fields
-it describes, decoded from the image with entry.py, or be refused with a message that names the line, says
-why, and says what to write instead.
+Each class is one bug, or one kind of bug, that the compiler had. A program that used to miscompile must now
+compile to the entry fields it describes, decoded from the image with entry.py, or be refused with a message
+that names the line and says why.
 """
 from __future__ import annotations
 
@@ -226,6 +226,121 @@ class Bug5CommandLine(unittest.TestCase):
         with self.assertRaises(CompileError) as caught:
             build("idle: X=1, K+=1\n")
         self.assertEqual(str(caught.exception), "f.fsm:4: K and J only count down\n    X=1, K+=1")
+
+
+class Bug6SetTwice(Refusals):
+    """`crc init=1 init=2` set init to 2. A setting or an action given twice is refused, not overwritten."""
+
+    def test_crc_value_twice_on_one_line(self) -> None:
+        self.refused("    crc init=1 init=2\nidle:   halt\n", 4, "crc init is set twice")
+        self.refused("    crc poly=1 init=0 poly=1\nidle:   halt\n", 4, "crc poly is set twice")
+
+    def test_crc_value_twice_on_two_lines(self) -> None:
+        self.refused("    crc match=1\nidle:   halt\n    crc init=2 match=1\n", 6, "crc match is set twice")
+
+    def test_crc_values_on_several_lines_and_per_machine(self) -> None:
+        result = compile_text("machine a\n crc poly=1\n crc init=2\n order msb\nidle: halt\n"
+                              "machine b\n crc init=3\n order lsb\nidle: halt\n", "f.fsm")
+        a, b = E.parse_image(result.image)[0]
+        self.assertEqual((a.poly, a.init, a.msb, b.poly, b.init, b.msb), (1, 2, 1, 0, 3, 0))
+
+    def test_order_twice(self) -> None:
+        self.refused("    order lsb\n    order msb\nidle:   halt\n", 5, "order is set twice")
+
+    def test_a_pin_name_twice(self) -> None:
+        self.refused("    out X=P4, Y=P2\nidle:   halt\n", 4, "`out` pin X is declared twice")
+        self.refused("    in  B=P2, B=P3\nidle:   halt\n", 4, "`in` pin B is declared twice")
+
+    def test_one_name_may_be_an_input_and_an_output(self) -> None:
+        self.assertEqual(entries(build("    out A=P1\nidle:   A=z => A: idle | idle\n"), "m.idle")[0]["p0"], 1)
+
+    def test_wait_or_halt_twice(self) -> None:
+        for items in ("wait A, wait !A", "wait, wait A", "halt, wait A", "wait A, halt", "halt, halt"):
+            self.refused("idle:   %s\n        halt\n" % items, 4, "one `wait` or `halt` per line")
+
+    def test_hold_twice(self) -> None:
+        self.refused("idle:   hold 5, hold 9 => idle\n", 4, "one `hold` per line")
+
+    def test_shift_twice(self) -> None:
+        for items in ("shift, shift", "shift A, shift A"):
+            self.refused("idle:   %s => idle\n" % items, 4, "S shifts once per state")
+
+    def test_n_loaded_and_counted(self) -> None:
+        for items in ("N=5, N-=1", "N+=1, N=pop0"):
+            self.refused("idle:   %s => idle\n" % items, 4, "N is loaded or counted in one state, not both")
+
+    def test_n_writes_that_lose_nothing(self) -> None:
+        [idle] = entries(build("idle:   Nhi=3, N-=1 => idle\n"), "m.idle")
+        self.assertEqual((idle["dst"], idle["nop"]), (E.DST_NHI, E.N_DEC))
+        [sub] = entries(build("idle:   call sub\n        halt\nsub:    N=5, ret\n"), "m.sub")
+        self.assertEqual((sub["dst"], sub["nop"]), (E.DST_N, E.N_RETURN))
+
+    def test_a_macro_twice(self) -> None:
+        self.refused("macro p()\n  X=1\nend\nmacro p()\n  X=0\nend\nidle:   halt\n", 7, "macro p is defined twice")
+
+    def test_a_parameter_twice_or_not_a_name(self) -> None:
+        for params in ("V, V", "1", "V W"):
+            self.refused("macro p(%s)\nend\nidle:   halt\n" % params, 4,
+                         "each parameter is a name, and no two are the same")
+
+
+class Bug7AsWritten(Refusals):
+    """Programs that compiled to something other than their text says, and forms isa.md gives that did not compile."""
+
+    def gate(self, body: str, state: str = "m.idle") -> Dict[str, int]:
+        return entries(build(body), state)[0]
+
+    def test_two_negations_cancel(self) -> None:
+        self.assertEqual(self.gate("idle:   X=1 when !!A => idle\n")["gate"], 1)
+        self.assertEqual(self.gate("idle:   X=1 when ! ! !A => idle\n")["gate"], 2)
+
+    def test_a_negated_macro_argument(self) -> None:
+        result = build("macro until(P)\n  wait !P\nend\nidle:   use until(!A)\ndone:   X=1\n        halt\n")
+        for a in (0, 1):
+            chip = TableChip()
+            chip.load(result.image)
+            for _ in range(8):
+                chip.step(a << 1)
+            self.assertEqual(chip.oe & 1, a, "`!P` given `!A` waits for A")
+
+    def test_a_machine_cannot_start_with_goto(self) -> None:
+        self.refused("        goto main\nsub:    halt\nmain:   halt\n", 4, "cannot start with `goto`", "nop => main")
+
+    def test_a_constant_is_not_named_like_a_register(self) -> None:
+        for name in ("R", "S", "Nlo", "T"):
+            self.refused("const %s = 3\nidle:   halt\n" % name, 4, "%s is a reserved word" % name)
+
+    def test_edge_needs_an_input(self) -> None:
+        with self.assertRaises(CompileError) as caught:
+            compile_text("machine m\nidle:   wait edge\n        halt\n", "f.fsm")
+        self.assertEqual(caught.exception.line, 2)
+        self.assertIn("none is declared", str(caught.exception))
+        self.assertEqual(self.gate("idle:   X=1 when edge => idle\n")["ca"], E.C_EDGE)
+
+    def test_a_number_is_no_name(self) -> None:
+        self.refused("    in  1=P3\nidle:   halt\n", 4, "expected NAME=P0..P7, got `1=P3`")
+        self.refused("const 1 = 5\nidle:   halt\n", 4, "expected `const NAME = expr`")
+
+    def test_a_parameter_is_a_whole_word(self) -> None:
+        result = build("macro load(xF, e3)\n  T=0xF + 1e3\n  K=xF, J-=1\n  halt\nend\nidle: use load(7, 9)\n")
+        self.assertEqual(entries(result, "m.idle")[0]["imm"], 1015)
+
+    def test_only_a_newline_ends_a_line(self) -> None:
+        for break_like in ("\u2028", "\x0c", "\x85"):
+            self.assertEqual(build("idle:   X=1 => idle  # note%sX=0\n" % break_like).states, 1)
+        with self.assertRaises(CompileError) as caught:
+            compile_text("machine m\r\n\r\nidle: K+=1\r\n", "f.fsm")
+        self.assertEqual(caught.exception.line, 3)
+
+    def test_commas_inside_brackets(self) -> None:
+        self.assertEqual(self.gate("idle:   T=max(3, min(9, 7)), K-=1 => idle\n")["imm"], 7)
+        self.assertEqual(self.gate("idle:   hold max(3, 9) => idle\n")["imm"], 7)
+        self.assertEqual(self.gate("idle:   wait S==max(1, 2) => idle\n")["imm"], 2)
+        self.assertEqual(self.gate("macro load(V)\n  T=V => here\nend\nhere:\nidle: use load(max(1, 4))\n",
+                                   "m.here")["imm"], 4)
+
+    def test_a_label_right_before_the_arrow(self) -> None:
+        self.assertEqual(self.gate("idle:=> A: idle | idle\n")["base"], 0)
 
 
 if __name__ == "__main__":

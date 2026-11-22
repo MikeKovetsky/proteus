@@ -33,7 +33,7 @@ import operator
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from . import entry as E
 
@@ -76,8 +76,9 @@ RESERVED = set(BUILTIN_CONDS) | set(BUS_DSTS) | set(BUS_SRCS) | {
     "T", "K", "J", "d", "c", "wait", "hold", "goto", "nop", "halt", "shift", "else", "when", "use", "call", "ret",
 }
 NEXT, STAY = "<next>", "<stay>"  # where a state goes when no rule fires; not names a source can use
-LABEL_RE = re.compile(r"^([A-Za-z_]\w*)\s*:(?!=)\s*(.*)$")
-IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+LABEL_RE = re.compile(r"^([A-Za-z_]\w*)\s*:(?!=[^>])\s*(.*)$")  # `idle:=> kz: done` has a label too
+IDENT_RE = re.compile(r"\b[A-Za-z_]\w*")  # whole words only: the xF in 0xF is no name
+NAME = r"[^\W\d]\w*"  # a pin or a constant: not a number, which `shift 1` would read as a bit
 
 Literal = Tuple[object, int]  # (condition key, wanted value); the key is a condition number or ("eq", byte)
 
@@ -145,6 +146,7 @@ class Machine:
         self.ins: Dict[str, int] = {}
         self.items: List[object] = []           # State and Goto, in source order
         self.labels: Dict[str, int] = {}        # label -> position in items
+        self.given: Set[str] = set()            # the settings the source gave: each applies to the whole machine
         self.states: List[State] = []
 
 
@@ -161,7 +163,8 @@ class Compiler:
 
     def _read(self, text: str) -> List[Tuple[int, str]]:
         out = []
-        for number, raw in enumerate(text.splitlines(), 1):
+        # Not splitlines(): it also breaks at U+2028 and form feeds, where the rest of a comment would become code.
+        for number, raw in enumerate(re.split(r"\r\n?|\n", text), 1):
             line = raw.split("#", 1)[0].strip()
             if line:
                 out.append((number, line))
@@ -186,6 +189,11 @@ class Compiler:
             if i == len(lines):
                 raise CompileError("macro %s has no `end`" % head.group(1), number, line)
             params = [p.strip() for p in head.group(2).split(",") if p.strip()]
+            if head.group(1) in self.macros:
+                raise CompileError("macro %s is defined twice" % head.group(1), number, line)
+            if len(set(params)) < len(params) or not all(IDENT_RE.fullmatch(p) for p in params):
+                raise CompileError("macro %s: each parameter is a name, and no two are the same" % head.group(1),
+                                   number, line)
             self.macros[head.group(1)] = (params, body)
             i += 1
         return out
@@ -239,9 +247,11 @@ class Compiler:
             words = line.split(None, 1)
             key, rest = words[0], (words[1] if len(words) > 1 else "")
             if key == "const":
-                found = re.match(r"^(\w+)\s*=(.*)$", rest)
+                found = re.match(r"^(%s)\s*=(.*)$" % NAME, rest)
                 if not found:
                     raise CompileError("expected `const NAME = expr`", number, line)
+                if found.group(1) in RESERVED:  # `S=R` moves register R, whatever a constant R holds
+                    raise CompileError("%s is a reserved word" % found.group(1), number, line)
                 self.consts[found.group(1)] = self.value(found.group(2), number)
                 continue
             if key == "machine":
@@ -257,11 +267,13 @@ class Compiler:
             if key in ("in", "out"):
                 table, limit = (machine.ins, 3) if key == "in" else (machine.outs, 4)
                 for part in rest.split(","):
-                    found = re.match(r"^\s*(\w+)\s*=\s*P([0-7])\s*$", part)
+                    found = re.match(r"^\s*(%s)\s*=\s*P([0-7])\s*$" % NAME, part)
                     if not found:
                         raise CompileError("expected NAME=P0..P7, got `%s`" % part.strip(), number, line)
                     if found.group(1) in RESERVED:
                         raise CompileError("%s is a reserved word" % found.group(1), number, line)
+                    if found.group(1) in table:
+                        raise CompileError("`%s` pin %s is declared twice" % (key, found.group(1)), number, line)
                     if len(table) == limit:
                         raise CompileError("a machine has at most %d `%s` pins" % (limit, key), number, line)
                     index = len(table)
@@ -271,12 +283,18 @@ class Compiler:
             if key == "order":
                 if rest not in ("lsb", "msb"):
                     raise CompileError("order is lsb or msb", number, line)
+                if key in machine.given:
+                    raise CompileError("order is set twice: it holds for the whole machine", number, line)
+                machine.given.add(key)
                 machine.cfg.msb = 1 if rest == "msb" else 0
                 continue
             if key == "crc" and re.match(r"^(poly|init|match)\s*=", rest):
                 # Each value runs to the next `poly=`, `init=` or `match=`, so it may hold spaces: `init = 1 + 2`.
                 parts = re.split(r"\b(poly|init|match)\s*=", rest)
                 for name, expr in zip(parts[1::2], parts[2::2]):
+                    if name in machine.given:
+                        raise CompileError("crc %s is set twice: it holds for the whole machine" % name, number, line)
+                    machine.given.add(name)
                     value = self.value(expr, number)
                     if not 0 <= value <= 0xFFFFFFFF:
                         raise CompileError("crc %s = %d is outside 0 to 0xFFFFFFFF, the LFSR's 32 bits"
@@ -307,6 +325,9 @@ class Compiler:
     def _parse_step(self, machine: Machine, number: int, line: str, label: str) -> None:
         goto = re.match(r"^goto\s+(\w+)$", line)
         if goto:
+            if not machine.items:
+                raise CompileError("a machine cannot start with `goto`, which takes no turn; write `nop => %s`"
+                                   % goto.group(1), number, line)
             machine.items.append(Goto(goto.group(1)))
             return
         state = State(number, line)
@@ -315,9 +336,11 @@ class Compiler:
         hold = None
         halt = False
         until: Optional[List[Literal]] = None  # `wait COND`: the rules apply once COND holds
-        for item in [part.strip() for part in actions.split(",") if part.strip()]:
+        for item in [part.strip() for part in split_items(actions) if part.strip()]:
             if item == "nop":
                 continue
+            if (item in ("wait", "halt") or item.startswith("wait ")) and (state.wait or halt):
+                state.fail("one `wait` or `halt` per line; join the conditions of a `wait` with `&`")
             if item == "halt":
                 halt = True
             elif item == "wait" or item.startswith("wait "):
@@ -325,6 +348,8 @@ class Compiler:
                 if item != "wait":
                     until = self._guard(machine, state, item[5:])
             elif item.startswith("hold "):
+                if hold is not None:
+                    state.fail("one `hold` per line")
                 hold = self.value(item[5:], number)
             elif item == "ret":
                 if state.fields["nop"] in (E.N_DEC, E.N_INC):
@@ -367,6 +392,8 @@ class Compiler:
                 state.rules.append(([], state.call))
         if state.fields["shift"] and state.fields["dst"] == E.DST_S:
             state.fail("S is shifted or loaded in one state, not both")
+        if state.fields["dst"] == E.DST_N and state.fields["nop"] in (E.N_DEC, E.N_INC):
+            state.fail("N is loaded or counted in one state, not both")  # a load would replace the count
         if any(state.gated_seen) and not all(state.gated_seen):
             state.fail("pin operations in one state are all gated by the same condition, or none is")
         self._lower(machine, state, hold)
@@ -376,6 +403,8 @@ class Compiler:
         if name in machine.ins:
             return (E.C_A, E.C_B, E.C_C)[machine.ins[name]]
         if name in BUILTIN_CONDS:
+            if name == "edge" and not machine.ins:  # it would watch P0, where an undeclared input maps
+                state.fail("`edge` watches the machine's first `in` pin, and none is declared")
             return BUILTIN_CONDS[name]
         if name in ("d", "c"):
             state.use_dsel(0 if name == "d" else 1)
@@ -391,8 +420,9 @@ class Compiler:
         literals = []
         for part in text.split("&"):
             part = part.strip()
-            want = 0 if part.startswith("!") else 1
-            literals.append((self._cond(machine, state, part.lstrip("! ")), want))
+            name = part.lstrip("! ")
+            want = 1 - part[:len(part) - len(name)].count("!") % 2  # a macro's `!P` given `!A` pastes `!!A`
+            literals.append((self._cond(machine, state, name), want))
         return literals
 
     def _din(self, machine: Machine, state: State, name: str) -> int:
@@ -409,8 +439,10 @@ class Compiler:
             return
         shift = re.match(r"^shift(?:\s+(\w+))?$", item)
         if shift:
-            f["shift"] = 1
             state.use_din(self._din(machine, state, shift.group(1) or "0"))
+            if f["shift"]:
+                state.fail("S shifts once per state")
+            f["shift"] = 1
             return
         if re.match(r"^crc\s*>>=\s*1$", item):
             self._crc(state, E.CRC_SHIFT)
@@ -796,22 +828,25 @@ def arithmetic(expr: str, names: Dict[str, float]) -> float:
     return walk(ast.parse(expr.strip(), mode="eval").body)
 
 
-def split_args(text: str) -> List[str]:
-    """Macro arguments, split at commas. An argument in braces may hold commas: {shift, crc+=d}."""
-    args, depth, current = [], 0, ""
-    for ch in text:
-        if ch == "{":
+def split_items(text: str) -> List[str]:
+    """`text` split at the commas outside brackets and braces: `T=max(BIT, 4), K=8` is two items."""
+    items, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in "({":
             depth += 1
-        elif ch == "}":
+        elif ch in ")}":
             depth -= 1
         elif ch == "," and depth == 0:
-            args.append(current.strip())
-            current = ""
-        else:
-            current += ch
-    if current.strip() or args:
-        args.append(current.strip())
-    return args
+            items.append(text[start:i])
+            start = i + 1
+    items.append(text[start:])
+    return items
+
+
+def split_args(text: str) -> List[str]:
+    """Macro arguments, split at commas. An argument in braces may hold commas: {shift, crc+=d}."""
+    args = [re.sub("[{}]", "", item).strip() for item in split_items(text)]
+    return [] if args == [""] else args
 
 
 class Result:
