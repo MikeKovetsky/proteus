@@ -9,15 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 import common  # noqa: F401
 from learn.lab import board, cases, judge, replace
 
-JOBS = 3
-
 
 class EndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         board.build()
         every = cases.DEMONSTRATION + cases.CONTROLS
-        with ThreadPoolExecutor(JOBS) as pool:
+        with ThreadPoolExecutor(board.jobs()) as pool:
             cls.done = dict(zip([case.name for case in every], pool.map(cases.run, every)))
 
     def test_every_case_comes_to_what_it_must(self):
@@ -40,7 +38,7 @@ class EndToEnd(unittest.TestCase):
         with replace.Pair() as pair:
             for case in cases.DEMONSTRATION:
                 image = self.done[case.name][0]["image"]
-                found = replace.replacement(pair, case.name, image, count=100, jobs=JOBS)
+                found = replace.replacement(pair, case.name, image, count=100)
                 with self.subTest(case.name):
                     self.assertTrue(found["replaced"], found)
                     self.assertEqual(found["problems"], [])

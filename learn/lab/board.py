@@ -21,7 +21,7 @@ SOURCES = (
     "test/lint/waivers.vlt", "src/project.v", "src/protoemu_core.v", "src/protoemu_fifo.v", "src/protoemu_table.v",
 )
 OPTIONS = (
-    "--cc", "--exe", "--build", "-j", "4", "-O3", "--savable", "--no-timing", "--x-initial", "unique",
+    "--cc", "--exe", "--build", "-O3", "--savable", "--no-timing", "--x-initial", "unique",
     "-Wno-STMTDLY", "--timescale", "1ns/1ps", "-DFUNCTIONAL", "--top-module", "tt_um_mikekovetsky_protoemu",
     "-CFLAGS", "-fPIC -O3", "-MAKEFLAGS", "OPT_FAST=-O3 OPT_SLOW=-O1 OPT_GLOBAL=-O2", "-LDFLAGS", "-shared",
 )
@@ -35,6 +35,15 @@ KIND = {"spi": 1, "i2c": 2}
 RECORD = struct.Struct("<QBBBB4x")
 
 Pins = namedtuple("Pins", "cycle line chip_oe chip_out status contention chip_high dev_oe")
+
+
+def jobs():
+    """How many heavy processes may run at once: LEARN_JOBS, else 2. Never the machine's count of cores, since
+    other work shares the machine. It changes no result."""
+    told = os.environ.get("LEARN_JOBS", "2")
+    if not told.isdigit() or int(told) < 1:
+        raise ValueError("LEARN_JOBS is a whole number from 1, not %r" % told)
+    return int(told)
 
 
 def build():
@@ -52,7 +61,8 @@ def build():
     BUILD.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="board-", dir=str(BUILD)) as work:
         made = Path(work) / "board.so"
-        command = [verilator, *OPTIONS, "--Mdir", str(Path(work) / "obj"), "-o", str(made), *map(str, sources)]
+        command = [verilator, *OPTIONS, "-j", str(jobs()), "--Mdir", str(Path(work) / "obj"), "-o", str(made),
+                   *map(str, sources)]
         done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         if done.returncode:
             raise RuntimeError("verilator failed:\n" + done.stdout[-4000:])

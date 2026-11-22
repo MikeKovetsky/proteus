@@ -26,7 +26,6 @@ from . import board, devices, jail, judge
 
 FREEZE = "a0acf17d6af17cb9a0ed1e4de08bd01d13a6204b"
 COUNT = 16  # devices in each family
-WORKERS = 4
 ROOT = Path(__file__).resolve().parents[2]
 FROZEN = ("learn/host", "learn/programs")
 FROZEN_DIGEST = "a69ea9acc420426f6d960ca785dba9b8af44bafc219916988d3f84d31d53a609"  # of those files at FREEZE
@@ -447,10 +446,10 @@ def tasks(count=COUNT):
     return [(family, i) for i in range(count) for family in FAMILIES]
 
 
-def evaluate(out=None, count=COUNT, workers=WORKERS, say=print):
+def evaluate(out=None, count=COUNT, workers=None, say=print):
     board.library()  # built once, before there are several to build it
     rows = []
-    with Pool(workers) as pool:
+    with Pool(workers or board.jobs()) as pool:
         for row in pool.imap_unordered(one, tasks(count)):
             rows.append(row)
             if out:

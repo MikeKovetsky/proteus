@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """python3 -m learn: learn it, become it.
 
-  python3 -m learn             the demonstration and the negative controls, in about five minutes
+  python3 -m learn             the demonstration and the negative controls, in a few minutes
   python3 -m learn evaluate    the 160 seeded devices the host was not tuned on, every failure counted
   python3 -m learn baselines   the baselines in full, as long as the questions
   python3 -m learn measure     capacity and memory
 
+It runs two heavy processes at a time. LEARN_JOBS sets another number, which changes the time and no result.
 All of it is simulation. It needs Verilator, Icarus and cocotb from the OSS CAD Suite:
     source ~/oss-cad-suite/environment"""
 
@@ -19,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .lab import board, cases, devices, families, judge, measure, passive, replace
 
-JOBS = 3
 SHORT = (1000, 10000)  # transactions recorded, in the demonstration
 LONG = (100, 1000, 10000, 100000)
 OVER_RATE = 5000  # kHz: the rate the SPI controller ships at
@@ -51,7 +51,7 @@ def learned(case):
 def learn_all():
     every = cases.DEMONSTRATION + cases.CONTROLS
     done = {}
-    with ThreadPoolExecutor(JOBS) as pool:
+    with ThreadPoolExecutor(board.jobs()) as pool:
         for future in as_completed([pool.submit(learned, case) for case in every]):
             case, found = future.result()
             done[case.name] = found
@@ -104,7 +104,7 @@ def show_replacement(done):
                 good = False
                 say("%s: no program to put in its place" % case.name)
                 continue
-            found = replace.replacement(pair, case.name, image, jobs=JOBS)
+            found = replace.replacement(pair, case.name, image)
             good = good and found["replaced"] and not found["problems"]
             say("%s: %s over %d transactions" % (
                 case.name, "replaced" if found["replaced"] else "NOT REPLACED", found["transactions"]))
@@ -182,8 +182,8 @@ def demonstration():
     say("Learn it, become it. Simulation only: Verilated and Icarus RTL, devices made up for this, no hardware.")
     say("The host writes the program. The chip asks the questions and then runs what was written.")
     say()
-    say("Learning %d devices and %d controls, %d at a time (about five minutes in all):"
-        % (len(cases.DEMONSTRATION), len(cases.CONTROLS), JOBS))
+    say("Learning %d devices and %d controls, %d at a time (a few minutes in all):"
+        % (len(cases.DEMONSTRATION), len(cases.CONTROLS), board.jobs()))
     board.build()
     done = learn_all()
     good = show_learning(done)

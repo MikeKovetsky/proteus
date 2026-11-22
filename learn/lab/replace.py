@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .board import BUILD, ROOT
+from .board import jobs as default_jobs
 
 PAIR = Path(__file__).resolve().parent / "pair"
 CLOCK_PS = {"spi": 41670, "i2c": 16668}  # 24 MHz makes the shipped 5 MHz SPI program a 2 MHz controller
@@ -204,7 +205,7 @@ class Pair:
         return json.loads((here / "result.json").read_text())
 
 
-def replacement(pair, part, image, count=TRAFFIC, jobs=3):
+def replacement(pair, part, image, count=TRAFFIC, jobs=None):
     """Every run for one device, and what they add up to."""
     bus, test = BUS[part], TESTS[part]
     requests = [request(bus, sent) for _, sent, _ in test]
@@ -226,7 +227,7 @@ def replacement(pair, part, image, count=TRAFFIC, jobs=3):
         runs["too fast, device"] = dict(base, requests=requests, answers_with="device", clock_ps=TOO_FAST_PS)
         runs["too fast, clone"] = dict(base, requests=requests, answers_with="chip", image=image.hex(),
                                        clock_ps=TOO_FAST_PS)
-    with ThreadPoolExecutor(jobs) as pool:
+    with ThreadPoolExecutor(jobs or default_jobs()) as pool:
         labels = list(runs)
         got = dict(zip(labels, pool.map(
             lambda label: pair.run("%s-%s" % (part, label.replace(",", "").replace(" ", "-")), runs[label]), labels)))

@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """The lab itself: the board's device shells, the real query engines and the judge."""
 
+import os
 import random
 import unittest
+from unittest import mock
 
 from common import Ideal, operations
 from learn.host import session
@@ -125,6 +127,21 @@ class Judge(unittest.TestCase):
     def test_a_crash_is_an_error_and_not_a_refusal(self):
         crash = {"ok": False, "code": "error", "image": None, "model": None, "stats": {}}
         self.assertEqual(self.verdict(self.table, crash), judge.ERROR)
+
+
+class Workers(unittest.TestCase):
+    def test_the_worker_count_is_told_and_never_the_machines(self):
+        with mock.patch("os.cpu_count", side_effect=AssertionError("the count of cores was asked")):
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LEARN_JOBS", None)
+                self.assertEqual(board.jobs(), 2)
+                os.environ["LEARN_JOBS"] = "1"
+                self.assertEqual(board.jobs(), 1)
+                for bad in ("0", "", "all", "-1"):
+                    os.environ["LEARN_JOBS"] = bad
+                    with self.assertRaises(ValueError, msg=bad):
+                        board.jobs()
+        self.assertNotIn("-j", board.OPTIONS)  # build() adds it, from jobs()
 
 
 if __name__ == "__main__":
