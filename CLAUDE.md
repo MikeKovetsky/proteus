@@ -225,8 +225,18 @@ make it novel". The main session's reading of it:
    the five open gaps fail as intended. [The landing decision](notes/landing-decision.md) lists the five gaps, the
    12 behaviours added where a scenario is silent and the pin tests' waiver, with a recommendation. The branch is
    unmarked, so it is not pushed, and it has one README conflict with `main` to resolve and review when it lands.
-6. **The proofs (branch `formal`).** The reset and instruction proofs, the host link in `src/project.v`, and
-   mutation coverage are being built.
+6. **The proofs (branch `formal`, 63b2dc4): built, in full review since 2026-11-22.** They prove the reset state
+   from any power-up values, every entry field, the host link, the FIFOs and machine isolation, on RTL and on two
+   synthesised netlists. The main session re-ran them: 23 of 23 checks pass. The builder reports 286 of 286 planted
+   bugs caught and, in two mutation samples of the netlist, every non-equivalent mutant killed by a proof.
+   1. They found no functional RTL bug. They found four false sentences in the docs (a return that writes the
+      link, the first turn, the worst latency and reading without HAS_BYTE), which the main session reproduced and
+      corrected on `main`. A host that ignores HAS_BYTE can lose a byte in a 3-clock window. Closing that in RTL is
+      for the brainstorm.
+   2. They found three bugs in the golden model, outside what the compiler emits: it crashes on more than 4
+      machines or 512 entries, and it accepts a reload without reset. The RTL follows `docs/info.md`. The model
+      is unchanged, because reference models are Mike's ("What stays human").
+   3. The proofs' reading of the docs has no human review, and they do not cover the routed netlist or timing.
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
    container engine and is not needed while CI builds in about 40 minutes.
 8. **The CI suites: landed on 2026-11-22.** A second job in `test.yaml` runs the compiler's tests, the benches'

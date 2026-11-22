@@ -85,7 +85,8 @@ condition owns a block of two. A state with no condition (`cA = cB = 0`, constan
 
 A return (`nop` = 3) ignores `base` and goes to the address in the machine's link register. Its `cA` still
 selects a condition, which can gate its pin operations (section 2.3). A call loads the link register: `dst` = 7
-copies `imm[8:0]` into it.
+copies `imm[8:0]` into it. An entry that does both at once returns to the value it has just written: this is the
+one branch that sees its own entry's action. The compiler refuses such an entry, so only a raw image can hold one.
 
 ### 2.2 Conditions
 
@@ -221,8 +222,8 @@ when the bits agree.
 
 ### 2.8 Inside one turn
 
-Everything reads the registers as they stood at the start of the turn. Where one entry writes a register two
-ways, this is what the register gets:
+Everything reads the registers as they stood at the start of the turn, except a return in an entry that also
+writes the link (section 2.1). Where one entry writes a register two ways, this is what the register gets:
 
 1. S: a bus write to S replaces the shift. (The compiler refuses both in one state.)
 2. N: the increment or decrement happens first. A bus write to N then replaces all of it, and a write to the

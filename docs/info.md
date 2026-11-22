@@ -53,8 +53,9 @@ once shows its answer 3 clocks later: two in, one out through the pad register.
 2. **Check ROOM first.** A byte written to a full channel is dropped and sets OVERFLOW.
 3. **Reading a byte.** Wait for HAS_BYTE, read the low nibble on `uo_out[3:0]`, toggle the read strobe, wait four
    clocks, read the high nibble, toggle again and wait four clocks. The second edge pops the byte; until it has,
-   HAS_BYTE and `uo_out[3:0]` still show the byte just read. The second edge pops only when the channel holds a
-   byte, so edges on an empty channel pop nothing.
+   HAS_BYTE and `uo_out[3:0]` still show the byte just read. Never toggle the read strobe while HAS_BYTE is low:
+   the edge still moves the nibble counter, and a second edge takes up to three clocks to act, so it pops a byte
+   that arrives meanwhile and the host never sees that byte.
 4. **Whole bytes on one port.** The write and read nibble counters are shared by all ports and are cleared only
    by reset, so both nibbles of a byte go through the same port.
 5. **Changing port.** The port is synchronised like the data. Wait four clocks after changing it before trusting

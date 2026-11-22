@@ -79,8 +79,10 @@ clock. The whole design meets setup, hold, slew and capacitance limits at 60 MHz
 
 In the same clock, the entry drives the pins and the datapath: up to two pin operations, one byte on the bus, a
 shift, an LFSR step, and updates of N, K, J and T. All of them read the registers as they were at the start of the
-clock, and the conditions do too, so a state's actions never affect its own branch. Actions belong to the state
-and run on every clock spent in it, except that a gated pin operation also depends on a condition.
+clock, and the conditions do too, so a state's actions don't affect its own branch. The one exception is a return
+in an entry that also writes the link: it goes to the new value, and the compiler refuses such an entry. Actions
+belong to the state and run on every clock spent in it, except that a gated pin operation also depends on a
+condition.
 
 ### Four machines on one read port
 
@@ -88,11 +90,14 @@ The table has one read port, so up to four machines take turns on it in a fixed 
 is a **turn**.
 
 ```
-clock:          1    2    3    4    5    6    7    8
+turn:           1    2    3    4    5    6    7    8
 1 machine:      m0   m0   m0   m0   m0   m0   m0   m0     each decides at 60 MHz
-2 machines:     m0   m1   m0   m1   m0   m1   m0   m1     each at 30 MHz
-4 machines:     m0   m1   m2   m3   m0   m1   m2   m3     each at 15 MHz
+2 machines:     m1   m0   m1   m0   m1   m0   m1   m0     each at 30 MHz
+4 machines:     m1   m2   m3   m0   m1   m2   m3   m0     each at 15 MHz
 ```
+
+The first clock after loading only reads the table. Turns follow it, one a clock, and with two or more machines
+m1 has the first.
 
 1. Each machine has its own registers: state, link, T, N, K, J, S, R, the LFSR and its three configured values,
    the flags, and its pin map. The logic that updates them is one copy, shared.
@@ -228,8 +233,9 @@ push into a full FIFO drops the byte and sets the OVERFLOW flag.
 Every input pin goes through a two-flop synchroniser, and every output comes from a register, so a pin reaches
 the logic two clocks after it changes and a pin operation reaches the pad one clock after the step. The fastest
 reaction is a pin operation gated by the very condition that sees the input (`X=z when CS`): 3 clocks, 50 ns at
-60 MHz. A decision that moves to a state which then sets the pin takes 4. With n machines, a machine may wait up
-to n - 1 more clocks for its turn. The self-check ([selfcheck.py](../bakeoff/cand_table/selfcheck.py)) and the
+60 MHz. A decision that moves to a state which then sets the pin takes 4. With n machines, a machine waits up
+to n - 1 clocks for its turn and sets the pin n clocks after deciding, so the gated operation takes 3 to n + 2
+clocks and the decision n + 3 to 2n + 2. The self-check ([selfcheck.py](../bakeoff/cand_table/selfcheck.py)) and the
 pin tests ([test.py](../test/test.py)) both measure the 3 clocks.
 
 ## The host link and the loader
@@ -288,7 +294,8 @@ Tiny Tapeout's flow in CI.
    byte per bus move. T reaches 65,535 turns (1.09 ms with one machine); longer times need a loop.
 5. **Actions belong to the state.** A waiting state may only set pins, so "do this, then wait" is two states.
 6. **The machines share the decision rate.** Two fast protocols at once do not fit; 10 Mbit Ethernet runs alone.
-7. **Pins react in 3 clocks at best** (a gated pin operation), 4 otherwise, plus up to n - 1 with n machines.
+7. **Pins react in 3 clocks at best** (a gated pin operation), 4 otherwise. With n machines the worst cases are
+   n + 2 and 2n + 2 clocks.
 8. **Three inputs and four outputs per machine.** Only input A has `edge`, and only A and B can be shifted in.
 9. **No arithmetic on data:** N counts up and down, and S can be compared with a constant, but nothing adds or
    compares two registers.

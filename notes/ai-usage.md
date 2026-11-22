@@ -177,3 +177,8 @@ A dated log, written as the work happens. The verification write-up's AI section
     tests had passed, and 15 of its 65 planted bugs that those tests missed. It fixed the bugs and tightened the
     tests. It did not mark the branch, because only Mike can waive the five open gaps. The main session reproduced
     each bug on the old programs, re-ran the suites merged with main and wrote the decision on one page for Mike.
+39. **The proofs.** An AI agent wrote an executable reading of the docs, proved the RTL and two netlists against it
+    and tested the proofs with planted bugs and netlist mutants. The proofs found four false doc sentences and
+    three golden-model bugs that the tests and earlier reviews had missed. The main session re-ran the proofs,
+    replayed the model bugs, showed the lost byte with a pin test of its own, measured the turn order and latency
+    on the model and corrected the docs. The proofs went to a fresh Opus 5.5 reviewer at max effort.
