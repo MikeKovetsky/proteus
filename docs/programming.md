@@ -29,8 +29,8 @@ Most mistakes break one of these. [isa.md, "How a machine steps"](isa.md#1-how-a
    its start: `TX=d, shift` sends the bit that was at the end of S, then shifts.
 3. **Rules do not see their own line's actions.** `K-=1 => kz: done` tests K before the decrement. Test it on
    the next line, or on a `hold` line.
-4. **`hold n` lasts n clocks.** Its actions happen on the first, its rules are tested on the last, and the
-   rules see the actions.
+4. **`hold n` lasts n clocks.** Its actions happen on the first and its rules are tested on the last, so from
+   n = 2 the rules see the actions. The `crc` flag needs n = 3 (rule 7).
 5. **Inputs arrive 2 clocks late and outputs leave 1 clock late.** A line that sees an input change is 2 clocks
    after the change on the wire, and a pin it sets changes 1 clock after the line. A pin operation gated with
    `when` answers an input in 3 clocks; a rule that moves to a line that sets the pin answers in 4.

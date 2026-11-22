@@ -226,7 +226,8 @@ ways, this is what the register gets:
 
 1. S: a bus write to S replaces the shift. (The compiler refuses both in one state.)
 2. N: the increment or decrement happens first. A bus write to N then replaces all of it, and a write to the
-   high byte replaces the high byte and keeps the new low byte.
+   high byte replaces the high byte and keeps the new low byte. (The compiler refuses `N=` with a count in one
+   state, and allows `Nhi=` with one.)
 3. T: a load replaces the countdown.
 
 The flags `tz`, `kz`, `jz` and `nz` are registered beside their registers, so on any turn they describe the
@@ -290,32 +291,35 @@ stop:   TX=1, hold BIT => idle
 3. A **label** is a name and a colon at the start of a line. It may stand alone on its line, and then it names
    the next state line. Several labels may name one line. Labels belong to their machine: two machines may
    both have an `idle`.
-4. A label may not be a reserved word (section 4.12) or one of the machine's pin names.
+4. A label may not be a reserved word (section 4.12), inside a macro too, or one of the machine's pin names.
 
 ### 4.2 Declarations
 
 | Statement | Meaning |
 |---|---|
-| `const NAME = expr` | A named number. Constants are global, may appear anywhere, and must be defined above their first use. A constant is rounded to an integer when it is defined. |
-| `machine NAME` | Starts a machine's section. Everything below belongs to it until the next `machine`. At most 4. The name is optional (`m0`, `m1`, ...). Machine m starts at its first state line. |
+| `const NAME = expr` | A named number. Constants are global, may appear anywhere, and must be defined above their first use. A constant is rounded to an integer when it is defined. It may be defined again, and a line uses the latest definition above it. |
+| `machine NAME` | Starts a machine's section. Everything below belongs to it until the next `machine`. At most 4. The name is optional (`m0`, `m1`, ...). Machine m starts at its first state line, which may not be a `goto`. |
 | `out X=P0, Y=P1` | The machine's outputs, at most 4 in all, in the order logical output 0, 1, 2, 3. Several `out` lines add up. |
 | `in A=P1, B=P2` | The machine's inputs, at most 3 in all: the first is input A, then B, then C. Only A has `edge`, and only A and B can be shifted in. |
-| `order lsb` or `order msb` | Which end of S is the data bit. The default is `lsb`. |
-| `crc poly=v init=v match=v` | The LFSR's values. Any of the three, in any order; the default of each is 0. Each value is an expression (section 4.3) that runs to the next `poly=`, `init=` or `match=`, so `crc init = 0xFF00 + 0xFF` sets 0xFFFF. It must come to 0 to 0xFFFFFFFF. |
+| `order lsb` or `order msb` | Which end of S is the data bit. The default is `lsb`. A machine sets it once at most. |
+| `crc poly=v init=v match=v` | The LFSR's values. Any of the three, in any order; the default of each is 0. Each value is an expression (section 4.3) that runs to the next `poly=`, `init=` or `match=`, so `crc init = 0xFF00 + 0xFF` sets 0xFFFF. It must come to 0 to 0xFFFFFFFF. A machine sets each of the three once at most, on one line or on several. |
 
-A pin name may be any name that is not reserved. One name may be both an `in` and an `out` of the same pin: as
-a condition it reads the input, and on the left of `=` it drives the output.
+A pin or constant name may be any name that is not reserved and does not start with a digit. A machine declares
+a pin name once as an `in` and once as an `out` at most. One name may be both an `in` and an `out` of the same
+pin: as a condition it reads the input, and on the left of `=` it drives the output.
 
 ### 4.3 Numbers and expressions
 
 Wherever a number goes, an expression may: decimal, hex (`0x8C`), binary (`0b1010`), `1_000` and floats
 (`60e6`), constants, `+ - * / // %`, unary minus, brackets, and the functions `round`, `int`, `min` and `max`.
 Nothing else is evaluated (no `**`, no names other than constants), so compiling never runs code a program
-carries. The result is rounded to the nearest integer, halves to even: `5/2` is 2 and `7/2` is 4.
+carries. The result is rounded to the nearest integer, halves to even: `5/2` is 2 and `7/2` is 4. A result over
+1,024 bits is refused.
 
 ### 4.4 Actions
 
-A state line lists its actions separated by commas. They all happen in the same turn.
+A state line lists its actions separated by commas. They all happen in the same turn. A comma inside brackets
+belongs to the expression: `T=max(BIT, 4), K=8` is two actions.
 
 | Action | What it does | Entry fields |
 |---|---|---|
@@ -348,9 +352,10 @@ A state line lists its actions separated by commas. They all happen in the same 
 
 In one state:
 
-1. At most two pin operations.
+1. At most two pin operations. Two on one pin act in the order written.
 2. One bus move: `DST=SRC`, `DST=expr`, `pop0`, `pop3` and `call` each use the bus.
-3. One LFSR operation, one change of N, one change of K and one of J, and K and J are not both loaded.
+3. One shift, one LFSR operation, one change of N, one change of K and one of J, and K and J are not both
+   loaded. `N=` changes N, as `N-=1` does. `Nhi=` writes only N's high byte, so it may share a state with a count.
 4. One serial input: `shift X` and `crc+=Y` must name the same input, and plain `shift` counts as `shift 0`.
 5. One data bit: `d` (the shifter) and `c` (the LFSR) cannot both appear, in actions or conditions.
 6. S is shifted or written by the bus, not both.
@@ -362,12 +367,14 @@ In one state:
 A condition is one of:
 
 1. An `in` name: the level of that input.
-2. `edge`, `tz`, `kz`, `jz`, `nz`, `crc`, `rx0`, `rx3`, `tx1`, `tx2` (section 2.2).
+2. `edge`, `tz`, `kz`, `jz`, `nz`, `crc`, `rx0`, `rx3`, `tx1`, `tx2` (section 2.2). `edge` watches input A, so
+   the machine must declare an `in` pin above it.
 3. `d` or `c`: the data bit from the shifter or from the LFSR.
 4. `S==expr`: S equals a byte constant.
 
-A `!` in front negates it. One state may test at most **two different conditions** in all: the ones in its
-rules, in `wait GUARD` and in `when` together. `kz & !tz` and `tz` are two conditions.
+A `!` in front negates it, and two cancel: `!!kz` is `kz`, as when a macro's `!P` is given `!kz`. One state may
+test at most **two different conditions** in all: the ones in its rules, in `wait GUARD` and in `when` together.
+`kz & !tz` and `tz` are two conditions. A `hold` line's rules are tested by a state of their own (section 4.9).
 
 ### 4.6 `when`: gating pin operations
 
@@ -398,8 +405,8 @@ There is no "or" inside a guard: write two rules with the same label. A line may
 is one turn that does nothing and branches.
 
 Rules choose from the values at the start of the turn, so they do not see the line's own actions. A line that
-counts with `K-=1` and must branch on the result tests `kz` on the next line, or on a `hold` line (section 4.9),
-whose rules are tested on its last turn.
+counts with `K-=1` and must branch on the result tests `kz` on the next line, or on a `hold` line of 2 turns or
+more (section 4.9), whose rules are tested on its last turn.
 
 ### 4.8 `wait` and `halt`
 
@@ -411,12 +418,14 @@ whose rules are tested on its last turn.
    move a byte, shift, step the LFSR, or change N, K, J or T. "Do this, then wait" is two lines.
 5. The timer keeps counting down while a machine waits, so `T=n` on one line and `wait tz` on the next waits
    n + 1 turns there, n + 2 turns for the pair.
+6. A line has one `wait` or one `halt`: join the conditions of a `wait` with `&`.
 
 ### 4.9 `hold n`
 
 `hold n` makes the line last n turns in all. Its actions happen on the first turn only. Pins it set stay as they
 are for the rest, because an output keeps its level until something changes it. Its rules are tested on the last
-turn, so they see the line's own actions.
+turn, so with n of 2 or more they see the line's own actions. The `crc` flag is one turn behind (section 2.2), so
+rules see the line's own LFSR step with n of 3 or more.
 
 The compiler builds the extra turns from states named after the line:
 
@@ -425,11 +434,14 @@ The compiler builds the extra turns from states named after the line:
 3. `hold n` with n of 3 or more loads `T = n - 2` on the line and adds a `.hold` state that waits for `tz`. The
    rules move to the `.hold` state with `tz` added to every guard, so a hold line's rules may test only one
    condition besides the timer.
-4. If the line already uses the immediate (`K=`, `J=` or a byte constant), the timer load moves to a `.load`
-   state (`T = n - 3`), and `hold 3` becomes the line and two `.pad` states.
+4. If the line's immediate (`K=`, `J=` or a byte constant) has other bits than n - 2, the timer load moves to a
+   `.load` state (`T = n - 3`), and `hold 3` becomes the line and two `.pad` states, with no load of T.
+5. Rules on a `.pad` state have no timer to test, so they may test two conditions.
+6. A `when` on the line gates its first turn's pin operations, and does not count against the rules' conditions.
 
-A hold line may not load T itself, test `S==`, or also `wait`. `hold` works up to 65,537 turns (T = 65,535). A
-longer time needs a loop that counts with K, J or N.
+A line has one `hold`, and no `wait` or `halt` beside it. With n of 2 or more it may not test `S==`, and with n
+of 3 or more it may not load T itself. `hold` works up to 65,537 turns (T = 65,535). A longer time needs a loop
+that counts with K, J or N.
 
 ### 4.10 `call` and `ret`
 
@@ -438,10 +450,11 @@ The actions on both lines run as usual.
 
 1. There is one link register per machine, so a subroutine cannot call another: the second call overwrites the
    return address.
-2. A `call` line has no rules, `wait` or `hold`, and nothing else that uses the immediate or the bus (the return
-   address travels in `imm`).
-3. A `ret` line has no rules, `wait` or `hold`, and may not change N: the N field holds the return code, so the
-   compiler refuses `N-=1` or `N+=1` on a `ret` line, in either order. Change N on the line before.
+2. A `call` line has no rules, `wait`, `halt`, `hold` or `ret`, and nothing else that uses the immediate or the
+   bus (the return address travels in `imm`).
+3. A `ret` line has no rules, `wait`, `halt`, `hold` or `call`, and may not count N: the N field holds the return
+   code, so the compiler refuses `N-=1` or `N+=1` on a `ret` line, in either order. Change N on the line before.
+   `N=` is a bus write, which a `ret` line may have.
 4. A `ret` line may gate its pin operations with `when`: `X=1 when A, ret` drives X in a turn where A is high,
    and returns either way.
 
@@ -453,6 +466,7 @@ PID through one subroutine.
 
 `goto L` stands alone on its line. It is not a state and takes no turn: the line above it continues at L
 instead of at the line below. It cannot share a line with actions. To jump after actions, use a rule: `nop => L`.
+A machine cannot start with a `goto`, as no line is above it: start with `nop => L`.
 
 A macro is a block of lines with parameters, pasted where it is used:
 
@@ -466,25 +480,28 @@ wbit:   use pulse(SDA=od)
 ```
 
 1. `macro NAME(P, Q)` starts a definition and a line holding only `end` closes it. Definitions may sit anywhere,
-   before or after their use, inside or outside a machine's section.
+   before or after their use, inside or outside a machine's section, but not inside another definition. A macro
+   is defined once, and its parameters are names, no two the same.
 2. `use NAME(a, b)` pastes the body, with each parameter replaced by its argument wherever it appears as a whole
-   word. An argument in braces may hold commas: `use nrzi(d, {shift, crc+=d}, more)`.
+   word (so not the `F` of `0xF`). The argument is pasted as text: `T=V*2` given `1+2` is `T=1+2*2`, so give it
+   `(1+2)`. Commas inside brackets or braces do not separate arguments, and the braces are dropped:
+   `use nrzi(d, {shift, crc+=d}, more)`.
 3. A label defined inside the macro gets a new name at every use, so one macro can be used many times. A label
    on the `use` line names the first line of the body.
 4. Macros may use other macros, up to 8 deep.
 
 ### 4.12 Reserved words
 
-These cannot be pin names or labels: `edge`, `tz`, `kz`, `jz`, `nz`, `crc`, `rx0`, `rx3`, `tx1`, `tx2`, `S`, `R`,
-`N`, `Nhi`, `Nlo`, `push1`, `push2`, `pop0`, `pop3`, `T`, `K`, `J`, `d`, `c`, `wait`, `hold`, `goto`, `nop`,
-`halt`, `shift`, `else`, `when`, `use`, `call` and `ret`.
+These cannot be names of pins, constants or labels: `edge`, `tz`, `kz`, `jz`, `nz`, `crc`, `rx0`, `rx3`, `tx1`,
+`tx2`, `S`, `R`, `N`, `Nhi`, `Nlo`, `push1`, `push2`, `pop0`, `pop3`, `T`, `K`, `J`, `d`, `c`, `wait`, `hold`,
+`goto`, `nop`, `halt`, `shift`, `else`, `when`, `use`, `call` and `ret`.
 
 ## 5. What the compiler builds
 
 1. It reads the lines, takes out the macro definitions, and pastes every `use`.
 2. It parses each line into a state. `hold` adds the states of section 4.9.
 3. It works out every state's successors: for the two conditions it tests, the state each of the four
-   combinations leads to. A condition that changes nothing is dropped.
+   combinations leads to. A condition that changes nothing is dropped, unless it is the gate of a `when`.
 4. It places the blocks. Each state's successors form a block of 1, 2 or 4 entries at an address that is a
    multiple of the block's size. A state that is a successor in several blocks is copied into each of them, so
    one state can occupy several entries. Machine m's first state is fixed at entry m. The biggest blocks are
@@ -518,14 +535,14 @@ bakeoff/cand_table/programs/uart_tx.fsm: 8 states in 11 entries (0 unused), imag
    states a `hold` adds. A `ret` line shows `-> link`.
 3. "Unused" counts the holes block alignment leaves.
 4. The data bit prints as the program wrote it: `d` for the shifter and `c` for the LFSR, in pin operations
-   (`TX=c`) and in conditions. An input condition prints as the input's name (`RX`), not as `a`, `b` or `c`. An
-   LFSR step with the serial input prints as `crc+=in`.
+   (`TX=c`) and in conditions. An input prints as its pin name, as a condition (`RX`) and as the serial input
+   (`shift RX`, `crc+=RX`). A compare prints its byte in decimal (`S==213`).
 
 ## 6. Limits and error messages
 
-Every message has the form `file:line: message`, and most are followed by the source line, indented. A few
-messages are about the whole file or a whole machine and have no line: `file: message`. For a file `prog.fsm`
-whose third line is `X=1, K+=1`:
+Every message but two has the form `file:line: message` and is followed by the source line, indented: for a
+state line, the part after its label. The two about the whole file, `no machine` and `the table is full`, have
+no line: `file: message`. For a file `prog.fsm` whose third line is `X=1, K+=1`:
 
 ```
 prog.fsm:3: K and J only count down
@@ -538,32 +555,43 @@ A line inside a macro reports the line of its `use`, and shows the line as the m
 |---|---|
 | `` expected `machine NAME` first `` | A state or pin line comes before any `machine` |
 | `at most 4 machines` | A fifth `machine` |
-| `no machine`, `machine M has no states` | The file, or a machine's section, has no state line |
+| `no machine` | The file has no `machine` line |
+| `machine M has no states` | A machine's section has no state line: the message names its `machine` line |
 | `` expected NAME=P0..P7, got `X` `` | An `in` or `out` item is not `NAME=Pn` with n from 0 to 7 |
-| `X is a reserved word` | A pin named with a reserved word |
+| `X is a reserved word` | A pin or a constant named with a reserved word |
+| `` `in` pin X is declared twice `` (or `out`) | One name twice among a machine's inputs, or among its outputs |
 | `` a machine has at most 3 `in` pins `` (or 4 `out` pins) | Too many inputs or outputs |
 | `order is lsb or msb` | Anything else after `order` |
-| `` `X` is a reserved word or a pin, not a label `` | A label with a reserved word or a pin's name |
+| `order is set twice: ...`, `crc init is set twice: ...` (or `poly`, `match`) | A setting given twice in one machine, even with the same value |
+| `` `X` is a reserved word or a pin, not a label `` | A label with a reserved word (in a macro too) or a pin's name |
 | `label L is defined twice` | Two labels with one name in one machine |
-| `label L has no line after it` | A label at the end of a file or of a machine's section |
-| `` expected `const NAME = expr` `` | A `const` line with no `=` or no name |
-| `` cannot evaluate `E`: ... `` | An expression with an unknown name, `**`, a call other than `round`, `int`, `min` and `max`, a division by zero, a number too big for an integer (`1e400`), or words left over after a value (`crc poly=1 x`) |
+| `label L has no line after it` | A label at the end of a file or of a machine's section: the message names the label's line |
+| `` expected `const NAME = expr` `` | A `const` line with no `=`, or no name before it (a name does not start with a digit) |
+| `` cannot evaluate `E`: ... `` | An expression with an unknown name, `**`, a call other than `round`, `int`, `min` and `max`, a division by zero, a number too big (`1e400`, or anything over 1,024 bits), or words left over after a value (`crc poly=1 x`) |
 | `crc NAME = V is outside 0 to 0xFFFFFFFF, the LFSR's 32 bits` | A negative or too large `poly`, `init` or `match`. Write -1 as `0xFFFFFFFF`. |
-| `X = V does not fit its field` | `T=` above 65,535, `S==` above 255, or a `hold` above 65,537 (it reports `T = n - 2`) |
+| `T=V does not fit its field, 0 to 65535`, `S==V does not fit its field, 0 to 255` | `T=` or `S==` out of range |
 | `K holds 0 to 15`, `J holds 0 to 15` | `K=` or `J=` out of range |
 | `the bus carries one byte` | A byte constant outside 0 to 255 |
-| `` macro M has no `end` ``, `no macro named M`, `M takes n arguments`, `macros nest too deep` | Macro mistakes; nesting is limited to 8 levels |
+| `` expected `macro NAME(P, Q)` `` | A `macro` line of any other form |
+| `` macro M has no `end` `` | The file ends, or the next `macro` starts, before the `end` |
+| `macro M is defined twice` | Two macros with one name |
+| `macro M: each parameter is a name, and no two are the same` | A parameter that is a number or words, or is repeated |
+| `no macro named M`, `M takes n arguments`, `macros nest too deep` | Mistakes in a `use`; nesting is limited to 8 levels |
 | `` cannot read `X` `` | An action the language does not have, including `goto` on a line with other actions |
-| `` unknown register or pin `X` `` | The left of `=` is not an output, `T`, `K`, `J`, `crc` or a bus destination |
+| `` unknown register or pin `X` `` | The left of `=` is not a pin, `T`, `K`, `J`, `crc` or a bus destination |
+| `` `X` is an `in` pin; declare it with `out` as well to drive it `` | An input on the left of `=` |
 | `a pin is set to one of: 0, 1, z, toggle, d, !d, od, c, !c` | Any other pin value |
 | `a state changes two pins at most` | A third pin operation |
 | `pin operations are gated by one condition` | `when A & B`, or two different `when` conditions |
 | `pin operations in one state are all gated by the same condition, or none is` | Some pin operations have `when` and some do not |
-| `` only pin operations can be gated with `when` `` | `when` after anything but a pin operation |
+| `` only pin operations can be gated with `when` `` | `when` after a register's assignment |
 | `` unknown condition `X` `` | A guard names something that is not a condition |
-| `a state tests two conditions at most; this one needs n` | More than two different conditions, counting `when`, `wait GUARD` and, on a `hold` line, the timer |
+| `` `edge` watches the machine's first `in` pin, and none is declared `` | `edge` with no `in` line above it |
+| `a state tests two conditions at most; this one needs n` | More than two different conditions, counting `when` and `wait GUARD` |
+| `` the rules of a `hold` line test one condition besides the timer's `tz`; these test n `` | Rules with two or more conditions on a `hold` line that waits for the timer |
 | `one byte moves on the bus per state` | Two bus moves, or a bus move with `call`, `pop0` or `pop3` |
 | `S is shifted or loaded in one state, not both` | `shift` with a write to S |
+| `S shifts once per state` | `shift` twice |
 | `one LFSR operation per state` | Two `crc` operations |
 | `crc=0 clears the LFSR, crc=init loads its configured start value` | `crc=` with anything else |
 | `` the serial input is 0, 1 or one of the first two `in` pins, not `X` `` | `shift C`, `crc+=C` or another name |
@@ -572,20 +600,26 @@ A line inside a macro reports the line of its `use`, and shows the line as the m
 | `K and J only count down` | `K+=1` or `J+=1` |
 | `K changes once per state`, `J changes once per state`, `T is loaded once per state` | Two changes of one register |
 | `K and J cannot both be loaded in one state` | `K=` with `J=` |
-| `N changes once per state` | Two changes of N |
+| `N changes once per state` | Two counts of N |
+| `N is loaded or counted in one state, not both` | `N=` with `N-=1` or `N+=1`: the load would replace the count |
 | `` `ret` and a change of N cannot share a line: ... change N on the line before the `ret` `` | `N-=1` or `N+=1` with `ret`, in either order: the entry's N field holds the return code |
-| `A and B need different bits of the one immediate; put them on separate lines` | `T=` with `K=`, `J=` or a byte whose bits differ, or two different byte constants (`S==` counts as one) |
+| `A and B set the same bits of the one immediate differently; put them on separate lines` | `T=` with `K=`, `J=` or a byte whose bits differ, or two different byte constants (`S==` counts as one) |
 | `a waiting state repeats its actions every clock, so it may only set pins` | `wait` or `halt` with anything but pin operations, or with `toggle` |
-| `` `hold` and `wait` do not go together `` | Both on one line |
+| `` one `wait` or `halt` per line; join the conditions of a `wait` with `&` `` | Two of them on one line |
+| `` `hold` and `wait` do not go together `` (or `halt`) | Both on one line |
+| `` one `hold` per line `` | Two on one line |
 | `hold needs at least one clock` | `hold 0` |
+| `` `hold` lasts 65537 turns at most, all that the 16-bit timer counts `` | A longer `hold` |
 | `` `hold` uses the timer; this state already loads T `` | `T=` on a `hold` line |
-| `` test `S==` on a line of its own, not at the end of a hold `` | `S==` on a `hold` line |
-| `` `call` and `ret` stand alone: no rules, `wait` or `hold` on their line `` | As it says |
+| `` test `S==` on a line of its own, not on a `hold` line `` | `S==` on a `hold` line, in a rule or a `when` |
+| `` `call` and `ret` cannot share a line `` | Both on one line |
+| `` `call` and `ret` stand alone: no rules, `wait`, `halt` or `hold` on their line `` | As it says |
+| `` a machine cannot start with `goto`, which takes no turn; write `nop => L` `` | A `goto` above a machine's first state |
 | `a call uses the immediate for its return address; move X to another line` | `call` with `T=`, `K=`, `J=`, a byte constant or `S==` |
 | `nothing follows this call to return to` | A `call` on a machine's last line |
 | `nothing follows this line` | A machine's last state line can fall through: give it a rule, `wait` or `halt` |
-| `` no label `L` in machine M ``, `` label `L` has no state `` | A rule names a label that is not in this machine, or a label with no state after it |
-| `machine M: goto L leads nowhere` | A `goto` to an unknown label, or a loop of `goto`s |
+| `` no label `L` in machine M `` | A rule or a `call` names a label that is not in this machine |
+| `machine M: goto L leads nowhere` | A `goto` to an unknown label, or a loop of `goto`s: the message names the `goto`'s line |
 | `` `=>` needs rules ``, `` bad rule `R` `` | `=>` with nothing after it, or a rule whose target is not one name |
 | `the table is full: more than 512 entries` | The program and its copies do not fit |
 
@@ -606,7 +640,8 @@ python3 -m bakeoff.cand_table.compiler docs/examples/uart_8e1_tx.fsm
 
 It prints the summary line and the listing of section 5.1, and exits with status 0. On an error it prints the
 message of section 6 to standard error, `file:line: message` and the source line, and exits with status 1.
-Given several files, it compiles each one and exits with status 1 if any failed.
+Given several files, it compiles each one and exits with status 1 if any failed. A file it cannot read is
+`file: reason`. Source files are UTF-8, with or without a byte-order mark; other bytes are harmless in comments.
 
 Write the image to a file, for a host to load:
 

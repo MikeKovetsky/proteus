@@ -13,11 +13,16 @@ python3 -m bakeoff.cand_table.selfcheck
 ```
 
 ```bash
+python3 -m bakeoff.cand_table.test_compiler
+```
+
+```bash
 python3 -m bakeoff.cand_table.compiler bakeoff/cand_table/programs/eth10_rx.fsm
 ```
 
 The first prints the table below. The second checks four protocols at once, the pin reaction time, a reload, and
-that the compiler only does arithmetic. The third prints a program's listing: every entry, its state and successors.
+that the compiler only does arithmetic. The third tests the compiler: what it builds, and every message it gives.
+The fourth prints a program's listing: every entry, its state and successors.
 
 | Scenario | Result | Source lines | States | Table entries | Image bytes |
 |---|---|---|---|---|---|
@@ -122,7 +127,8 @@ stop:   TX=1, hold BIT => idle
 | `macro NAME(P) ... end`, `use NAME(x)` | Text macros with their own labels |
 
 Limits the compiler reports with the line: two conditions per state, two pins per state, one bus move per
-state, and one immediate per state (`T=` cannot share a line with `K=`, `J=` or a constant byte).
+state, and one immediate per state (`T=` shares a line with `K=`, `J=` or a constant byte only when their bits
+agree).
 
 ## Budget
 
