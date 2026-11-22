@@ -319,10 +319,11 @@ async def test_spi_target_underrun(dut):
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
-@cocotb.parametrize(after=[100, 500])
+@cocotb.parametrize(after=[-100, 100, 500])
 async def test_spi_target_late_first_byte(dut, after):
-    """spi_target_m0: the first byte's deadline is CS falling. A reply queued after that, even well before the
-    first clock, is never sent in its place: 0x00 and one 0x01, then every reply is one transaction behind.
+    """spi_target_m0: the first byte must be in channel 0 before CS falls. The host starts writing each reply
+    `after` ns from that edge, and a write takes 150 ns or more, so even at -100 the byte is late, though far
+    ahead of the first clock. It is not sent in its place: 0x00 and one 0x01, then one transaction behind.
     Scenario 6 queues before CS falls, so it does not define this."""
     chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
     idle_since = chip.board.since
