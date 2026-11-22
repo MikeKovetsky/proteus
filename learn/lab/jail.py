@@ -24,7 +24,7 @@ LIMIT_S = 1800
 
 def failed(reason):
     return {"ok": False, "code": "error", "reason": reason, "image": None, "model": None, "stats": {},
-            "guarantee": [], "warnings": [], "differs": [], "told": None, "wiring": ""}
+            "guarantee": [], "warnings": [], "differs": [], "told": None, "wiring": "", "needs": []}
 
 
 def learn(board, told, source=HOST, record=None, limit_s=LIMIT_S):

@@ -88,6 +88,9 @@ class Imports(unittest.TestCase):
                                                 ast.AnnAssign), name)
                 if isinstance(node, ast.Slice):
                     self.assertIsNone(node.step, "%s: a slice with a step" % name)
+                if isinstance(node, ast.Attribute) and node.attr == "__init__" and isinstance(node.value, ast.Name):
+                    # builtin classes there have no __init__ to name: super() is the way
+                    self.assertNotIn(node.value.id, ("Exception", "object", "dict", "list", "tuple"), name)
 
 
 class Jail(unittest.TestCase):

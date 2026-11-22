@@ -103,20 +103,42 @@ def warnings(told, bus, model, search):
         lines.append("The last pass compared %d answers and all agreed. If wrong answers came independently, "
                      "their rate is below 1 in %d at 95%% confidence. Faults that depend on history or time are "
                      "not bounded by that." % (search.checked, max(search.checked // 3, 1)))
+    lines.append("The program comes from a generator that is tested and not proven. Compare it with the device "
+                 "on the controller it will face before relying on it.")
+    if bus.serve != bus.rate:
+        lines.append("The questions ran at %d kHz and the program is to serve %d kHz. Nothing was asked at that "
+                     "rate." % (bus.rate, bus.serve))
     lines.append("Timing, partial bytes and other devices' traffic were not learned. The questions ran at %d kHz, "
                  "and pauses of up to %d us were tried." % (bus.rate, max(told["quiet_us"], told["hold_us"])))
+    return lines
+
+
+def needs(told, bus):
+    """What the host had to be told or given, for a person to check before trusting the program."""
+    lines = ["The bus and its wiring: %s, on %s." % (told["bus"], bus.WIRING),
+             "The rates: questions at %d kHz, and a controller at up to %d kHz for the program to face."
+             % (bus.rate, bus.serve),
+             "A reset on P4, low to reset, that returns the device to the same state every time: held %d us, "
+             "with %d us to recover." % (told["reset_us"], told["boot_us"]),
+             "The bus to itself while it asks: no controller and no other device driving it.",
+             "Leave to write to the device, since questions can change it."]
+    if bus.inputs is not None:
+        lines.append("The %d inputs that matter. Every other is out of scope." % len(bus.inputs))
+    if told["max_states"] is not None:
+        lines.append("The most states the device has: %d, the bus phase counted." % told["max_states"])
     return lines
 
 
 def run(told, link):
     """Plain data, always: either a program and what is known about it, or no program and why."""
     result = {"ok": False, "code": "ok", "reason": "", "image": None, "model": None, "stats": {},
-              "guarantee": [], "warnings": [], "differs": [], "told": None, "wiring": ""}
+              "guarantee": [], "warnings": [], "differs": [], "told": None, "wiring": "", "needs": []}
     learner = search = None
     try:
         told = settings(told)
         bus = BUSES[told["bus"]](told)
         result["told"], result["wiring"] = told, bus.WIRING
+        result["needs"] = needs(told, bus)
         if not link.load(bus.image()):
             raise Refused("link", "the query engine did not load")
         learner = Learner(bus, link, told)
@@ -143,6 +165,6 @@ def run(told, link):
         result["stats"].update(states=len(learner.access), symbols=learner.symbols, queries=learner.queries,
                                counterexamples=learner.counterexamples, alphabet=len(learner.alphabet))
         if search is not None:
-            result["stats"].update(found_by=dict(search.found_by), tests=dict(search.report), extra=search.extra,
-                                   checked=search.checked)
+            result["stats"].update(found_by=dict(search.found_by), extra=search.extra,
+                                   tests_last_pass=dict(search.report), checked_last_pass=search.checked)
     return result

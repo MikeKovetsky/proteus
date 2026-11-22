@@ -126,6 +126,17 @@ class Learner(unittest.TestCase):
             self.assertEqual((result["ok"], result["code"]), (False, "told"), told)
         self.assertEqual(link.images, [])
 
+    def test_what_had_to_be_told_is_reported(self):
+        table = cloning.two_byte(4, 4)
+        result = session.run({"bus": "spi", "serve": 2000, "max_states": 9}, Ideal(table))
+        self.assertTrue(result["ok"], result["reason"])
+        needed = " ".join(result["needs"])
+        for part in ("P0 SCK", "2500 kHz", "2000 kHz", "P4", "reset", "most states the device has: 9"):
+            self.assertIn(part, needed)
+        warned = " ".join(result["warnings"])
+        self.assertIn("tested and not proven", warned)
+        self.assertIn("Nothing was asked at that rate", warned)
+
     def test_the_host_crashing_is_a_refusal_too(self):
         class Dead(Ideal):
             def exchange(self, data, wanted):

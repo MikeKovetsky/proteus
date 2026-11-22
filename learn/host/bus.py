@@ -10,7 +10,7 @@ class Refused(Exception):
     """The host will not write a program. The text says why."""
 
     def __init__(self, code, text):
-        Exception.__init__(self, text)
+        super().__init__(text)  # MicroPython has no Exception.__init__(self) to call
         self.code = code
         self.text = text
 
