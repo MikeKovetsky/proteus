@@ -3,8 +3,10 @@
 """
 CI's layout report (.github/scripts/layout_report.py) against synthetic run folders.
 
-The folders and files are named as LibreLane 3.1.0.dev4 names them (GitHub run 44105853045's file list), and
-checks.rpt is laid out as its sta/corner.tcl and OpenSTA's ReportPath::reportLimitShort write it.
+The folders and files are named as LibreLane 3.1.0.dev4 names them (GitHub run 44105853045's file list),
+checks.rpt is laid out as its sta/corner.tcl and OpenSTA's ReportPath::reportLimitShort write it, and sta.log
+has the metric lines that its common/io.tcl writes. A step's state_out.json is cumulative: it holds the figures
+of the earlier STA steps under the same names, which are clean in every test here.
 """
 import importlib.util
 import json
@@ -24,6 +26,9 @@ CORNERS = ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C")
 SLOW = "nom_slow_1p08V_125C"
 STEP = "58-openroad-stapostpnr"
 RULE = "=" * 75
+# final/metrics.json's other sign-off figures
+SIGN_OFF = {"route__drc_errors": 0, "design__lvs_error__count": 0,
+            "antenna__violating__nets": 0, "antenna__violating__pins": 0}
 
 
 def clean_metrics():
@@ -35,6 +40,15 @@ def clean_metrics():
                             ("timing__hold_vio__count", 0)):
             metrics["%s__corner:%s" % (name, corner)] = value
     return metrics
+
+
+def sta_log(metrics, corner):
+    """One corner's sta.log: write_metric_int and write_metric_num print a marker, the name and the value."""
+    lines = ["Reading timing models for corner %s..." % corner, "%OL_CREATE_REPORT checks.rpt"]
+    for key, value in metrics.items():
+        if key.endswith("__corner:" + corner):
+            lines.append("%%OL_METRIC_%s %s %s" % ("F" if "__ws__" in key else "I", key, value))
+    return "\n".join(lines + ["%OL_END_REPORT"]) + "\n"
 
 
 def row(pin, limit, value):
@@ -71,15 +85,15 @@ class Report(unittest.TestCase):
         with open(path, "w", encoding="utf8") as f:
             f.write(content if isinstance(content, str) else json.dumps(content, indent=4))
 
-    def layout(self, metrics=None, reports=None, final=True):
+    def layout(self, metrics=None, reports=None, final=True, sign_off=None, step=STEP):
         metrics = clean_metrics() if metrics is None else metrics
-        self.write(os.path.join(STEP, "state_out.json"), {"nl": "x.nl.v", "metrics": metrics})
-        for corner in CORNERS:
-            self.write(os.path.join(STEP, corner, "checks.rpt"), (reports or {}).get(corner, checks()))
+        self.write(os.path.join(step, "state_out.json"), {"nl": "x.nl.v", "metrics": clean_metrics()})
+        for corner in sorted(set(CORNERS) | {key.split("__corner:")[1] for key in metrics}):
+            self.write(os.path.join(step, corner, "checks.rpt"), (reports or {}).get(corner, checks()))
+            self.write(os.path.join(step, corner, "sta.log"), sta_log(metrics, corner))
         if final:
             self.write(os.path.join("final", "metrics.json"),
-                       dict(metrics, route__drc_errors=0, design__lvs_error__count=0,
-                            antenna__violating__nets=0, antenna__violating__pins=0))
+                       dict(clean_metrics(), **(SIGN_OFF if sign_off is None else sign_off)))
 
     def result(self):
         lines, status = layout_report.report(self.run_dir)
@@ -152,7 +166,7 @@ class Report(unittest.TestCase):
         self.assertNotIn("    u%d/A " % limit, text)
         self.assertIn("and 25 more", text)
 
-    def test_missing_figure_fails(self):
+    def test_missing_figure_fails_though_an_earlier_step_left_one(self):
         for key in clean_metrics():
             metrics = clean_metrics()
             del metrics[key]
@@ -161,12 +175,53 @@ class Report(unittest.TestCase):
             self.assertEqual(status, 1, key)
             self.assertIn("MISSING", text)
 
+    def test_missing_sta_log_fails(self):
+        self.layout()
+        os.remove(os.path.join(self.run_dir, STEP, SLOW, "sta.log"))
+        text, status = self.result()
+        self.assertEqual(status, 1)
+        self.assertIn("FAIL: %s: no max slew figure" % SLOW, text)
+
+    def test_a_figure_only_counts_at_the_start_of_a_line_and_under_its_own_corner(self):
+        key = "design__max_slew_violation__count__corner:" + SLOW
+        metrics = clean_metrics()
+        del metrics[key]
+        self.layout(metrics)
+        fast = "design__max_slew_violation__count__corner:" + CORNERS[0]
+        log = sta_log(metrics, SLOW) + "echo %%OL_METRIC_I %s 0\n%%OL_METRIC_I %s 0\n" % (key, fast)
+        self.write(os.path.join(STEP, SLOW, "sta.log"), log)
+        self.assertEqual(self.result()[1], 1)
+
     def test_figure_that_is_not_a_number_fails(self):
-        for value in (None, "0", False):
+        for value in (None, "", "1.5", "n/a"):
             metrics = clean_metrics()
             metrics["design__max_cap_violation__count__corner:" + SLOW] = value
             self.layout(metrics)
             self.assertEqual(self.result()[1], 1, repr(value))
+
+    def test_routing_lvs_and_antenna_violations_fail(self):
+        for key in SIGN_OFF:
+            self.layout(sign_off=dict(SIGN_OFF, **{key: 2}))
+            text, status = self.result()
+            self.assertEqual(status, 1, key)
+            self.assertIn("FAIL: %s is 2" % key, text)
+
+    def test_missing_routing_lvs_or_antenna_figure_fails(self):
+        for key in SIGN_OFF:
+            self.layout(sign_off={k: v for k, v in SIGN_OFF.items() if k != key})
+            text, status = self.result()
+            self.assertEqual(status, 1, key)
+            self.assertIn("FAIL: no %s figure" % key, text)
+            for value in (None, "0", False):
+                self.layout(sign_off=dict(SIGN_OFF, **{key: value}))
+                self.assertEqual(self.result()[1], 1, "%s %r" % (key, value))
+
+    def test_no_final_folder_fails_though_timing_is_clean(self):
+        self.layout(final=False)
+        text, status = self.result()
+        self.assertEqual(status, 1)
+        self.assertIn("FAIL: no route__drc_errors figure", text)
+        self.assertNotIn("PASS", text)
 
     def test_infinite_slack_prints(self):
         metrics = clean_metrics()
@@ -183,7 +238,9 @@ class Report(unittest.TestCase):
                 metrics[key.replace(SLOW, "max_slow_corner")] = value
         metrics["design__max_slew_violation__count__corner:max_slow_corner"] = 3
         self.layout(metrics)
-        self.assertIn("FAIL: max_slow_corner: 3 max slew violations", self.result()[0])
+        text, _ = self.result()
+        self.assertIn("FAIL: max_slow_corner: 3 max slew violations", text)
+        self.assertIn("-- max_slow_corner", text)
 
     def test_reports_without_a_final_folder(self):
         # A later step stopped the flow, so there is no final/metrics.json.
@@ -196,8 +253,11 @@ class Report(unittest.TestCase):
         self.assertIn("final/metrics.json: none", text)
 
     def test_mid_pnr_figures_never_stand_in(self):
-        self.write("45-openroad-stamidpnr-3/state_out.json", {"metrics": clean_metrics()})
-        self.write("final/metrics.json", clean_metrics())
+        for step in ("12-openroad-staprepnr", "45-openroad-stamidpnr-3"):
+            self.write(step + "/state_out.json", {"metrics": clean_metrics()})
+            for corner in CORNERS:
+                self.write(os.path.join(step, corner, "sta.log"), sta_log(clean_metrics(), corner))
+        self.write("final/metrics.json", dict(clean_metrics(), **SIGN_OFF))
         text, status = self.result()
         self.assertEqual(status, 1)
         self.assertIn("no post-PNR timing figures", text)
@@ -205,6 +265,7 @@ class Report(unittest.TestCase):
     def test_empty_absent_or_broken_run_fails(self):
         self.assertEqual(self.result()[1], 1)
         self.assertEqual(layout_report.report(os.path.join(self.run_dir, "absent"))[1], 1)
+        self.layout()
         self.write(os.path.join(STEP, "state_out.json"), "{ cut sho")
         self.assertEqual(self.result()[1], 1)
         os.remove(os.path.join(self.run_dir, STEP, "state_out.json"))
@@ -212,9 +273,7 @@ class Report(unittest.TestCase):
 
     def test_two_post_pnr_steps_fail(self):
         self.layout()
-        self.write("99-openroad-stapostpnr/state_out.json", {"metrics": clean_metrics()})
-        for corner in CORNERS:
-            self.write(os.path.join("99-openroad-stapostpnr", corner, "checks.rpt"), checks())
+        self.layout(step="99-openroad-stapostpnr")
         self.assertEqual(self.result()[1], 1)
 
     def test_missing_checks_report_fails(self):
@@ -227,7 +286,7 @@ class Report(unittest.TestCase):
         log = ("Warning: /w/runs/wokwi/57-openroad-rcx/nom/top.nom.spef line 96362, net a not found.\n"
                "[WARNING STA-1648] /w/top.nom.spef line 7, instance b not found.\n"
                "Warning: something else\nReading top.nom.spef\n")
-        self.write(os.path.join(STEP, SLOW, "sta.log"), log)
+        self.write(os.path.join(STEP, SLOW, "sta.log"), sta_log(clean_metrics(), SLOW) + log)
         self.assertIn("parasitics warnings while reading SPEF: 2", self.result()[0])
 
     def test_exit_status_as_ci_runs_it(self):

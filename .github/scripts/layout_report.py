@@ -7,12 +7,13 @@ Prints a layout run's sign-off timing and electrical figures in full, and fails 
     python3 .github/scripts/layout_report.py [runs/wokwi]
 
 LibreLane's own table is cut at 80 columns in CI's log (a count reads "1…"), and the violating pins are only
-in report files inside an artifact. This reads both from the post-PNR STA step, OpenROAD.STAPostPNR, and from
-nowhere else: the mid-PNR steps write the same metric names from estimated parasitics, and
-final/metrics.json does not exist when a run stops early. So it fails when that step left no figures.
+in report files inside an artifact. This reads both from the post-PNR STA step, OpenROAD.STAPostPNR: each
+corner's figures are the metric lines of its own sta.log. state_out.json and final/metrics.json cannot show
+them: their metrics are cumulative and the earlier STA steps write the same names, so an estimate would stand
+in for a figure that sign-off did not report.
 
-Failing: max slew, max cap, setup and hold violations in any corner, or a missing figure. Max fanout is
-printed and does not fail.
+Failing: max slew, max cap, setup and hold violations in any corner, routing, LVS and antenna violations, or a
+missing figure. Max fanout is printed and does not fail.
 """
 import json
 import os
@@ -31,8 +32,10 @@ COLUMNS = (
     ("hold WS ns", "timing__hold__ws", False),
     ("hold vios", "timing__hold_vio__count", True),
 )
-# Printed for the reader. LibreLane's own checkers and the precheck judge these.
-OTHER = (
+# From final/metrics.json, where the last writer of each is its sign-off step. Above 0 fails, as a missing one
+# does: LibreLane's checkers only warn about a missing figure, and on this PDK neither they nor the precheck
+# fail on antenna violations.
+SIGN_OFF = (
     "route__drc_errors",
     "design__lvs_error__count",
     "antenna__violating__nets",
@@ -60,17 +63,27 @@ def number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def figures(metrics):
-    """The table's lines, and what is wrong with the figures."""
-    found = {key.split("__corner:", 1)[1] for key in metrics if key.startswith(COLUMNS[0][1] + "__corner:")}
-    corners = list(CORNERS) + sorted(found - set(CORNERS))
+def logged_metrics(log):
+    """The metrics in one OpenSTA log, from the lines LibreLane itself takes them from."""
+    found = {}
+    for kind, name, value in re.findall(r"^%OL_METRIC_([IF]) (\S+) (\S+)$", log, re.M):
+        try:
+            found[name] = int(value) if kind == "I" else float(value)
+        except ValueError:
+            found[name] = None
+    return found
+
+
+def figures(logs):
+    """The table's lines, and what is wrong with the figures, from each corner's own sta.log."""
     lines = ["%-22s" % "corner" + "".join("%13s" % column for column, _, _ in COLUMNS)]
     problems = []
-    for corner in corners:
+    for corner, log in logs.items():
+        metrics = logged_metrics(log)
         cells = []
         for column, metric, fails in COLUMNS:
             value = metrics.get("%s__corner:%s" % (metric, corner))
-            if not number(value):
+            if value is None:
                 cells.append("MISSING")
                 problems.append("%s: no %s figure" % (corner, column))
                 continue
@@ -119,23 +132,33 @@ def report(run_dir):
     """Every line to print, and the exit status."""
     lines = ["==== protoemu layout report ===="]
     step = post_pnr_step(run_dir)
-    state = read_json(os.path.join(step, "state_out.json")) if step else None
-    metrics = state.get("metrics") if isinstance(state, dict) else None
-    if not isinstance(metrics, dict):
+    # A step writes state_out.json only once it has succeeded.
+    if not step or not isinstance(read_json(os.path.join(step, "state_out.json")), dict):
         lines.append("FAIL: no post-PNR timing figures in %s; the run stopped before or in that step." % run_dir)
         return lines, 1
 
+    logged = {os.path.basename(os.path.dirname(path)) for path in glob(os.path.join(step, "*", "sta.log"))}
+    corners = list(CORNERS) + sorted(logged - set(CORNERS))
+    logs = {corner: read_text(os.path.join(step, corner, "sta.log")) or "" for corner in corners}
     lines.append("Extracted parasitics, from %s" % step)
-    table, problems = figures(metrics)
+    table, problems = figures(logs)
     lines += table
 
     final = read_json(os.path.join(run_dir, "final", "metrics.json"))
-    if isinstance(final, dict):
-        lines += ["%s: %s" % (key, final.get(key, "not reported")) for key in OTHER]
-    else:
+    if not isinstance(final, dict):
         lines.append("final/metrics.json: none, so the run stopped after the post-PNR STA")
+        final = {}
+    for key in SIGN_OFF:
+        value = final.get(key)
+        if not number(value):
+            lines.append("%s: MISSING" % key)
+            problems.append("no %s figure" % key)
+            continue
+        lines.append("%s: %s" % (key, value))
+        if value != 0:
+            problems.append("%s is %s" % (key, value))
 
-    for corner in CORNERS:
+    for corner in corners:
         lines.append("-- %s" % corner)
         checks = read_text(os.path.join(step, corner, "checks.rpt"))
         if checks is None:
@@ -143,13 +166,11 @@ def report(run_dir):
             problems.append("%s: no checks.rpt" % corner)
         else:
             lines += violators(checks) or ["  no slew, cap or fanout violators"]
-        log = read_text(os.path.join(step, corner, "sta.log"))
-        if log is not None:
-            lines.append("  parasitics warnings while reading SPEF: %d" % spef_warnings(log))
+        lines.append("  parasitics warnings while reading SPEF: %d" % spef_warnings(logs[corner]))
 
     if problems:
         return lines + ["FAIL: " + problem for problem in problems], 1
-    return lines + ["PASS: no slew, cap, setup or hold violations in any corner"], 0
+    return lines + ["PASS: no slew, cap, setup or hold violations in any corner, nor routing, LVS or antenna ones"], 0
 
 
 def main(argv):
