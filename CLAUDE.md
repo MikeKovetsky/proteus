@@ -91,7 +91,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | MET | `bakeoff/cand_table/compiler.py`, its bench programs (identical images before and after the fix of 2026-11-21) and the worked 8E1 UART in `docs/examples/`. The silent miscompiles found while writing the docs and in the fix's full review are closed: 63 of 63 compiler tests (`python3 -m bakeoff.cand_table.test_compiler`), and the reviewer replayed 3,008 compiled programs on the RTL. CI runs those tests on every push ([run 45016223262](https://github.com/MikeKovetsky/protoemu/actions/runs/45016223262)). The programs' own bugs are R3 |
 | R11 | Verification write-up, including how AI was used | NOT MET | `WRITEUP.md` and three decisions for Mike (`notes/writeup-claims.md`) are on the local branch `writeup`. It makes no novelty claim, marks each unfinished result as pending, and lands once Mike accepts |
-| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix, and on `main` in [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811). It passed again in [run 45018868047](https://github.com/MikeKovetsky/protoemu/actions/runs/45018868047) on `ef34af5`, with the CI suites |
+| R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job, and again in [run 44997274424](https://github.com/MikeKovetsky/protoemu/actions/runs/44997274424) with programs built by the fixed compiler and in [run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402) with the slew fix, and on `main` in [run 45001166811](https://github.com/MikeKovetsky/protoemu/actions/runs/45001166811). It passed again in [run 45018868047](https://github.com/MikeKovetsky/protoemu/actions/runs/45018868047) on `ef34af5`, with the CI suites. With the pin tests, all 28 pass on the routed netlist of `a60b878` in [run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947) |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
 | R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, deferred by Mike to a brainstorm right after the other lines | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
@@ -214,12 +214,11 @@ make it novel". The main session's reading of it:
    Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
    one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
-4. **The pin tests (branch `pin-tests`, 021e895): the full review ended NOT CLEAN on one line.** The suite has
-   never run on the routed netlist, with IHP's cell models or on cocotb 2.0.1, and proving that here needs about
-   5.2 MB of downloads. Mike waived that local run on 2026-11-22 ("merge", recorded in
-   [the landing decision](notes/landing-decision.md)): GitHub's gate-level run on the branch must pass instead,
-   before it lands. The rest is fixed: 28 of 28 pass on RTL, each limit names its
-   source, and `test/known_gaps.py` holds 18 failing reproductions. It is pushed once its reviewer marks it against that waiver.
+4. **The pin tests: landed on 2026-11-22 as `a60b878`, reviewed at the full tier.** All 14 scenarios run through
+   the pins, 28 of 28 pass on RTL, and [the same commit's build](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947)
+   passes all 28 on the routed netlist, with precheck. Mike waived only the local gate-level run ("merge", recorded
+   in [the landing decision](notes/landing-decision.md)), on the condition that GitHub's run passed, and it did.
+   `test/known_gaps.py` holds 18 failing reproductions, which the program fixes address.
 5. **The program fixes (branch `program-fixes-on-pins`, e64d638, on the pin tests): the full review ended NOT
    CLEAN on 2026-11-22, only on gaps that wait for Mike.** 13 of the 18 gaps are closed, and the review fixed three
    more bugs: a false I2C success with SDA held low, an Ethernet length of 0 and an unreported late WS2812 byte.

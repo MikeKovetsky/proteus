@@ -186,3 +186,6 @@ A dated log, written as the work happens. The verification write-up's AI section
     reduced them to one, whether to merge the fixes with 12 added behaviours and five gaps open for now, and Mike
     answered "merge". The main session recorded the question, the answer and its limits in
     `notes/landing-decision.md`, for the two original reviewers to check their open findings against.
+41. **The pin tests landed.** An agent built them, and a fresh Opus 5.5 reviewer at max effort fixed and marked
+    them. The main session pushed the merge to its own branch, checked that 28 of 28 passed on the routed netlist
+    in GitHub's log, checked Mike's recorded "merge" against the transcript, and only then pushed it to `main`.
