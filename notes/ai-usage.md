@@ -189,3 +189,6 @@ A dated log, written as the work happens. The verification write-up's AI section
 41. **The pin tests landed.** An agent built them, and a fresh Opus 5.5 reviewer at max effort fixed and marked
     them. The main session pushed the merge to its own branch, checked that 28 of 28 passed on the routed netlist
     in GitHub's log, checked Mike's recorded "merge" against the transcript, and only then pushed it to `main`.
+42. **A hole in the pin tests.** The proofs' reviewer found from netlist mutations that the pin tests miss broken
+    chips. The main session reproduced the largest case on RTL: with P4 to P7 dead, all 28 tests pass. A fresh
+    agent was given the requirement in the project's words, "the tests must fail on the mutants", to fix it.

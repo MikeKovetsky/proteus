@@ -219,6 +219,8 @@ make it novel". The main session's reading of it:
    passes all 28 on the routed netlist, with precheck. Mike waived only the local gate-level run ("merge", recorded
    in [the landing decision](notes/landing-decision.md)), on the condition that GitHub's run passed, and it did.
    `test/known_gaps.py` holds 18 failing reproductions, which the program fixes address.
+   One hole was found after they landed: with P4 to P7 dead in and out, all 28 still pass (reproduced on RTL on
+   2026-11-22). Tests that catch this and the other surviving mutants are being written on the proofs' branch.
 5. **The program fixes (branch `program-fixes-on-pins`, e64d638, on the pin tests): the full review ended NOT
    CLEAN on 2026-11-22, only on gaps that wait for Mike.** 13 of the 18 gaps are closed, and the review fixed three
    more bugs: a false I2C success with SDA held low, an Ethernet length of 0 and an unreported late WS2812 byte.
@@ -227,7 +229,8 @@ make it novel". The main session's reading of it:
    12 behaviours added where a scenario is silent and the pin tests' waiver, and Mike's "merge" of 2026-11-22
    approves all three for this merge. The gaps are not waived for the submission. The branch lands once its
    reviewer marks it, its one README conflict with `main` is resolved and reviewed, and GitHub's runs pass.
-6. **The proofs (branch `formal`, 63b2dc4): built, in full review since 2026-11-22.** They prove the reset state
+6. **The proofs (branch `formal-on-main`, 14183ef): the full review ended NOT CLEAN on 2026-11-22**, because
+   the pin tests miss mutants of the netlist and the mutation run doesn't yet include the 21 new ones. They prove the reset state
    from any power-up values, every entry field, the host link, the FIFOs and machine isolation, on RTL and on two
    synthesised netlists. The main session re-ran them: 23 of 23 checks pass. The builder reports 286 of 286 planted
    bugs caught and, in two mutation samples of the netlist, every non-equivalent mutant killed by a proof.
