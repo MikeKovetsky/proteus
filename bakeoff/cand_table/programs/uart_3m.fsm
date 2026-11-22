@@ -1,5 +1,6 @@
 # UART at 3 Mbaud, both directions at once: two machines share the table and take turns, so each one
-# steps every other clock. A bit is 20 clocks, which is 10 turns.
+# steps every other clock. A bit is 20 clocks, which is 10 turns. A frame whose stop bit is 0 is dropped and
+# reported: 0x01 on channel 2.
 
 const BIT = 10
 
@@ -21,7 +22,9 @@ idle:   wait !RX
         K=8
         hold BIT + BIT/2 - 3         # to the middle of the first data bit
 bit:    shift RX, K-=1
-        => kz: done
+        => kz: stop
         hold BIT - 2 => bit
-done:   push1=S
+stop:   hold BIT - 1 => RX: good     # the middle of the stop bit
+        push2=1
         wait RX => idle
+good:   push1=S => idle

@@ -1,5 +1,7 @@
-# 10 Mbit Ethernet transmitter. Channel 0 gives [len low][len high][len bytes].
+# 10 Mbit Ethernet transmitter. Channel 0 gives [len low][len high][len bytes], and a len of 0 is ignored.
 # The chip sends the preamble, the frame and its CRC-32, Manchester coded on TX+ and TX-.
+# A host that is late inside a frame ends it there, with every bit of its CRC wrong: the chip puts 0x01 on
+# channel 2 and drops the rest of that frame's bytes before it takes the next length.
 # A bit is 6 clocks: the first 3 carry the inverse of the bit, the last 3 the bit. One line below is one
 # clock, and every path round a loop is 6 lines long, so no half bit is ever stretched.
 
@@ -12,6 +14,7 @@ idle:   TXP=0, TXN=0, wait rx0
         N=pop0                       # frame length
         wait rx0
         Nhi=pop0
+        => nz: idle                  # no frame: N would count down through 65,535 bytes
         S=0x55, K=8                  # preamble: seven bytes of 0x55 ...
         J=6
 
@@ -25,12 +28,12 @@ again:  S=0x55, K=8, J-=1 => pre     # clock 5, between bytes
 sfd:    S=0xD5, K=8                  # clock 5: ... and the start-of-frame byte
 
 sbit:   TXP=!d, TXN=d, K-=1
-        nop
+        J=3                          # for ubit: the CRC bytes after the first
         nop
         TXP=d, TXN=!d, shift
         => kz: first
         nop => sbit
-first:  S=pop0, K=8, N-=1, crc=init  # clock 5: the first frame byte
+first:  S=pop0, K=8, N-=1, crc=init => !rx0: ubit    # clock 5: the first frame byte, if it is here
 
 dbit:   TXP=!d, TXN=d, K-=1, crc+=d  # the frame, with the CRC running
         nop
@@ -38,7 +41,7 @@ dbit:   TXP=!d, TXN=d, K-=1, crc+=d  # the frame, with the CRC running
         TXP=d, TXN=!d, shift
         => kz & nz: fcs | kz: more | data5
 data5:  nop => dbit
-more:   S=pop0, K=8, N-=1 => dbit    # clock 5: the next byte, fetched between two bits
+more:   S=pop0, K=8, N-=1 => !rx0: ubit | dbit   # clock 5: the next byte, fetched between two bits
 fcs:    K=8, N=3                     # clock 5: the frame is out; four CRC bytes follow
 
 fbit:   TXP=c, TXN=!c, K-=1          # the CRC goes out inverted, low bit first
@@ -51,3 +54,18 @@ fmore:  K=8, N-=1 => fbit
 tail:   nop
         TXP=1, TXN=0, hold 18        # end of frame: TX+ high for 18 clocks
         TXP=0, TXN=0, hold 600 => idle   # idle, and the 9.6 us gap between frames
+
+ubit:   TXP=!c, TXN=c, K-=1          # cut short: the CRC as it stands, not inverted, so it is never right
+        nop
+        nop
+        TXP=c, TXN=!c, crc>>=1
+        => kz & jz: utail | kz: umore | ubit5
+ubit5:  nop => ubit
+umore:  K=8, J-=1 => ubit            # N is left alone: it counts the bytes still to drop
+utail:  nop
+        TXP=1, TXN=0, hold 18
+        TXP=0, TXN=0, push2=1, N+=1  # the pop that came too soon took nothing
+        hold 600
+drain:  => nz: idle
+        wait rx0
+        pop0, N-=1 => drain
