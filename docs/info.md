@@ -97,7 +97,7 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `spi_target_m0` | SPI target in mode 0 | `0x01` for each byte clocked out with none queued (it is `0x00`) |
 | `i2c_ctrl`, `i2c_ctrl_100k` | I2C controller at 400 and at 100 kHz: a write then a read, or a write alone when the read count is 0 | `0x00` done, `0x01` NACK, `0x02` bus stuck |
 | `ws2812_tx` | WS2812B and its V5: 75 clocks a bit, 282 us of latch | `0x01` each time the host was late inside a frame |
-| `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short |
+| `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short (channel 1 may hold bytes read before it) |
 | `ps2_rx` | PS/2 from a device at 10 to 16.7 kHz | `0xFF` for a wrong start, parity or stop bit, or a clock that stops for 250 us inside a frame |
 | `usb_ls_tx` | Low-speed USB data packets: every packet gets the CRC-16 of the bytes after its PID | `0x01` for a packet the host was late in. It goes out with a stuffing error |
 | `usb_ls_rx` | Low-speed USB packets, judged by CRC-16, with a hub's extra bit before EOP let through | `0x00` good or `0x01` bad, then the byte count |
@@ -108,7 +108,7 @@ What to know before using them:
 
 1. **UART rates** are one constant, `BIT` (60 MHz / baud). With one machine the 16-bit timer takes transmit down
    to 916 baud and receive down to 1,374; the compiler refuses a lower one. 921,600 baud is 65 clocks a bit,
-   0.16% slow. Apart from `uart_3m` and the four-machine program, each UART image is one direction.
+   0.16% fast. Apart from `uart_3m` and the four-machine program, each UART image is one direction.
 2. **The SPI target takes a byte from channel 0 early**, as the last bit of the byte before it is sampled, to
    have it ready for the next falling edge. A byte the host queues later waits for the byte after. A byte is kept
    when CS rises before its first clock, and dropped, in both directions, when CS rises inside it.
@@ -129,6 +129,8 @@ What to know before using them:
    received.
 7. **A USB or Ethernet transmitter that was cut short waits for the rest** of that packet or frame from the host,
    and drops it, before it starts the next.
+8. **Read channel 2** of every program that has a status there. It holds 4 bytes: a fifth that nobody has made
+   room for is dropped and sets OVERFLOW, which stays set.
 
 ## How to test
 
@@ -173,7 +175,11 @@ What the shipped programs do not yet do:
 1. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
    sending station may add (`gap_eth10_rx_jitter`). A program cannot guarantee 13.5 ns on this chip, which samples
    each pin every 16.7 ns: `test/eth10_jitter_limit.py` builds pairs of different good frames that give the same
-   samples at 13.5, 10 and 8.4 ns of jitter. It takes finer sampling in the RTL, which is not built.
+   samples at 13.5, 10 and 8.4 ns of jitter. It takes finer sampling in the RTL, which is not built. The smallest
+   change we know of samples on both clock edges, every 8.3 ns: a second synchroniser on each pad that starts on
+   the falling edge, one bit per machine input to read that copy (configuration byte 3 has four spare), and the
+   compiler's name for it. The script's construction finds no pair with its `CLK` at 8.33 ns, which does not prove
+   that a program could then take 13.5 ns.
 2. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
    changing it waits for Mike's decision.
 3. USB has no handshakes or tokens (`gap_usb_tx_handshake`, `gap_usb_rx_handshake`). Scenarios 11 and 12 ask for

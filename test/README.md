@@ -49,7 +49,8 @@ python3 -m cocotb_tools.check_results results.xml
 5. **Ethernet receive runs below the standard's jitter.** Its test uses 5.5 ns, the most a whole sending station
    may add. A receiver must take 13.5 ns and this program loses frames from 8.5 ns (`gap_eth10_rx_jitter`).
    No program can guarantee 13.5 ns while the chip samples once a clock: `eth10_jitter_limit.py` shows two
-   different good frames with the same samples, at 13.5, 10 and 8.4 ns. The gap waits for an RTL change.
+   different good frames with the same samples, at 13.5, 10 and 8.4 ns. The gap waits for an RTL change. The
+   smallest we know of samples on both clock edges (`docs/info.md`, "What the shipped programs do not yet do").
 6. **Driven, not pulled.** A pin nobody drives reads as its pull, so the transmit tests also check that the chip
    drives each push-pull pin (`Bench.driven`).
 
@@ -109,7 +110,8 @@ tie cell the SRAM model prints an `A_DLY` error at time 0 and runs on. That is t
 
 They have **not** run on the routed netlist, with IHP's own cell models or under the cocotb 2.0.1 that CI installs.
 At the 3,700 clocks a second of CI's last 7-test gl_test, those 28 tests' 2.2 million clocks would have taken it
-about 10 minutes. The suite now simulates several times as long. Neither is a CI run.
+about 10 minutes. The 115 tests simulate 8.9 million clocks, about 40 minutes at that speed. Neither is a CI
+run.
 
 The SRAM model in `ihp_sram/` is IHP's own (its README says where it comes from), and both runs use it.
 

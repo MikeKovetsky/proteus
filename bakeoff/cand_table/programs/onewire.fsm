@@ -1,7 +1,8 @@
 # 1-Wire controller, standard speed: reset, presence, write 0x33 (Read ROM), read 64 bits, check CRC-8.
 # The 8 bytes go to channel 1. Channel 2 gets 0x00 (present) and 0x00 (CRC good) or 0x01 (CRC bad),
 # or just 0x01 when no device answers or the line is shorted low: a short has to look absent, because eight
-# 0x00 bytes have a good CRC. DQ is open drain: pulled low (=0) or released (=z).
+# 0x00 bytes have a good CRC. A short during the read leaves the bytes read before it on channel 1.
+# DQ is open drain: pulled low (=0) or released (=z).
 
 machine ow
     out   DQ=P0

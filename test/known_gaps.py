@@ -17,7 +17,7 @@ from protocols.wave import CLK, EPS, US
 
 P0, P1, P2 = 0, 1, 2
 USB_PINS = DP, DM = P0, P1
-DATA0, ACK = usb_ls.DATA0, usb_ls.ACK
+ACK = usb_ls.ACK
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")

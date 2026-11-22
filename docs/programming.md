@@ -47,7 +47,7 @@ Most mistakes break one of these. [isa.md, "How a machine steps"](isa.md#1-how-a
 4. At 115,200 baud a bit is 60,000,000 / 115,200 = 520.83 clocks. The program uses 521, 0.03% slow, well
    inside a UART's tolerance.
 5. The transmitter sends P0, and the host gives it bytes on channel 0. The receiver reads P1, pushes each good
-   byte to channel 1, and pushes a byte whose parity is wrong to channel 2 instead.
+   byte to channel 1, and pushes a byte whose parity is wrong, or whose stop bit is 0, to channel 2 instead.
 
 The parity comes from the LFSR. With `poly=1`, a step XORs the bit into LFSR bit 0 and leaves the other bits at
 0, so bit 0 is the running parity, and a pin can send it with `c`.
@@ -317,7 +317,7 @@ copy from it:
 
 1. **Allow for the pads when you sample.** A write reaches the pin a clock later and a read sees the pins of 2
    clocks before, so a `shift MISO` on the line that makes an edge reads MISO 3 clocks before that edge. Here it
-   stands 3 lines after it.
+   comes 3 clocks after it.
 2. **Test `rx0` before every pop.** A pop from an empty channel gives 0 and raises no flag.
 
 Two more ways to keep time:
