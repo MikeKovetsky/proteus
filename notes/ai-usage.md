@@ -157,3 +157,8 @@ A dated log, written as the work happens. The verification write-up's AI section
 34. **The slew fix on main.** The main session checked main's own build by the same bar: the same slacks, 0 slew,
     capacitance, setup and hold violations, precheck and 7 of 7 gate-level tests. GitHub's deployment record and
     the live site's header show that the viewer was deployed from that commit.
+35. **The pin tests' review, and a wrong brief.** A fresh Opus 5.5 reviewer at max effort found gap tests that
+    passed on a dead chip, a test that failed a correct WS2812 program and one more I2C gap. It did not mark the
+    branch, because nothing had shown the suite working on the routed netlist. It also found that the program-fix
+    agent had changed an existing test's expectation. The main session's brief had asked for that behaviour
+    without Mike's decision, so the main session ordered it reverted and left the decision to Mike.

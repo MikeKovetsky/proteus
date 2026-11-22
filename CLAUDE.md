@@ -214,12 +214,15 @@ make it novel". The main session's reading of it:
    Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
    one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
-4. **The pin tests (branch `pin-tests`, 9662164, in full review).** All 14 scenarios run through the pins, 27 of
-   27 tests pass on RTL, and `test/known_gaps.py` holds 17 failing reproductions of program gaps. They have not
-   run on the routed netlist. Their timing limits were typed from a model's memory and need checking against
-   the standards.
-5. **The program fixes (branch `program-fixes`, on the pin tests).** UART, SPI and I2C come first (R3), then the
-   gaps in USB, Ethernet, 1-Wire, PS/2 and WS2812. Whatever needs an RTL change is reported, not worked around.
+4. **The pin tests (branch `pin-tests`, 021e895): the full review ended NOT CLEAN on one line.** The suite has
+   never run on the routed netlist, with IHP's cell models or on cocotb 2.0.1, and proving that here needs about
+   5.2 MB of downloads, which wait for Mike's yes. The rest is fixed: 28 of 28 pass on RTL, each limit names its
+   source, and `test/known_gaps.py` holds 18 failing reproductions. The branch is unmarked, so it is not pushed.
+5. **The program fixes (branch `program-fixes`).** UART, SPI and I2C come first (R3), then the gaps in USB,
+   Ethernet, 1-Wire, PS/2 and WS2812. Whatever needs an RTL change is reported, not worked around. What counts as
+   correct is Mike's: the branch had turned a request with nothing to write into a plain I2C read, against
+   scenario 7 and an existing test, because the main session's brief asked for it. That is being reverted until
+   Mike decides, and the branch lists its other additions to the scenarios for Mike.
 6. **The proofs (branch `formal`).** The reset and instruction proofs, the host link in `src/project.v`, and
    mutation coverage are being built.
 7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
