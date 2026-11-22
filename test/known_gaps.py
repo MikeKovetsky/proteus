@@ -5,8 +5,8 @@
     make -B COCOTB_TEST_MODULES=known_gaps
 
 Every test here states what the protocol or the program's own interface asks for, so each one FAILS until
-its gap is closed. They are not in the default run and weaken nothing there: when one passes, move it into
-test_scenarios.py.
+its gap is closed, and a chip that does nothing at all passes none of them. They are not in the default run
+and weaken nothing there: when one passes, move it into test_scenarios.py.
 """
 
 import zlib
@@ -16,12 +16,13 @@ import cocotb
 from bench import boot, now
 from host_link import ST_OVERFLOW
 from protocols import crc, eth10, i2c, ps2, spi, uart, usb_ls, ws2812
-from protocols.wave import CLK, US, bits_lsb
+from protocols.wave import CLK, EPS, US, bits_lsb, bytes_msb
+from test_scenarios import I2C_100KHZ, i2c_retimed
 
 P0, P1, P2, P3 = 0, 1, 2, 3
 SPI_PINS = SCK, MOSI, MISO, CS = P0, P1, P2, P3
 USB_PINS = DP, DM = P0, P1
-DATA0, ACK = 0xC3, 0xD2
+DATA0, ACK = usb_ls.DATA0, usb_ls.ACK
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")
@@ -31,12 +32,17 @@ async def gap_i2c_write_only(dut):
     i2c.Target(chip.board, P0, P1, {0x50: b"\x11\x22"}, i2c.FAST, 0)
     chip.send(bytes([0x50, 1, 0x77, 0]))
     await chip.expect(ch2=b"\x00", within=300 * US)
+    await chip.quiet([P0, P1], 10 * US, 50 * US)
+    got, _ = i2c.check(chip.board, P0, P1, i2c.FAST, chip.board.since)
+    assert got == ["S A0+ 77+ P"], "the bus carried %s" % got
     await chip.finish()
 
 
 @cocotb.test(timeout_time=3, timeout_unit="ms")
 async def gap_i2c_plain_read(dut):
-    """i2c_ctrl, [addr][0][n]: a read is START, address+R. It first sends address+W, which not every target takes."""
+    """i2c_ctrl, [addr][0][n]: a read is START, address+R. It first sends address+W, which not every target takes.
+    Scenario 7's wording and test_scenario_i2c_ctrl ask for that address+W today, so this is the one gap that
+    can't close beside the default run until that request's meaning is changed."""
     chip = await boot(dut, "i2c_ctrl", open_drain=[P0, P1])
     i2c.Target(chip.board, P0, P1, {0x50: b"\x11"}, i2c.FAST, 0)
     chip.send(bytes([0x50, 0, 1]))
@@ -44,11 +50,28 @@ async def gap_i2c_plain_read(dut):
     await chip.quiet([P0, P1], 10 * US, 50 * US)
     got, _ = i2c.check(chip.board, P0, P1, i2c.FAST, chip.board.since)
     assert got == ["S A1+ 11- P"], "the bus carried %s" % got
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=5, timeout_unit="ms")
+async def gap_i2c_bus_free_slow_edges(dut):
+    """i2c_ctrl retimed to 100 kHz on a bus with standard mode's longest rise, 1 us: tBUF must be 4.7 us. It is
+    4.25, as the program times it from letting SDA go and not from SDA high. At 400 kHz with 300 ns it is 1.12
+    of 1.3 us."""
+    rise = i2c.STANDARD.tr_max
+    chip = await boot(dut, i2c_retimed(**I2C_100KHZ), open_drain=[P0, P1], rise={P0: rise, P1: rise}, poll=2 * US)
+    i2c.Target(chip.board, P0, P1, {0x50: b"\x11\x22"}, i2c.STANDARD, rise)
+    chip.send(bytes([0x50, 1, 0x77, 1]) * 2)
+    await chip.expect(ch1=b"\x11\x22", ch2=b"\x00\x00", within=2000 * US)
+    await chip.quiet([P0, P1], 10 * US, 50 * US)
+    i2c.check(chip.board, P0, P1, i2c.STANDARD, chip.board.since)
+    await chip.finish()
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def gap_spi_target_keeps_queued_byte(dut):
-    """spi_target_m0: two bytes queued, two 1-byte transactions. The second byte is popped and lost as CS rises."""
+    """spi_target_m0: two bytes queued, two 1-byte transactions. The second byte is popped after the first's last
+    bit and lost as CS rises, so the second transaction has nothing to drive."""
     chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
     chip.send(b"\xa5\x3c")
     idle_since = chip.board.since
@@ -65,7 +88,8 @@ async def gap_spi_target_keeps_queued_byte(dut):
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def gap_spi_ctrl_samples_early(dut):
     """spi_ctrl_m0: a target whose data is valid 20 ns before the rising edge of a 5 MHz clock is in order.
-    The controller samples the pad 3 clocks (50 ns) before that edge."""
+    The controller sampled the pad 2 clocks (33 ns) before it raised SCK: with the board's 2 ns of pad delay,
+    anything valid under 35.3 ns before the edge is lost."""
     chip = await boot(dut, "spi_ctrl_m0", outputs=[SCK, MOSI, CS], pulled_low=[SCK])
     spi.Target(chip.board, SPI_PINS, 0, [(b"\xa5", spi.PERIOD / 2 - 20)])
     chip.send(b"\x01\x00")
@@ -77,10 +101,17 @@ async def gap_underrun_is_silent(dut):
     """spi_ctrl_m0 (eth10_tx and usb_ls_tx alike): the host is late with byte 2. The chip must wait or flag
     it. It pops the empty FIFO and sends a 0, and OVERFLOW stays low."""
     chip = await boot(dut, "spi_ctrl_m0", outputs=[SCK, MOSI, CS], pulled_low=[SCK])
+    board = chip.board
     chip.send(b"\x02\xff")
     await chip.wait(20 * US)
-    rises = sum(1 for _, level in chip.board.line[SCK].changes(chip.board.since) if level)
-    assert rises <= 8 or chip.host.status() & ST_OVERFLOW, "%d clocks for 1 byte from the host, and no flag" % rises
+    if chip.host.status() & ST_OVERFLOW:
+        return  # flagged
+    rises = sum(1 for _, level in board.line[SCK].changes(board.since) if level)
+    assert rises <= 8, "%d clocks for 1 byte from the host, and no flag" % rises
+    chip.send(b"\x5a")  # the late byte
+    await chip.wait(20 * US)
+    sampled = [board.line[MOSI].at(t) for t, level in board.line[SCK].changes(board.since) if level]
+    assert len(sampled) == 16 and bytes_msb(sampled) == b"\xff\x5a", "with the late byte it clocked out %s" % sampled
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
@@ -92,8 +123,11 @@ async def gap_eth10_tx_underrun(dut):
     await chip.wait(100 * US)
     if chip.host.status() & ST_OVERFLOW:
         return  # flagged
+    board = chip.board
+    assert board.line[P0].changes(board.since), "nothing went out, and no flag"
+    assert (board.line[P0].at(now()), board.line[P1].at(now())) == (0, 0), "the pair never went back to idle"
     try:
-        frames = eth10.decode((chip.board.line[P0], chip.board.line[P1]), chip.board.since)
+        frames = eth10.decode((board.line[P0], board.line[P1]), board.since)
     except AssertionError:
         return  # broken on the wire, which every receiver drops
     for sent in frames:
@@ -103,28 +137,34 @@ async def gap_eth10_tx_underrun(dut):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def gap_uart_rx_framing(dut):
-    """uart_rx: a frame whose stop bit is 0 is not a byte."""
+    """uart_rx: a frame whose stop bit is 0 is not a byte. The next good frame still is one. An error report on
+    channel 2 is allowed."""
     chip = await boot(dut, "uart_rx")
-    events, end = uart.send(P1, b"\x42", 115200, now() + 1 * US)
-    events = [(t, levels) for t, levels in events if t < end - 1e9 / 115200 - 1]
-    events += [(end - 1e9 / 115200, {P1: 0}), (end + 10 * US, {P1: 1})]
-    await chip.board.play(events)
-    await chip.finish()
+    bit = 1e9 / 115200
+    broken, end = uart.send(P1, b"\x42", 115200, now() + 1 * US, stop=0)
+    following, _ = uart.send(P1, b"\x5a", 115200, end + 2 * bit)
+    await chip.board.play(broken + [(end, {P1: 1})] + following)
+    await chip.expect(ch1=b"\x5a", within=30 * US)
+    await chip.wait(10 * US)
+    assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
 
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")
 async def gap_ps2_rx_framing(dut):
-    """ps2_rx: a frame whose stop bit is 0 is not a good byte."""
+    """ps2_rx: a frame whose stop bit is 0 is not a good byte. The next good frame still is one."""
     chip = await boot(dut, "ps2_rx")
-    events, _ = ps2.frame(P0, P1, 0x42, now() + 1 * US, 16.7, late=False, stop=0)
-    await chip.board.play(events)
+    broken, t = ps2.frame(P0, P1, 0x42, now() + 1 * US, 16.7, late=False, stop=0)
+    following, _ = ps2.frame(P0, P1, 0x5A, t, 16.7, late=False)
+    await chip.board.play(broken + following)
+    await chip.expect(ch1=b"\x5a", within=30 * US)
     await chip.wait(10 * US)
-    assert not chip.task.received[1], "a frame with a bad stop bit gave %s" % chip.task.received[1].hex()
+    assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
 
 
 @cocotb.test(timeout_time=6, timeout_unit="ms")
 async def gap_ps2_rx_resync(dut):
-    """ps2_rx: a device abandons a frame after 4 clocks. 2 ms later, a whole frame must be read."""
+    """ps2_rx: a device abandons a frame after 4 clocks. 2 ms later (the test's own figure: 20 of the longest
+    clock periods), a whole frame must be read."""
     chip = await boot(dut, "ps2_rx")
     start = now() + 1 * US
     cut, _ = ps2.frame(P0, P1, 0x00, start, 16.7, late=False)
@@ -140,7 +180,8 @@ async def gap_ws2812_v5(dut):
     chip = await boot(dut, "ws2812_tx", outputs=[P0], pulled_low=[P0])
     chip.send(b"\x01\x0f\xf0\x55")
     await chip.wait(350 * US)
-    ws2812.decode(chip.board.line[P0], chip.board.since, now(), ws2812.WS2812B_V5)
+    got = ws2812.decode(chip.board.line[P0], chip.board.since, now(), ws2812.WS2812B_V5)
+    assert got == [b"\x0f\xf0\x55"], "the line carried %s" % [g.hex() for g in got]
 
 
 @cocotb.test(timeout_time=10, timeout_unit="ms")
@@ -174,8 +215,9 @@ async def gap_usb_rx_handshake(dut):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def gap_usb_rx_dribble(dut):
-    """usb_ls_rx: hubs can stretch the last bit before EOP by up to a bit, and a receiver must accept it
-    (7.1.9.1). This one reports a bad CRC from a stretch of just over half a bit."""
+    """usb_ls_rx: hubs can stretch the last bit before EOP, and a receiver must accept up to six whole bit
+    times with no transition there (7.1.9.1). Here one bit becomes two. This one reports a bad CRC from a
+    stretch of just over half a bit."""
     chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
     packet = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12\x34")
     events, _ = usb_ls.send(USB_PINS, packet, now() + 1 * US)
@@ -196,9 +238,13 @@ async def gap_usb_rx_stuff_error(dut):
             events.append((t, {DP: state[0], DM: state[1]}))
         t += usb_ls.BIT
     events += [(t, {DP: 0, DM: 0}), (t + 2 * usb_ls.BIT, {DM: 1}), (t + 3 * usb_ls.BIT, {DP: None, DM: None})]
-    await chip.board.play(events)
+    sound = bytes([DATA0]) + crc.with_crc(crc.CRC16_USB, b"\x12")
+    following, _ = usb_ls.send(USB_PINS, sound, t + 8 * usb_ls.BIT)
+    await chip.board.play(events + following)
     await chip.until(lambda: len(chip.task.received[2]) >= 2, "status", 20 * US)
     assert chip.task.received[2][0] != 0, "a stuffing error was reported as a good packet"
+    await chip.until(lambda: len(chip.task.received[2]) >= 4, "status for the packet after it", 20 * US)
+    assert chip.task.received[2][2:4] == bytes([0, len(sound)]), "the good packet after it was not accepted"
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
@@ -219,8 +265,14 @@ async def gap_eth10_rx_jitter(dut):
 @cocotb.test(timeout_time=30, timeout_unit="ms")
 async def gap_eth10_link_pulses(dut):
     """eth10_tx: an idle 10BASE-T transmitter sends a link pulse every 16 ms (8 either way), or the far end
-    drops the link. About 1.5 million clocks, so half a minute."""
+    drops the link. A pulse is 60 to 200 ns of positive level. About 1.5 million clocks, so half a minute."""
     chip = await boot(dut, "eth10_tx", outputs=[P0, P1], pulled_low=[P0, P1], poll=1000 * US)
     start = now()
-    await chip.wait(24100 * US)
-    assert chip.board.line[P0].changes(start + CLK), "no link pulse in 24 ms"
+    await chip.wait(eth10.LINK_PERIOD[1] + 100 * US)
+    tp, tn = chip.board.line[P0], chip.board.line[P1]
+    edges = tp.changes(start + CLK)
+    assert edges, "no link pulse in 24 ms"
+    assert len(edges) >= 2 and edges[0][1] == 1, "TX+ moved, but not as a pulse"
+    width = edges[1][0] - edges[0][0]
+    assert eth10.LINK_PULSE[0] - EPS <= width <= eth10.LINK_PULSE[1] + EPS, "a link pulse of %.1f ns" % width
+    assert not tn.changes(start + CLK) and tn.at(now()) == 0, "TX- moved with the link pulse"
