@@ -15,7 +15,7 @@ import cocotb
 from bench import boot, now
 from host_link import PROGRAMS, ST_OVERFLOW
 from bakeoff.cand_table.compiler import compile_text
-from protocols import i2c, onewire, spi, uart, ws2812
+from protocols import i2c, onewire, ps2, spi, uart, ws2812
 from protocols.wave import CLK, EPS, US, Wave, bytes_msb
 from test_scenarios import (ACKED, ADDRESS_W, I2C_100KHZ, I2C_FEW, ONEWIRE_RISE, SLOW_POLL, i2c_retimed, i2c_run,
                             rng, some_bytes, some_phase)
@@ -580,3 +580,80 @@ async def test_onewire_shorted_bus(dut):
     await chip.until(lambda: len(chip.task.received[2]) >= 1, "status", 7000 * US)
     await chip.wait(50 * US)
     assert chip.task.received[2][:1] == b"\x01", "a shorted bus gave %s" % chip.state()
+
+
+# ---- PS/2
+
+PS2_RECEIVERS = {  # program, clock, data, what the chip drives, where good bytes go, and what a bad frame gives
+    "alone": ("ps2_rx", P0, P1, (), 1, b"\xff"),
+    "four": ("extra/four_at_once", 5, 6, (P0, 2, 3, 4), 2, b""),
+}
+
+
+async def ps2_run(dut, receiver, broken, flags):
+    """`broken(clk, data, start)` gives a broken frame's events and end. A good frame after it must be read."""
+    image, clk, data, outputs, channel, flag = PS2_RECEIVERS[receiver]
+    chip = await boot(dut, image, outputs=outputs, poll=SLOW_POLL)
+    events, end = broken(clk, data, now() + 1 * US)
+    again, after = ps2.frame(clk, data, 0x5A, end, 16.7, late=False)
+    player = chip.board.play(events + again)
+    got = {1: b"", 2: flag * flags}
+    got[channel] += b"\x5a"
+    await chip.expect(ch1=got[1], ch2=got[2], within=after - now() + 100 * US)
+    await player
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=3, timeout_unit="ms")
+@cocotb.parametrize(receiver=list(PS2_RECEIVERS), fastest=[False, True])
+async def test_ps2_rx_bad_frames(dut, receiver, fastest):
+    """ps2_rx and its copy in four_at_once: a frame whose stop bit is 0, or whose start bit is 1, is not a good
+    byte, and the frame straight after is read. ps2_rx gives 0xFF for each, which scenario 10 does not define."""
+    khz = 16.7 if fastest else 10
+
+    def broken(clk, data, start):
+        events, end = ps2.frame(clk, data, 0x42, start, khz, late=False, stop=0)
+        glitch = [(end + 50 * US, {clk: 0}), (end + 80 * US, {clk: None})]  # a falling clock with the data high
+        return events + glitch, end + 130 * US
+
+    await ps2_run(dut, receiver, broken, 2)
+
+
+@cocotb.test(timeout_time=6, timeout_unit="ms")
+@cocotb.parametrize(receiver=list(PS2_RECEIVERS), clocks=[1, 4, 10])
+async def test_ps2_rx_abandoned(dut, receiver, clocks):
+    """ps2_rx and its copy in four_at_once: a device abandons a frame after some of its clocks. The frame it
+    sends 0.5 or 2 ms later is read whole. The 250 us time-out is the program's own figure."""
+    resume = 2000 if clocks == 4 else 500
+
+    def broken(clk, data, start):
+        events, _ = ps2.frame(clk, data, 0x00, start, 16.7, late=False)
+        last = events[3 * clocks - 1][0]
+        return events[:3 * clocks] + [(last + 10 * US, {data: None})], last + resume * US
+
+    await ps2_run(dut, receiver, broken, 1)
+
+
+@cocotb.test(timeout_time=2, timeout_unit="ms")
+async def test_ps2_rx_framing(dut):
+    """ps2_rx: a frame whose stop bit is 0 is not a good byte. The next good frame still is one."""
+    chip = await boot(dut, "ps2_rx")
+    broken, t = ps2.frame(P0, P1, 0x42, now() + 1 * US, 16.7, late=False, stop=0)
+    following, _ = ps2.frame(P0, P1, 0x5A, t, 16.7, late=False)
+    await chip.board.play(broken + following)
+    await chip.expect(ch1=b"\x5a", within=30 * US)
+    await chip.wait(10 * US)
+    assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
+
+
+@cocotb.test(timeout_time=6, timeout_unit="ms")
+async def test_ps2_rx_resync(dut):
+    """ps2_rx: a device abandons a frame after 4 clocks. 2 ms later (the test's own figure: 20 of the longest
+    clock periods), a whole frame must be read."""
+    chip = await boot(dut, "ps2_rx")
+    start = now() + 1 * US
+    cut, _ = ps2.frame(P0, P1, 0x00, start, 16.7, late=False)
+    cut = cut[:4 * 3] + [(start + 300 * US, {P1: None})]
+    again, _ = ps2.frame(P0, P1, 0x5A, start + 2000 * US, 16.7, late=False)
+    await chip.board.play(cut + again)
+    await chip.expect(ch1=b"\x5a", within=100 * US)

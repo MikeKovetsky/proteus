@@ -29,7 +29,7 @@ that the compiler only does arithmetic. The third prints a program's listing: ev
 | spi_target_m0 | pass | 23 | 19 | 34 | 291 |
 | i2c_ctrl | pass | 72 | 92 | 101 | 827 |
 | ws2812_tx | pass | 25 | 23 | 31 | 267 |
-| ps2_rx | pass | 18 | 14 | 22 | 195 |
+| ps2_rx | pass | 25 | 20 | 30 | 259 |
 | onewire | pass | 33 | 37 | 41 | 347 |
 | usb_ls_tx | pass | 39 | 56 | 67 | 555 |
 | usb_ls_rx | pass | 40 | 42 | 60 | 499 |

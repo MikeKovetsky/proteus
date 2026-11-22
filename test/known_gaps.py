@@ -15,7 +15,7 @@ import cocotb
 
 from bench import boot, now
 from host_link import ST_OVERFLOW
-from protocols import crc, eth10, i2c, ps2, usb_ls
+from protocols import crc, eth10, i2c, usb_ls
 from protocols.wave import CLK, EPS, US, bits_lsb
 
 P0, P1, P2 = 0, 1, 2
@@ -57,31 +57,6 @@ async def gap_eth10_tx_underrun(dut):
     for sent in frames:
         valid = sent[-4:] == zlib.crc32(sent[:-4]).to_bytes(4, "little")
         assert not valid, "30 bytes became a valid frame: %s" % sent.hex()
-
-
-@cocotb.test(timeout_time=2, timeout_unit="ms")
-async def gap_ps2_rx_framing(dut):
-    """ps2_rx: a frame whose stop bit is 0 is not a good byte. The next good frame still is one."""
-    chip = await boot(dut, "ps2_rx")
-    broken, t = ps2.frame(P0, P1, 0x42, now() + 1 * US, 16.7, late=False, stop=0)
-    following, _ = ps2.frame(P0, P1, 0x5A, t, 16.7, late=False)
-    await chip.board.play(broken + following)
-    await chip.expect(ch1=b"\x5a", within=30 * US)
-    await chip.wait(10 * US)
-    assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
-
-
-@cocotb.test(timeout_time=6, timeout_unit="ms")
-async def gap_ps2_rx_resync(dut):
-    """ps2_rx: a device abandons a frame after 4 clocks. 2 ms later (the test's own figure: 20 of the longest
-    clock periods), a whole frame must be read."""
-    chip = await boot(dut, "ps2_rx")
-    start = now() + 1 * US
-    cut, _ = ps2.frame(P0, P1, 0x00, start, 16.7, late=False)
-    cut = cut[:4 * 3] + [(start + 300 * US, {P1: None})]
-    again, _ = ps2.frame(P0, P1, 0x5A, start + 2000 * US, 16.7, late=False)
-    await chip.board.play(cut + again)
-    await chip.expect(ch1=b"\x5a", within=100 * US)
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")

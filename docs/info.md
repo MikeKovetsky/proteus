@@ -98,6 +98,7 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `i2c_ctrl`, `i2c_ctrl_100k` | I2C controller at 400 and at 100 kHz: a write then a read, or a write alone when the read count is 0 | `0x00` done, `0x01` NACK, `0x02` bus stuck |
 | `ws2812_tx` | WS2812B and its V5: 75 clocks a bit, 282 us of latch | `0x01` each time the host was late inside a frame |
 | `onewire` | 1-Wire reset, presence and Read ROM | `0x00`, then `0x00` good CRC or `0x01` bad. Or only `0x01`: no device, or a short |
+| `ps2_rx` | PS/2 from a device at 10 to 16.7 kHz | `0xFF` for a wrong start, parity or stop bit, or a clock that stops for 250 us inside a frame |
 
 What to know before using them:
 
@@ -114,11 +115,12 @@ What to know before using them:
    as that takes.
 4. **WS2812's timing has 3 ns to spare** on one limit: a 1 is low for 583 ns, the V5 wants 580 at least and the
    first WS2812B 600 at most. A slow output edge counts against that. The latch is 2 us over the V5's 280.
-5. **`extra/four_at_once`** drops a UART byte whose stop bit is 0 without a report: channel 2 is PS/2's there.
+5. **`extra/four_at_once`** drops a UART byte whose stop bit is 0, and a bad PS/2 frame, without a report:
+   channel 2 is PS/2's data there.
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 74 tests in about 2 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 86 tests in about 3 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
@@ -148,10 +150,11 @@ The transmit tests also require each push-pull pin to be driven, because a pin l
 test checks the judges' CRCs against the RevEng catalogue's check values and codewords. Four more run I2C on fast
 mode's slowest edges, with a late host and, with sharp edges, retimed to 400 and 100 kHz. `test/test_programs.py`
 holds the programs to the section above: the other UART rates and SPI modes, both I2C programs as shipped with the
-sharpest and slowest edges and the time-out, the V5's WS2812 timing, a shorted 1-Wire bus, bad stop bits, queued
-bytes and late hosts. The seven in `test/test.py` cover what the scenarios do not: the loader with reset and reload,
-both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the SRAMs' `A_DLY` ties (IHP's model
-reports a wrong tie only with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in CI).
+sharpest and slowest edges and the time-out, the V5's WS2812 timing, a shorted 1-Wire bus, bad and abandoned PS/2
+frames, bad stop bits, queued bytes and late hosts. The seven in `test/test.py` cover what the scenarios do not: the
+loader with reset and reload, both host ports, ROOM and OVERFLOW, the pads' three clocks of round trip, and the
+SRAMs' `A_DLY` ties (IHP's model reports a wrong tie only with a `$stop`, which Icarus runs past when nothing
+answers on its stdin, as in CI).
 
 What the shipped programs do not yet do:
 
@@ -161,7 +164,7 @@ What the shipped programs do not yet do:
    raised, under a valid CRC.
 3. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
    changing it waits for Mike's decision.
-4. `test/known_gaps.py` has these and the other gaps, 10 tests that fail until each is closed:
+4. `test/known_gaps.py` has these and the other gaps, 8 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random
