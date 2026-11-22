@@ -101,6 +101,8 @@ it gets back on channel 1 (data) and channel 2 (status).
 | `ps2_rx` | PS/2 from a device at 10 to 16.7 kHz | `0xFF` for a wrong start, parity or stop bit, or a clock that stops for 250 us inside a frame |
 | `usb_ls_tx` | Low-speed USB data packets: every packet gets the CRC-16 of the bytes after its PID | `0x01` for a packet the host was late in. It goes out with a stuffing error |
 | `usb_ls_rx` | Low-speed USB packets, judged by CRC-16, with a hub's extra bit before EOP let through | `0x00` good or `0x01` bad, then the byte count |
+| `eth10_tx` | 10 Mbit Ethernet frames, with preamble and FCS. No link pulses | `0x01` for a frame the host was late in. It goes out cut short, with a wrong FCS |
+| `eth10_rx` | 10 Mbit Ethernet receive, up to 8 ns of jitter | `0x00` good or `0x01` bad FCS, then the length, low byte first |
 
 What to know before using them:
 
@@ -125,12 +127,12 @@ What to know before using them:
    packets when 75 ns of jitter between neighbouring edges comes with a long SE0 inside transitions: above 140 ns
    at 1.5% off in rate, and above 190 ns at the exact rate. Either one, at its limit and 1.5% off in rate, is
    received.
-7. **A USB transmitter that was cut short waits for the rest of that packet** from the host, and drops it, before it
-   starts the next.
+7. **A USB or Ethernet transmitter that was cut short waits for the rest** of that packet or frame from the host,
+   and drops it, before it starts the next.
 
 ## How to test
 
-The default test runs the whole chip through its 24 pins on Icarus: 98 tests in about 3 minutes. They are
+The default test runs the whole chip through its 24 pins on Icarus: 103 tests in about 3 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`). An earlier 28 of them have, on a synthesised netlist with
 stand-in cell models; these programs have not, and nothing has yet run on the routed netlist or under CI's cocotb.
 
@@ -169,16 +171,16 @@ with a `$stop`, which Icarus runs past when nothing answers on its stdin, as in 
 What the shipped programs do not yet do:
 
 1. Ethernet receive takes 8 ns of jitter, not the standard's 13.5 ns, so its test uses 5.5 ns, the most a whole
-   sending station may add.
-2. The Ethernet transmit program does not wait for a host that falls behind: zeros go out and no flag is raised,
-   under a valid CRC.
-3. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
+   sending station may add (`gap_eth10_rx_jitter`). A program cannot guarantee 13.5 ns on this chip, which samples
+   each pin every 16.7 ns: `test/eth10_jitter_limit.py` builds pairs of different good frames that give the same
+   samples at 13.5, 10 and 8.4 ns of jitter. It takes finer sampling in the RTL, which is not built.
+2. I2C has no read without address+W before it (`gap_i2c_plain_read`). Scenario 7 asks for the address+W, so
    changing it waits for Mike's decision.
-4. USB has no handshakes or tokens (`gap_usb_tx_handshake`, `gap_usb_rx_handshake`). Scenarios 11 and 12 ask for
+3. USB has no handshakes or tokens (`gap_usb_tx_handshake`, `gap_usb_rx_handshake`). Scenarios 11 and 12 ask for
    a CRC-16 on every packet, so changing it waits for Mike's decision.
-5. Ethernet transmit sends no link pulses (`gap_eth10_link_pulses`). Scenario 13 asks for both lines low when
+4. Ethernet transmit sends no link pulses (`gap_eth10_link_pulses`). Scenario 13 asks for both lines low when
    idle, so changing it waits for Mike's decision.
-6. `test/known_gaps.py` has these and the other gaps, 6 tests that fail until each is closed:
+5. `test/known_gaps.py` has these gaps, 5 tests that fail until each is closed:
    `make -B COCOTB_TEST_MODULES=known_gaps`.
 
 The main evidence is the lockstep suite. It records the golden model running all 14 bake-off benches and 300 random

@@ -9,13 +9,14 @@ A test named as a closed gap has that gap's body, unchanged.
 """
 
 import re
+import zlib
 
 import cocotb
 
 from bench import boot, now
 from host_link import PROGRAMS, ST_OVERFLOW
 from bakeoff.cand_table.compiler import compile_text
-from protocols import crc, i2c, onewire, ps2, spi, uart, usb_ls, ws2812
+from protocols import crc, eth10, i2c, onewire, ps2, spi, uart, usb_ls, ws2812
 from protocols.wave import CLK, EPS, US, Wave, bits_lsb, bytes_msb
 from test_scenarios import (I2C_100KHZ, I2C_FEW, ONEWIRE_RISE, SLOW_POLL, STUFFED_AT_END, i2c_retimed, i2c_run, rng,
                             some_bytes, some_phase, usb_packet)
@@ -849,3 +850,45 @@ async def test_usb_rx_stuff_error(dut):
     assert chip.task.received[2][0] != 0, "a stuffing error was reported as a good packet"
     await chip.until(lambda: len(chip.task.received[2]) >= 4, "status for the packet after it", 20 * US)
     assert chip.task.received[2][2:4] == bytes([0, len(sound)]), "the good packet after it was not accepted"
+
+
+# ---- 10 Mbit Ethernet
+
+
+@cocotb.test(timeout_time=2, timeout_unit="ms")
+@cocotb.parametrize(given=[0, 1, 30, 59])
+async def test_eth10_tx_late_host(dut, given):
+    """eth10_tx: the host stops inside a 60-byte frame. What came goes out with every bit of its FCS wrong,
+    0x01 says so, and the late bytes are not read as the next frame's length. Scenario 13's host is never late."""
+    frame, after = bytes(range(1, 61)), bytes(range(100, 160))
+    chip = await boot(dut, "eth10_tx", outputs=[P0, P1], pulled_low=[P0, P1])
+    chip.send(b"\x3c\x00" + frame[:given])
+    await chip.expect(ch2=b"\x01", within=100 * US)
+    chip.send(frame[given:] + b"\x3c\x00" + after)
+    await chip.sent(300 * US)
+    await chip.quiet([P0, P1], 15 * US, 150 * US)
+    got = eth10.decode((chip.board.line[P0], chip.board.line[P1]), chip.board.since)
+    wrong = bytes(255 - byte for byte in zlib.crc32(frame[:given]).to_bytes(4, "little"))
+    want = [frame[:given] + wrong, crc.with_crc(crc.CRC32_ETHERNET, after)]
+    assert got == want, "the line carried %s" % [sent.hex() for sent in got]
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_eth10_tx_underrun(dut):
+    """eth10_tx: the host stops after 30 of 60 bytes. A cut-short frame must go out broken or flagged."""
+    chip = await boot(dut, "eth10_tx", outputs=[P0, P1], pulled_low=[P0, P1])
+    chip.send(b"\x3c\x00" + bytes(range(1, 31)))
+    await chip.wait(100 * US)
+    if chip.host.status() & ST_OVERFLOW:
+        return  # flagged
+    board = chip.board
+    assert board.line[P0].changes(board.since), "nothing went out, and no flag"
+    assert (board.line[P0].at(now()), board.line[P1].at(now())) == (0, 0), "the pair never went back to idle"
+    try:
+        frames = eth10.decode((board.line[P0], board.line[P1]), board.since)
+    except AssertionError:
+        return  # broken on the wire, which every receiver drops
+    for sent in frames:
+        valid = sent[-4:] == zlib.crc32(sent[:-4]).to_bytes(4, "little")
+        assert not valid, "30 bytes became a valid frame: %s" % sent.hex()

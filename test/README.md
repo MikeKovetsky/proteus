@@ -5,8 +5,9 @@ on the path. `docs/info.md`, "How to test", says what each one checks.
 
 | Command | What it runs | Time |
 |---|---|---|
-| `make -B` | 98 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
-| `make -B COCOTB_TEST_MODULES=known_gaps` | 6 known gaps, one test each. All fail until they are closed | about 40 s |
+| `make -B` | 103 tests of the whole chip through its pins (`test.py`, `test_scenarios.py`, `test_programs.py`), on Icarus | about 3 min |
+| `make -B COCOTB_TEST_MODULES=known_gaps` | 5 known gaps, one test each. All fail until they are closed | about 30 s |
+| `python3 eth10_jitter_limit.py` | Builds two good frames that no receiver sampling at 60 MHz can tell apart | 1 s |
 | `make lockstep` | The golden model against the RTL core, clock for clock (`lockstep/`), on Verilator | about 10 s |
 | `make mutants` | 21 planted bugs, one at a time; the lockstep suite must catch each | about 40 s |
 | `make lint` | Verilator lint of `src/`, every warning on | 1 s |
@@ -47,6 +48,8 @@ python3 -m cocotb_tools.check_results results.xml
    test of every phase that can time out compiles the program with that shortened to 1.1 ms.
 5. **Ethernet receive runs below the standard's jitter.** Its test uses 5.5 ns, the most a whole sending station
    may add. A receiver must take 13.5 ns and this program loses frames from 8.5 ns (`gap_eth10_rx_jitter`).
+   No program can guarantee 13.5 ns while the chip samples once a clock: `eth10_jitter_limit.py` shows two
+   different good frames with the same samples, at 13.5, 10 and 8.4 ns. The gap waits for an RTL change.
 6. **Driven, not pulled.** A pin nobody drives reads as its pull, so the transmit tests also check that the chip
    drives each push-pull pin (`Bench.driven`).
 
@@ -86,7 +89,8 @@ the Ethernet interframe gap from the end of TP_IDL.
 
 A gap test states what should happen, so it fails today, and a chip that does nothing passes none of them. When one
 passes, move it into `test_programs.py` with its body unchanged. A gap that contradicts a scenario's wording, as
-`gap_i2c_plain_read`, the two USB handshake gaps and `gap_eth10_link_pulses` do, waits for Mike instead. `test_scenarios.py` and `protocols/` don't change for a program.
+`gap_i2c_plain_read`, the two USB handshake gaps and `gap_eth10_link_pulses` do, waits for Mike instead.
+`test_scenarios.py` and `protocols/` don't change for a program.
 
 ## Gate-level simulation
 
