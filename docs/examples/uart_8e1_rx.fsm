@@ -1,5 +1,5 @@
-# UART receiver, 8E1, 115200 baud on P1. A byte with good parity goes to channel 1. A byte whose parity is
-# wrong goes to channel 2 instead, so the host sees both. The worked example of docs/programming.md.
+# UART receiver, 8E1, 115200 baud on P1. A good byte goes to channel 1. A byte whose parity is wrong, or whose
+# stop bit is 0, goes to channel 2 instead, so the host sees both. The worked example of docs/programming.md.
 
 machine rx
     in    RX=P1
@@ -15,7 +15,8 @@ bit:    shift RX, crc+=RX, K-=1      # take one bit into the shifter and into th
         hold BIT - 2 => bit          # a bit is BIT clocks: 1 + 1 + (BIT - 2)
 parity: hold BIT - 2                 # to the middle of the parity bit
         crc+=RX                      # the parity bit joins the sum
-        wait RX                      # the stop bit; the crc flag lags one clock, and this line covers it
-        => crc: good
-        push2=S => idle              # parity error: the byte goes to channel 2
+        hold BIT - 1                 # to the middle of the stop bit; the crc flag has caught up by then
+        => RX & crc: good            # the stop bit must be 1 and the parity right
+        push2=S                      # an error: the byte goes to channel 2
+        wait RX => idle              # and the line must be high before the next start bit
 good:   push1=S => idle

@@ -1,23 +1,33 @@
 # PS/2 device-to-host receiver. The device drives both lines; data is valid on the falling clock edge.
-# A frame is a start bit, 8 data bits LSB first, odd parity and a stop bit.
-# Good bytes go to channel 1. A frame with wrong parity puts 0xFF on channel 2.
+# A frame is a start bit (0), 8 data bits LSB first, odd parity and a stop bit (1).
+# Good bytes go to channel 1. A frame with wrong parity, a wrong start or stop bit, or a clock that stops for
+# 250 us inside it puts 0xFF on channel 2, and the next falling edge with the data low starts another.
 
 machine kbd
     in    CLK=P0, DATA=P1
     order lsb
     crc   poly=1 match=1             # a one-bit LFSR is a running parity; odd parity ends at 1
+    const STALL = 15000              # 250 us: at 10 kHz, the slowest, each half of a clock is 50 us
 
-idle:   wait !CLK                    # start bit
-        K=8, crc=0
-        wait CLK
-bit:    wait !CLK
+idle:   wait !CLK
+        K=8, crc=0 => DATA: bad      # a start bit is 0
+        call high
+bit:    call low
         shift DATA, crc+=DATA, K-=1
-        wait CLK => kz: parity | bit
-parity: wait !CLK
+        call high
+        => kz: parity | bit
+parity: call low
         crc+=DATA                    # the parity bit joins the sum
-        wait CLK
-        wait !CLK                    # stop bit
-        wait CLK
-        => crc: good
-        push2=0xFF => idle
-good:   push1=S => idle
+        call high
+        call low                     # the stop bit
+        => !DATA: bad | crc: good
+bad:    push2=0xFF
+over:   wait CLK => idle             # the clock rests high before the next start bit
+good:   push1=S => over
+
+# Wait for the clock's next level, but not for ever: a device may abandon a frame.
+low:    T=STALL
+        wait => !CLK: there | tz: bad
+high:   T=STALL
+        wait => CLK: there | tz: bad
+there:  ret

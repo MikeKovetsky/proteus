@@ -261,7 +261,7 @@ machine may use one pin as both an output and an input (the I2C and 1-Wire progr
 ```
 
 Machine m starts in entry m. The loader writes zeros to every entry above the count, so no old state is left.
-An image is 1 + 16 x machines + 2 + 8 x entries bytes: the bench programs are 107 to 771 bytes. The loader's
+An image is 1 + 16 x machines + 2 + 8 x entries bytes: the bench programs are 107 to 843 bytes. The loader's
 handling of out-of-range counts is in [info.md](info.md#loading-a-program).
 
 ## 4. The state-machine language
@@ -473,7 +473,7 @@ A macro is a block of lines with parameters, pasted where it is used:
 
 ```
 macro pulse(SET)                 # i2c_ctrl.fsm
-        hold 40
+        hold 25
         SET, call clock
 end
 

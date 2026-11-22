@@ -1,0 +1,12 @@
+# UART transmitter: 8N1, 921600 baud, LSB first. Bytes come from channel 0.
+
+machine tx
+    out   TX=P0
+    order lsb
+    const BIT = 65                   # 60 MHz / 921600 = 65.10 clocks
+
+idle:   TX=1, wait rx0               # the line idles high until a byte is waiting
+        S=pop0, K=8
+        TX=0, hold BIT               # start bit
+bit:    TX=d, shift, K-=1, hold BIT => kz: stop | bit
+stop:   TX=1, hold BIT => idle

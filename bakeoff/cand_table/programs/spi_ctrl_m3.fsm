@@ -1,6 +1,7 @@
-# SPI controller, mode 3, 5 MHz (12 clocks per bit), MSB first: the clock idles high, data changes on the
-# falling edge and is sampled on the rising edge.
-# Channel 0 gives [n][n bytes]. The n bytes read from MISO go to channel 1.
+# SPI controller, mode 3 (CPOL 1, CPHA 1), 5 MHz (12 clocks per bit), MSB first.
+# The clock idles high. Data changes on the falling edge and is sampled on the rising edge.
+# Channel 0 gives [n][n bytes]. The n bytes read from MISO go to channel 1. A host that falls behind stops the
+# clock between two bytes, with CS low, until its next byte is there.
 
 machine spi
     out   SCK=P0, MOSI=P1, CS=P3
@@ -11,16 +12,17 @@ idle:   SCK=1, CS=1, wait rx0
         N=pop0                       # bytes to transfer
         => nz: idle
         wait rx0
-        S=pop0, K=8, N-=1, CS=0      # select the target, first byte in the shifter
-        hold 6
+        S=pop0, K=7, N-=1, CS=0      # select the target, first byte in the shifter
+        hold 6                       # the first edge puts the first bit out
 
+# One bit is exactly 12 clocks, also across a byte boundary. A read sees the pins of 2 clocks before, and a
+# write reaches them a clock later: the edge made on clock 6 is on the pin in 7, and clock 9 reads MISO as of 7.
 bit:    SCK=0, MOSI=d, hold 6        # clocks 0-5: falling edge, data out
-        SCK=1, shift MISO, K-=1      # clock 6: rising edge, sample MISO as the shifter moves on
-        => kz: byte                  # clock 7
-        hold 4 => bit                # clocks 8-11
-byte:   push1=S                      # clock 8: the byte read
-        => nz: last                  # clock 9
-        S=pop0, K=8, N-=1            # clock 10: the next byte to send
-        nop => bit                   # clock 11
-last:   hold 8                       # the clock stays high
+        SCK=1, hold 3                # clocks 6-8: rising edge
+        shift MISO, K-=1 => kz: byte # clock 9: MISO at that edge. The rule sees K as it was: 7 down to 0
+        hold 2 => bit                # clocks 10-11
+byte:   push1=S => nz: last | rx0: load # clock 10: the byte read, and is the next one here?
+        wait rx0                     # it is not: the clock stops
+load:   S=pop0, K=7, N-=1 => bit     # clock 11: the next byte to send
+last:   hold 7                       # clocks 11-17: the clock already rests
         CS=1, hold 12 => idle

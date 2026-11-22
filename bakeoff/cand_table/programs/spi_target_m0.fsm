@@ -1,19 +1,31 @@
 # SPI target, mode 0, MSB first. Bytes from channel 0 go out on MISO; bytes read from MOSI go to channel 1.
 # MISO is driven only while CS is low: the `when CS` release acts in the same clock that sees CS rise.
+# A byte is taken from channel 0 ahead of its first clock, and kept for the next transaction if CS rises before
+# that clock comes. A byte the host did not have ready goes out as 0x00, and channel 2 gets 0x01 as soon as the
+# controller clocks it. A byte that CS cuts short is dropped in both directions.
 
 machine spi
     in    SCK=P0, MOSI=P1, CS=P3
     out   MISO=P2
     order msb
 
-start:  wait rx0                     # the first byte must be ready before CS falls
-        S=pop0, K=8
-        wait !CS
-        MISO=d                       # selected: first bit out
-low:    MISO=z when CS, wait => CS: start | SCK: rise
+start:  wait => rx0: load | !CS: none
+load:   S=pop0, K=8
+armed:  wait !CS                     # the byte in S waits here, through any number of empty selections
+first:  MISO=d                       # selected: first bit out
+lead:   MISO=z when CS, wait => CS: armed | SCK: rise  # not clocked yet, so a deselect keeps it
 rise:   shift MOSI, K-=1             # rising edge: sample MOSI, the next bit to send moves up
         => kz: byte
 high:   MISO=z when CS, wait => CS: start | !SCK: fall
-fall:   MISO=d => low                # falling edge: next bit out
-byte:   push1=S                      # eight bits in: hand over the byte read
-        S=pop0, K=8 => high          # and fetch the next one to send
+fall:   MISO=d                       # falling edge: next bit out
+low:    MISO=z when CS, wait => CS: start | SCK: rise
+byte:   push1=S, K=8 => rx0: next    # eight bits in: hand over the byte read
+        S=0                          # nothing queued to send
+empty:  MISO=z when CS, wait => CS: start | !SCK: zero
+next:   S=pop0                       # the next byte, ready for the falling edge
+ready:  MISO=z when CS, wait => CS: armed | !SCK: first
+
+none:   S=0, K=8                     # selected with nothing queued
+zero:   MISO=d
+unfed:  MISO=z when CS, wait => CS: start | SCK: under
+under:  push2=1, shift MOSI, K-=1 => high  # a byte the host never gave is being clocked out

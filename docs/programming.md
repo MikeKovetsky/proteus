@@ -47,7 +47,7 @@ Most mistakes break one of these. [isa.md, "How a machine steps"](isa.md#1-how-a
 4. At 115,200 baud a bit is 60,000,000 / 115,200 = 520.83 clocks. The program uses 521, 0.03% slow, well
    inside a UART's tolerance.
 5. The transmitter sends P0, and the host gives it bytes on channel 0. The receiver reads P1, pushes each good
-   byte to channel 1, and pushes a byte whose parity is wrong to channel 2 instead.
+   byte to channel 1, and pushes a byte whose parity is wrong, or whose stop bit is 0, to channel 2 instead.
 
 The parity comes from the LFSR. With `poly=1`, a step XORs the bit into LFSR bit 0 and leaves the other bits at
 0, so bit 0 is the running parity, and a pin can send it with `c`.
@@ -146,9 +146,10 @@ bit:    shift RX, crc+=RX, K-=1      # take one bit into the shifter and into th
         hold BIT - 2 => bit          # a bit is BIT clocks: 1 + 1 + (BIT - 2)
 parity: hold BIT - 2                 # to the middle of the parity bit
         crc+=RX                      # the parity bit joins the sum
-        wait RX                      # the stop bit; the crc flag lags one clock, and this line covers it
-        => crc: good
-        push2=S => idle              # parity error: the byte goes to channel 2
+        hold BIT - 1                 # to the middle of the stop bit; the crc flag has caught up by then
+        => RX & crc: good            # the stop bit must be 1 and the parity right
+        push2=S                      # an error: the byte goes to channel 2
+        wait RX => idle              # and the line must be high before the next start bit
 good:   push1=S => idle
 ```
 
@@ -162,9 +163,10 @@ reaches the pin:
    `hold BIT + BIT/2 - 2`.
 5. From one sample to the next is `bit` (1 clock), the `kz` test (1 clock) and `hold BIT - 2`: one bit.
 6. After the eighth bit, `parity` waits `BIT - 2` clocks, so `crc+=RX` samples the middle of the parity bit.
-7. The `crc` flag compares the LFSR with `match` one clock late, so `wait RX` stands between the last step and
-   the test. It also waits for the stop bit when the parity bit was 0, so `idle` cannot take the parity bit for
-   the next start bit.
+7. One bit after `crc+=RX` the test sees the middle of the stop bit and, at once, whether the parity was
+   right. The `crc` flag compares the LFSR with `match` one clock late, and the hold is far longer than that.
+8. A stop bit of 0 is a framing error. `wait RX` then keeps `idle` from taking the line, still low, for the next
+   start bit, and a break is reported once.
 
 The receiver never sends, so it declares no outputs.
 
@@ -192,15 +194,15 @@ It should print this, in under a second, and exit with status 0:
 
 ```
 tx: 10 states in 13 entries, a 123-byte image
-rx: 15 states in 17 entries, a 155-byte image
-duplex: 25 states in 31 entries, a 283-byte image
+rx: 17 states in 22 entries, a 195-byte image
+duplex: 27 states in 36 entries, a 323-byte image
 tx: sent 00 55 a7 ff 31 80, decoded 00 55 a7 ff 31 80 from P0
-rx at +2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a (wanted 5a)
+rx at +2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a 2d (wanted 5a 2d)
 duplex at +2%: sent 00 55 a7 ff 31 80, decoded 00 55 a7 ff 31 80 from P0
-duplex at +2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a (wanted 5a)
-rx at -2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a (wanted 5a)
+duplex at +2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a 2d (wanted 5a 2d)
+rx at -2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a 2d (wanted 5a 2d)
 duplex at -2%: sent 00 55 a7 ff 31 80, decoded 00 55 a7 ff 31 80 from P0
-duplex at -2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a (wanted 5a)
+duplex at -2%: channel 1 got 12 c3 7e 80 (wanted 12 c3 7e 80), channel 2 got 5a 2d (wanted 5a 2d)
 uart_8e1: ok
 ```
 
@@ -211,13 +213,13 @@ uart_8e1: ok
    the start, parity and stop bits must be right, every edge must sit on the bit grid within 2%, the line must
    stay high until 11 bits after the start edge (within the same 2%), and no frame may be left over after the
    six bytes.
-3. For the receiver, it drives P1 with five frames, one with a wrong parity bit, first 2% fast and then 2% slow.
-   The four good bytes must come out on channel 1 and the bad one on channel 2.
+3. For the receiver, it drives P1 with six frames, one with a wrong parity bit and one with a stop bit of 0,
+   first 2% fast and then 2% slow. The four good bytes must come out on channel 1 and the bad ones on channel 2.
 4. It fails if the chip and the test ever drive a pin to opposite levels.
 
 The checks fail on broken programs. Each of these changes makes the script fail: `TX=!c` for the parity bit, no
-`crc+=d`, `K=7`, a stop bit of half a bit, `match=1` in the receiver, no `crc+=RX` for the parity bit, `nop`
-instead of `wait RX`, and a first hold of `BIT - 2`.
+`crc+=d`, `K=7`, a stop bit of half a bit, `match=1` in the receiver, no `crc+=RX` for the parity bit, no `RX &`
+in the last test, `nop` instead of `wait RX`, and a first hold of `BIT - 2`.
 
 ### Writing your own script
 
@@ -283,7 +285,8 @@ Each of these was run through the same checks.
 
 1. **Odd parity:** `TX=!c` in the transmitter's parity line, and `match=1` in the receiver. The script checks
    even parity, so its `parity()` must return the inverse too (`... & 1 ^ 1`), or it fails both programs.
-2. **Two stop bits:** `TX=1, hold 2*BIT => idle` in the transmitter. The receiver accepts them unchanged.
+2. **Two stop bits:** `TX=1, hold 2*BIT => idle` in the transmitter. The receiver accepts them unchanged: it
+   checks the first.
 3. **Another baud rate:** change `BIT`. At 60 MHz a bit must be at least a few clocks; the bench program
    [uart_3m.fsm](../bakeoff/cand_table/programs/uart_3m.fsm) runs at 3 Mbaud, 20 clocks a bit.
 
@@ -302,18 +305,23 @@ between bytes inside the clocks a bit spends waiting.
 [spi_ctrl_m0.fsm](../bakeoff/cand_table/programs/spi_ctrl_m0.fsm) keeps a 12-clock SCK period across bytes:
 
 ```
-bit:    SCK=0, MOSI=d, hold 6        # clocks 0-5: SCK low, data out
-        SCK=1, shift MISO, K-=1      # clock 6: rising edge, sample MISO as the shifter moves on
-        => kz: byte                  # clock 7
-        hold 4 => bit                # clocks 8-11
-byte:   push1=S                      # clock 8: the byte read
-        => nz: last                  # clock 9
-        S=pop0, K=8, N-=1            # clock 10: the next byte to send
-        nop => bit                   # clock 11
+bit:    SCK=0, MOSI=d, hold 6        # clocks 0-5: falling edge, data out
+        SCK=1, hold 3                # clocks 6-8: rising edge
+        shift MISO, K-=1 => kz: byte # clock 9: MISO at that edge. The rule sees K as it was: 7 down to 0
+        hold 2 => bit                # clocks 10-11
+byte:   push1=S => nz: last | rx0: load # clock 10: the byte read, and is the next one here?
+        wait rx0                     # it is not: the clock stops
+load:   S=pop0, K=7, N-=1 => bit     # clock 11: the next byte to send
 ```
 
-Both ways from clock 8 back to `bit` take 4 clocks: `hold 4`, or `byte`, the `nz` test, the fetch and a `nop`.
-The comments count clocks; keep doing that.
+Both ways from clock 10 back to `bit` take 2 clocks: `hold 2`, or `byte` and `load`. Only a host that falls
+behind adds to them, and SCK stands still meanwhile. The comments count clocks; keep doing that. Two things to
+copy from it:
+
+1. **Allow for the pads when you sample.** A write reaches the pin a clock later and a read sees the pins of 2
+   clocks before, so a `shift MISO` on the line that makes an edge reads MISO 3 clocks before that edge. Here it
+   comes 3 clocks after it.
+2. **Test `rx0` before every pop.** A pop from an empty channel gives 0 and raises no flag.
 
 Two more ways to keep time:
 
@@ -349,16 +357,20 @@ byte:   push1=S, N+=1, K=8           # edge + 3
 In Manchester code every bit has an edge in its middle. The receiver takes the bit one clock after that edge,
 then looks away for three clocks, past any edge between two bits, and waits for the next middle edge. Each edge
 reloads T, so the frame ends when the line stops changing.
-[usb_ls_rx.fsm](../bakeoff/cand_table/programs/usb_ls_rx.fsm) does the same for NRZI: `wait => edge: zero | tz:
-one`, where an edge is a 0, a whole cell with no edge is a 1, and every edge restarts the timer to sample the
-middle of the cell.
+[usb_ls_rx.fsm](../bakeoff/cand_table/programs/usb_ls_rx.fsm) does the same for NRZI: `wait => edge: data0 | tz:
+data1`, where an edge is a 0, a whole cell with no edge is a 1, and every edge restarts the timer. `edge` is seen
+only on a line that tests it, so the work of a bit must end before the soonest next edge can come: there the line
+that tests the CRC after a byte tests `edge` as well.
 
 Other forms of the same idea:
 
 1. **A plain time-out on a level:** [onewire.fsm](../bakeoff/cand_table/programs/onewire.fsm) releases the bus
-   for 70 us and then tests whether a device pulled it low: `DQ=z, hold 70*US` followed by `=> DQI: absent`.
-2. **Waiting for the other side:** [i2c_ctrl.fsm](../bakeoff/cand_table/programs/i2c_ctrl.fsm) releases SCL and
-   `wait SCLI`, so a target that stretches the clock is waited for.
+   and, 10 us later, finds a short if it is still low: `DQ=z, hold 10*US`, `=> !DQI: absent`. 60 us after that it
+   tests whether a device pulled it low: `hold 60*US`, `=> DQI: absent`.
+2. **Waiting for the other side, but not for ever:** [i2c_ctrl.fsm](../bakeoff/cand_table/programs/i2c_ctrl.fsm)
+   releases SCL and takes `wait => SCLI: high | tz: tick`, so a target that stretches the clock is waited for.
+   T alone counts to 1.09 ms. The program makes that 25 ms with a spare LFSR as a round counter:
+   `tick: crc>>=1, T=65535 => crc: stuck | cwait` gives up once the LFSR's 1s have all been shifted out.
 3. **Settle before `edge`.** `edge` compares input A with its level on the previous turn, and after reset that
    level counts as 1. eth10_rx starts with `hold 4` so no false edge is taken.
 

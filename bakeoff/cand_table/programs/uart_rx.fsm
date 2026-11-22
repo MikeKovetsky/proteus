@@ -1,4 +1,5 @@
-# UART receiver: 8N1, 115200 baud, LSB first. Bytes go to channel 1.
+# UART receiver: 8N1, 115200 baud, LSB first. Bytes go to channel 1. A frame whose stop bit is 0 is dropped
+# and reported: 0x01 on channel 2, once, however long the line then stays low.
 
 machine rx
     in    RX=P1
@@ -9,7 +10,9 @@ idle:   wait !RX                     # the start bit pulls the line low
         K=8
         hold BIT + BIT/2 - 2         # to the middle of the first data bit (2 clocks went by above)
 bit:    shift RX, K-=1               # sample
-        => kz: done
+        => kz: stop
         hold BIT - 2 => bit
-done:   push1=S
-        wait RX => idle              # let the stop bit begin before looking for the next start
+stop:   hold BIT - 1 => RX: good     # the last of these clocks is the middle of the stop bit
+        push2=1                      # it is low: a framing error
+        wait RX => idle              # and the line must be high before the next start bit
+good:   push1=S => idle

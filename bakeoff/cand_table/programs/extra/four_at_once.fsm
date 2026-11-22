@@ -21,10 +21,11 @@ idle:   wait !RX
         K=8
         hold BIT + BIT/2 - 2
 bit:    shift RX, K-=1
-        => kz: done
+        => kz: stop
         hold BIT - 2 => bit
-done:   push1=S
-        wait RX => idle
+stop:   hold BIT - 1 => RX: good
+        wait RX => idle              # a 0 stop bit: dropped. Channel 2 is PS/2's, so nothing can report it
+good:   push1=S => idle
 
 machine spi                          # channel 3 gives [n][n bytes]; write only, 1.25 MHz
     out   SCK=P2, MOSI=P3, CS=P4
@@ -43,16 +44,23 @@ machine ps2                          # good bytes to channel 2
     in    CLK=P5, DATA=P6
     order lsb
     crc   poly=1 match=1
+    const STALL = 3750               # 250 us in turns
 idle:   wait !CLK
-        K=8, crc=0
-        wait CLK
-bit:    wait !CLK
+        K=8, crc=0 => DATA: over
+        call high
+bit:    call low
         shift DATA, crc+=DATA, K-=1
-        wait CLK => kz: parity | bit
-parity: wait !CLK
+        call high
+        => kz: parity | bit
+parity: call low
         crc+=DATA
-        wait CLK
-        wait !CLK
-        wait CLK
-        => crc: good | idle
-good:   push2=S => idle
+        call high
+        call low
+        => !DATA: over | crc: good
+over:   wait CLK => idle             # a bad or abandoned frame: dropped
+good:   push2=S => over
+low:    T=STALL
+        wait => !CLK: there | tz: over
+high:   T=STALL
+        wait => CLK: there | tz: over
+there:  ret
