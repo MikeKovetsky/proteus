@@ -122,3 +122,8 @@ A dated log, written as the work happens. The verification write-up's AI section
 25. **The held-out folder.** Mike allowed one reviewer agent to open it ("Allow one reviewer", 2026-11-21) to
     check the stranger test's benches and export the scenario sheet. It reads and runs but does not write there,
     and reports only a verdict and counts, so what the benches hold reaches neither the builders nor the stranger.
+26. **The novelty check.** The write-up's drafting agent searched public entries and prior art, and contradicted
+    the project's own record: a reason the main session had given Mike for the architecture pick was false, the
+    README said tests could not be edited when they could, and another entry had already published a similar
+    bake-off. The main session checked each of those at its source, corrected them, and left the pick, the name
+    and the write-up's claims to Mike.

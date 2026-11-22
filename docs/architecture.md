@@ -25,13 +25,12 @@ The table won ([CLAUDE.md, "1. Architecture bake-off"](../CLAUDE.md#1-architectu
    register operations in the same clock. In [eth10_tx.fsm](../bakeoff/cand_table/programs/eth10_tx.fsm) the
    clock between two bytes tests the bit and byte counts, and the next fetches a byte, reloads one counter and
    steps another, while the line keeps exact 3-clock half bits.
-2. **It has the least logic.** There is no instruction decoder, no program counter adder and no branch logic:
+2. **It had the smallest logic estimate.** There is no instruction decoder, no program counter adder and no branch logic:
    the next address is an OR of two condition bits into the entry's base address. The candidates estimated about
    2,600 logic cells for it against 4,800 and 7,000 for the others; synthesis of the RTL gives 2,674.
 3. **Its helpers are generic.** One LFSR does parity, CRC-8, CRC-16 and CRC-32. Counters, a shifter, a byte
    compare and edge detection cover bit stuffing, line coding and clock recovery without a block that knows any
    protocol by name.
-4. **It is unlike the PIO-style designs other entries build.**
 
 What it costs: programs are larger (a state is 8 bytes, and a state that is reached from several places is
 copied), and the four machines share one decision rate.
@@ -75,7 +74,7 @@ uses the SRAM's own address register as the state register, so the loop that dec
 5. The result is latched as the SRAM address at the end of the clock, and the next entry comes out on the next.
 
 There is no adder and no priority logic in that loop. Deciding on every clock depends on it closing in one
-clock, and the whole design closes timing at 60 MHz after place-and-route (see
+clock, and the whole design meets setup and hold at 60 MHz after place-and-route (see
 [Budget](#budget-as-synthesised)).
 
 In the same clock, the entry drives the pins and the datapath: up to two pin operations, one byte on the bus, a
@@ -272,7 +271,8 @@ Tiny Tapeout's flow in CI.
 3. **SRAM: 32,768 bits,** both IHP 512x32 macros, all of it the state table.
 4. **Layout:** the whole design passes Tiny Tapeout's flow at 8x4 tiles: layout, precheck, and the pin tests on
    the routed netlist ([CI run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046)).
-   Timing closes at a 16.6 ns clock, with 4.20 ns of worst setup slack at the slow corner in that run, as
+   Setup and hold are met at a 16.6 ns clock (slew and capacitance limits at the SRAMs' pins are still exceeded,
+   so timing there is extrapolated), with 4.20 ns of worst setup slack at the slow corner in that run, as
    [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records.
 5. **Where the flops go:** a third of them (384) are the LFSRs' configured polynomial, start and match values.
    They are what let one unit serve every CRC.
@@ -303,7 +303,7 @@ Tiny Tapeout's flow in CI.
 | [src/protoemu_core.v](../src/protoemu_core.v) | The machines, the shared datapath, the FIFOs' wiring and the loader |
 | [src/protoemu_fifo.v](../src/protoemu_fifo.v) | One 4-byte FIFO |
 | [src/project.v](../src/project.v) | The top level: synchronisers, the nibble host link, the status pins |
-| [bakeoff/cand_table/chip.py](../bakeoff/cand_table/chip.py) | The golden model: the RTL matches it on every clock ([test/README.md](../test/README.md)) |
+| [bakeoff/cand_table/chip.py](../bakeoff/cand_table/chip.py) | The golden model: the RTL core matches it on every clock of the recorded traces ([test/README.md](../test/README.md)) |
 | [bakeoff/cand_table/entry.py](../bakeoff/cand_table/entry.py) | The entry's fields and the image format, shared by the compiler and the model |
 | [bakeoff/cand_table/compiler.py](../bakeoff/cand_table/compiler.py) | The compiler |
 | [bakeoff/cand_table/programs/](../bakeoff/cand_table/programs/) | The 14 bench programs and the four-machine program |

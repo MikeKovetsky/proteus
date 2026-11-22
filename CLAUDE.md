@@ -2,13 +2,13 @@
 
 An entry for Jane Street's
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/): a small
-programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build it against
-tests they cannot edit, and the chip goes out on Tiny Tapeout's IHP shuttle.
+programmable chip that speaks UART, SPI and I2C, and protocols it was not designed for. AI agents build and review
+it with tests as gates, and the chip goes out on Tiny Tapeout's IHP shuttle.
 
 Status, 2026-11-21, 22:30 PST: **resumed by Mike** ("resume until all requirements are met"), after a pause
 from 2026-11-17, 07:35 PST ("pause, document the progress and push everything"). The
-bake-off is done, and Mike picked the table-driven architecture. Its RTL matches the golden model on every clock,
-the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with timing closed at 60 MHz, and the architecture
+bake-off is done, and Mike picked the table-driven architecture. Its RTL core matches the golden model on every recorded clock,
+the real chip, with both SRAMs, passes Tiny Tapeout's whole flow with setup and hold met at 60 MHz, and the architecture
 and instruction set docs are written. "Progress" below has the detail, and "Open work" says
 where each open piece stands.
 
@@ -83,16 +83,16 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
 | R3 | UART, SPI and I2C demonstrated by programs | MET in simulation | UART and the SPI target end to end at the pins (`test/test.py`); the SPI controller (modes 0 and 3) and I2C match the golden model on every clock of their benches (`make -C test lockstep`); not yet on silicon |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
-| R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py` |
+| R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
 | R7 | GDS builds and precheck passes in Tiny Tapeout's GitHub Actions | MET for the real design | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) on `1a24c4a`: gds, precheck ("Precheck passed"), gl_test and viewer all pass; 0 routing DRC errors, LVS "Circuits match uniquely", 0 antenna violations. It must pass again on every design change |
 | R8 | RTL and tests in the public repo | MET | On `main` from 2026-11-17 |
-| R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every claim checked against the code, every example run |
+| R9 | Architecture and instruction set documentation | MET | `docs/architecture.md` (the machine and why), `docs/isa.md` (every field, operation and language form), `docs/programming.md` (a new protocol step by step); every example run; a check on 2026-11-21 found overstated claims, the false ones are corrected and the rest wait for the open branches to land |
 | R10 | Assembler or toolchain with example programs | NOT MET until the compiler fix lands | `bakeoff/cand_table/compiler.py`, its 14 bench programs (all run identically on the RTL) and the worked 8E1 UART in `docs/examples/`; five compiler bugs found while writing the docs are open, some silent (19 of the fix's 23 tests fail on `main`); not yet moved to `asm/` |
-| R11 | Verification write-up, including how AI was used | NOT MET | |
+| R11 | Verification write-up, including how AI was used | NOT MET | A draft and 84 claims for Mike are on the local branch `writeup` (b25f92c). It stays off `main` until the stranger test has run, because the stranger gets `docs/` |
 | R12 | Gate-level simulation passes | MET | The 7 pin tests pass 7 of 7 on the routed netlist in run 44076197046's gl_test job |
 | R13 | Submitted before 2027-01-18 | NOT MET | |
-| R14 | Novel: unique functionality, or a novel design and verification method | NOT MET | |
+| R14 | Novel: unique functionality, or a novel design and verification method | NOT MET, and at risk | The novelty check of 2026-11-21 found prior art for every main idea: TejasDasa's entry published a bake-off of PIO, state-table and register-machine models on 2026-09-16 and uses a state table |
 | R15 | "Your submission should be open source so others can use and build on it." (found missing from this list on 2026-11-21) | MET | The repository is public and `LICENSE` is Apache 2.0 |
 
 ## Plan: simulator first, loop second
@@ -146,7 +146,7 @@ Mike, 2026-11-16: "I want the results this week". The plan is cut by day, and ea
 6. **SRAM timing.** IHP's timing file for the 512x32 SRAM gives 6.4 ns from clock to data out at the slow corner
    (1.08 V, 125 °C) and 3.8 ns at the typical corner. That leaves about 10 ns of a 16.7 ns clock for the decision
    logic. It is a datasheet figure, not synthesis. The CMOS5L SRAM folder in IHP's PDK is a link to these files.
-7. **RTL.** The table machine is in Verilog (`src/protoemu_*.v`). It matches the golden model on every clock: 323
+7. **RTL.** The table machine is in Verilog (`src/protoemu_*.v`). The core matches the golden model on every clock it replays: 323
    of 323 traces, 3,051,548 clocks, from all 14 benches and 300 random programs, replayed in Verilator in about 5
    seconds (`make -C test lockstep`). The suite catches 21 of 21 planted bugs (`make -C test mutants`), and its
    reviewer planted 64 more in the core and the suite caught every one that changes behaviour. Seven pin-level
@@ -270,6 +270,13 @@ other entries found build PIO-style machines; it decides on every clock; 13 of i
 time they ran; and it has the smallest logic. The alternative offered was `cand_pio`, the most robust and least
 novel.
 
+**Correction, 2026-11-21.** Two of those reasons do not hold. TejasDasa's entry and Ken Pettit's PRISM are both
+state-machine engines, so "the other entries found build PIO-style machines" was false, and no record shows that
+13 of the 14 programs passed the first time. "Tests they cannot edit", which this file and the README said until
+today, was not true either: no mechanism enforced it. An earlier entry is also named ProtoEmu
+([b3elz3bub/ProtoEmu](https://github.com/b3elz3bub/ProtoEmu), created 2026-09-19), so the name is Mike's to keep
+or change. Lockstep builds the core alone, so only the pin tests check the host link in `src/project.v`.
+
 `cand_table`'s open risk, by its author's account: it decides on every clock only if one path (memory output,
 condition select, memory address) closes in 16.7 ns. That is not checked in synthesis. If it fails, decisions drop
 to every second clock and the Ethernet scenarios are lost. IHP's SRAM timing (Progress, item 6) leaves about 10 ns
@@ -333,7 +340,8 @@ is among the 14 bake-off benches. The roles below are the main session's default
 2. The benches that judge the programs are written by another agent from the sheets alone. They live in
    `../protoemu-holdout/`, the stranger never sees them, and they are committed only after the test has run.
 3. No doc, example or bench in this repo may show a program for CAN, JTAG or SWD before the test runs, so the
-   stranger cannot copy one.
+   stranger cannot copy one. Public entries do show them, so the stranger has no web access and gets neither
+   this file, the write-up nor any agent's transcript.
 4. The stranger's programs run on the golden model, which matches the RTL on every clock, and the benches judge
    the waveforms. An independent decoder (sigrok's CAN, JTAG and SWD decoders) is a second judge if
    `sigrok-cli` is installed.

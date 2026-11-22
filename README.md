@@ -2,11 +2,13 @@
 
 A programmable protocol-emulator chip for Tiny Tapeout's IHP shuttle, built for Jane Street's
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/). AI agents
-choose its instruction set in a simulator bake-off, then build the RTL against tests they cannot edit.
+designed three candidate architectures and compared them in a simulator bake-off, a person picked one, and
+agents then built and reviewed the RTL, with tests as gates.
 
 The chip is a table-driven state machine: a program is a state table, compiled from a small state-machine
 language and held in two IHP SRAMs, and four machines can run protocols at once. It passes Tiny Tapeout's whole
-flow at 8x4 tiles: layout, precheck and gate-level simulation, with timing closed at 60 MHz.
+flow at 8x4 tiles: layout, precheck and gate-level simulation, with setup and hold met at 60 MHz. Slew and capacitance
+limits at the SRAMs' pins are still exceeded, so the timing there is extrapolated until that is fixed.
 
 1. [docs/architecture.md](docs/architecture.md) explains the machine and why it is built this way,
    [docs/isa.md](docs/isa.md) is the reference for the table entry and the state-machine language, and
