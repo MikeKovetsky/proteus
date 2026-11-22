@@ -219,6 +219,8 @@ make it novel". The main session's reading of it:
    passes all 28 on the routed netlist, with precheck. Mike waived only the local gate-level run ("merge", recorded
    in [the landing decision](notes/landing-decision.md)), on the condition that GitHub's run passed, and it did.
    `test/known_gaps.py` holds 18 failing reproductions, which the program fixes address.
+   `main`'s own build, [run 45055027272](https://github.com/MikeKovetsky/protoemu/actions/runs/45055027272),
+   passed all four jobs, 28 of 28 on the routed netlist included, and its layout is on the public viewer.
    One hole was found after they landed: with P4 to P7 dead in and out, all 28 still pass (reproduced on RTL on
    2026-11-22). Tests that catch this and the other surviving mutants are being written on the proofs' branch.
 5. **The program fixes (branch `program-fixes-on-pins`, e64d638, on the pin tests): the full review ended NOT
