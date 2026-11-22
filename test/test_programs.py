@@ -126,6 +126,25 @@ async def test_uart_rx_framing(dut):
     assert not chip.task.received[1], "channel 1 also gave %s" % chip.task.received[1].hex()
 
 
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_status_left_unread(dut):
+    """uart_rx_921600, and a host that is late to read channel 2: four statuses wait there, the fifth is dropped
+    and sets OVERFLOW, and the receiver goes on. The scenarios' hosts always read."""
+    baud = 921600
+    chip = await boot(dut, "uart_rx_921600", poll=300 * US)
+    for sent in range(1, 6):
+        events, end = uart.send(P1, b"\x42", baud, now() + 2e9 / baud, stop=0)
+        await chip.board.play(events + [(end, {P1: 1})])
+        await chip.wait(1e9 / baud)
+        overflow = bool(chip.host.status() & ST_OVERFLOW)
+        assert overflow == (sent > 4), "OVERFLOW is %d after %d statuses" % (overflow, sent)
+    events, _ = uart.send(P1, b"\x5a", baud, now() + 2e9 / baud)
+    await chip.board.play(events)
+    await chip.expect(ch1=b"\x5a", ch2=b"\x01" * 4, within=400 * US)
+    await chip.wait(1 * US)
+    assert not chip.task.received[2], "channel 2 also gave %s" % chip.task.received[2].hex()
+
+
 # ---- SPI
 #
 # protocols/spi.py judges modes 0 and 3. Modes 2 and 1 are those two with SCK upside down (the block guide's
@@ -254,9 +273,10 @@ async def test_spi_ctrl_late_host(dut, mode):
     await chip.finish()
 
 
-async def target_transaction(chip, data, idle_since):
-    """One mode-0 transaction with the chip as the target. Returns what it answered and when MISO was let go."""
-    events, rises, end = spi.controller_mode0(SPI_PINS, data, now() + 1 * US)
+async def target_transaction(chip, data, idle_since, lead=1 * US):
+    """One mode-0 transaction with the chip as the target, CS falling `lead` ns from now. Returns what it answered
+    and when MISO was let go."""
+    events, rises, end = spi.controller_mode0(SPI_PINS, data, now() + lead)
     await chip.board.play(events)
     await chip.wait(1 * US)
     got = spi.check_target(chip.board.line[MISO], chip.board.chip[MISO], events[0][0], rises, end, idle_since)
@@ -340,6 +360,27 @@ async def test_spi_target_late_first_byte(dut, after):
         idle_since = end + spi.TARGET_DISABLE
         assert got == bytes([want]), "MISO carried %s, expected %02x" % (got.hex(), want)
     await chip.expect(ch1=b"\x81" * 4, ch2=b"\x01", within=10 * US)
+    await chip.finish()
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_spi_target_first_byte_in_time(dut):
+    """spi_target_m0: the near side of that deadline. CS falls as soon as the byte is in channel 0 (three clocks
+    after the second edge of the host's write strobe), at four phases of the clock. It is sent in its place."""
+    chip = await boot(dut, "spi_target_m0", outputs=[MISO], pulled_low=[SCK, MOSI])
+    idle_since = chip.board.since
+    for quarter, reply in enumerate(b"\x21\xc5\x96\x7f"):
+        await chip.wait(3 * US)
+        strobe = chip.host.wr
+        chip.send(bytes([reply]))
+        while chip.host.wr == strobe:  # the low nibble's edge
+            await chip.wait(1)
+        while chip.host.wr != strobe:  # the high nibble's
+            await chip.wait(1)
+        await chip.wait(3 * CLK)
+        got, idle_since = await target_transaction(chip, b"\x81", idle_since, lead=quarter * CLK / 4)
+        assert got == bytes([reply]), "MISO carried %s, expected %02x" % (got.hex(), reply)
+    await chip.expect(ch1=b"\x81" * 4, within=10 * US)
     await chip.finish()
 
 
@@ -958,6 +999,18 @@ async def test_usb_rx_seven_ones(dut):
         (data, stretched(0), data, True),
     ]
     await usb_rx_run(dut, packets, rng("usb stuff error"))
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def test_usb_rx_broken_packet(dut):
+    """usb_ls_rx: a packet with seven 1s is one bad packet up to its EOP, with fifteen bit times of one level
+    inside it (J in one of the two, K in the other), and the packet after it is read. Scenario 12 has none."""
+    data = usb_packet(DATA1, b"\x5a")
+    packets = []
+    for turn in (b"\x00", b"\x01"):
+        packets += [(usb_packet(DATA0, b"\xff" + turn + b"\xff\x3f\x00"), unstuffed(), bytes([DATA0]), False),
+                    (data, stretched(0), data, True)]
+    await usb_rx_run(dut, packets, rng("usb broken packet"))
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
