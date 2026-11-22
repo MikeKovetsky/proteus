@@ -37,7 +37,7 @@
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "protoemu changes one template value below (FP_PDN_VPITCH) and adds the SRAM block at the end,",
-  "//": "which also turns Magic DRC off. Each change says why.",
+  "//": "which also turns Magic DRC off and makes slew and cap violations fail. Each change says why.",
 
   "//": "Save some time",
   "RUN_KLAYOUT_XOR": 0,
@@ -83,14 +83,22 @@
   "//sram": "---- protoemu: two IHP RM_IHPSG13_1P_512x32_c2_bm_bist SRAMs (core.table_ram.ram_a and ram_b in the netlist) ----",
   "//sram_source": "Taken from Ken Pettit's ihp-um-janestreet-prism (src/config.json, main 2026-10-15), whose two 512x32 SRAMs pass precheck in the same orientations and on the same stripe grid, and his walkthrough https://kdp1965.github.io/ihp-um-janestreet-prism/ihp_sram_macro.html. protoemu moves the pair 6 grid pitches right and spreads it to the core's top and bottom (see //macros). Values checked against the macro's LEF at IHP-Open-PDK 89d42ee6d2fd, the commit Tiny Tapeout's flow installs.",
 
-  "//meta": "The Classic flow plus two steps from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root): after the PDN generator, full-height stripes over each SRAM's Metal4 supply columns; after the post-CTS resizer, an antenna diode on each SRAM input pin (see //antenna).",
+  "//meta": "The Classic flow plus three steps from librelane_plugin_protoemu/ (found because LibreLane runs from the repo root): after the PDN generator, full-height stripes over each SRAM's Metal4 supply columns; after clock tree synthesis, a buffer beside each live SRAM signal pin (see //sram_buffers); after the post-CTS resizer, an antenna diode for each SRAM input pin (see //antenna).",
   "meta": {
     "flow": "Classic",
     "substituting_steps": {
       "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes",
+      "+OpenROAD.CTS": "Protoemu.BuffersOnSramPins",
       "+OpenROAD.ResizerTimingPostCTS": "Protoemu.DiodesOnSramPins"
     }
   },
+
+  "//sram_buffers": "Protoemu.BuffersOnSramPins puts one buf_2 beside each live SRAM signal pin: 76 inputs (MEN, WEN, REN, 9 ADDR, 32 DIN, 32 BM) and 32 DOUT on each macro, 216 in all. GitHub run 44076197046 had 78 max-slew violations at the slow corner, all on SRAM inputs (limits 0.5952 ns slow, 0.476 typ, 0.38 fast, and the pins' slews read 1.333x a standard cell's, for the library's 30-70 thresholds), and 1 max-cap on an SRAM output (0.079 of 0.064 pF). Design repair did not fix this, and the pinned sources show two limits: the first pass runs before the hold buffers exist, and the pass after global routing (tried in run 44111759734) plans buffers with zero wire R and C, because it reads per-layer values that LibreLane only sets from LAYERS_RC and IHP's CMOS5L config leaves that empty. Raising its margins cannot change that. By the Liberty tables a buf_2 keeps a pin inside the slew limit in all three corners up to 0.13 pF, even from a 2.5 ns input edge; a pin is at most 0.012 pF, so its short wire has the rest. RSZ_DONT_TOUCH_RX freezes the nets between pins and buffers (sram_pin_net_*) during resizing, so hold buffers land upstream. Match the nets only, never the sram_pin_buf_* instances: hold repair can stop with RSZ-3009 in front of a frozen instance.",
+  "RSZ_DONT_TOUCH_RX": "^sram_pin_net_",
+
+  "//slew_cap_gate": "protoemu: LibreLane only warns about max-slew and max-cap violations by default, and both runs named in //sram_buffers were green with them. These fail the build in every corner. .github/scripts/layout_report.py prints the figures and the pins, and also fails when the figures are missing.",
+  "MAX_SLEW_VIOLATION_CORNERS": ["*"],
+  "MAX_CAP_VIOLATION_CORNERS": ["*"],
 
   "//macros": "Views from the PDK (sg13cmos5l_sram links to sg13g2_sram). The flow's corner names map onto IHP's: the fast lib is characterised at -55 C, not -40 C. 'vh' is a ports-only black box for Verilator lint and Yosys. Locations are the lower-left corners in um. ram_a is flipped (FS) so its pin edge faces up and ram_b's (N) faces down: their address and data pins look at each other across the channel where the table logic goes. Both pin edges are on Metal2, and Metal3 is the tile's only horizontal routing layer (Metal2 and Metal4 run vertically, TopMetal1 is the harness's), so every wire between the channel and the rest of the chip leaves through the channel's open ends on Metal3. Pettit's spots, flush left at x 3.36 with a 145 um channel, left one open end: 345 Metal3 tracks for this design's 244 crossing nets, and the first layout build (GitHub run 44047118911) routed 25 nets straight over the SRAMs and ended with 382 shorts. Here x = 273.12 = 3.36 + 6 x 44.96 opens both ends and keeps each SRAM column exactly where it was against the stripe grid, and the macro on the same placement-site and Metal2-track phase as at 3.36 (269.76 um is 562 sites); ram_a sits on the core's bottom edge and ram_b's top is 1.44 um under its top edge, so the channel is 318.96 um tall (759 Metal3 tracks at each end); ram_b's pin edge is on a row boundary, as Pettit's is; and the left 268 um of rows, under the tile's pins (x 29.6-191.2), have no macro above them.",
   "MACROS": {
@@ -153,6 +161,6 @@
   "//overlap": "Magic's extraction sees the SRAM LEF's Metal4 obstruction bar at the VDD!/VDDARRAY! break (LEF y 39.1-45.2) under every stripe that bridges the two; the GDS has no metal there and both pins are VPWR. Pettit counted 22 such overlaps with clean KLayout DRC and LVS, and waived the check.",
   "ERROR_ON_ILLEGAL_OVERLAPS": 0,
 
-  "//antenna": "Protoemu.DiodesOnSramPins puts one diode beside each of the 156 input pins of each SRAM, as Pettit's flow does; the flow's rule-based repair (RUN_ANTENNA_REPAIR) still covers every other net. The SRAM LEF carries antenna data on every input, but Pettit found the rule-based repair did not always protect the nets driving the macro, and calls the diodes cheap insurance. The step reads DIODE_CELL as cell/pin, LibreLane's documented format; the PDK default lacks the pin.",
+  "//antenna": "Protoemu.DiodesOnSramPins puts one diode for each of the 156 input pins of each SRAM, as Pettit's flow does, at the pin or, for the 76 buffered pins, at the buffer's input where the long wire ends; the flow's rule-based repair (RUN_ANTENNA_REPAIR) still covers every other net. The SRAM LEF carries antenna data on every input, but Pettit found the rule-based repair did not always protect the nets driving the macro, and calls the diodes cheap insurance. The step reads DIODE_CELL as cell/pin, LibreLane's documented format; the PDK default lacks the pin.",
   "DIODE_CELL": "sg13cmos5l_antennanp/A"
 }
