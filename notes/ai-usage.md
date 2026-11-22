@@ -130,3 +130,6 @@ A dated log, written as the work happens. The verification write-up's AI section
 27. **The order of work.** On 2026-11-21 Mike wrote "let's complete without novelty first and then right after it
     brainstorm how to make it novel". The main session paused the bench reviewer and had the write-up reworked
     to stand without a novelty claim or the stranger test.
+28. **What the benches had missed.** An agent wrote pin-level tests from each protocol's definition, sharing no
+    code with the benches, and found program bugs that all 14 benches had passed. The main session reproduced
+    three of them with its own script on the golden model and moved R3 from MET back to NOT MET.

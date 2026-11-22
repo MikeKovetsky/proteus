@@ -82,7 +82,7 @@ test, a CI run). Nothing is submitted with a NOT MET line unless Mike has waived
 |---|---|---|---|
 | R1 | Built from the IHP Verilog template, 8x4 tiles set in `info.yaml` | MET | Template 4b1204a brought in by f917341; `info.yaml` sets `tiles: "8x4"` |
 | R2 | Reprogrammable after fabrication, within its timing and I/O limits | MET in simulation; timing is R6 | `test/test.py` loads five different programs through the pins after reset |
-| R3 | UART, SPI and I2C demonstrated by programs | MET in simulation | UART and the SPI target end to end at the pins (`test/test.py`); the SPI controller (modes 0 and 3) and I2C match the golden model on every clock of their benches (`make -C test lockstep`); not yet on silicon |
+| R3 | "Start with UART, SPI and I2C", with "example programs for the protocols you support"; "standard settings (common UART baud rates, SPI modes 0-3, I2C at 100 and 400 kHz) are a good target" | NOT MET, reopened 2026-11-21 | The shipped programs pass their benches and have real bugs the pin tests found: an I2C write with a read count of 0 never ends, the SPI target loses the byte queued for its next transaction, and UART receive accepts a 0 stop bit (all three reproduced on the golden model). There are no programs for SPI modes 1 and 2, and I2C runs at about 360 kHz with no 100 or 400 kHz program |
 | R4 | Known state from `rst_n`, with no reliance on power-up values | MET | All 1,172 flops reset asynchronously (`test/synth/generic.ys` fails otherwise); the loader writes all 512 table entries; the sby reset proof is not done |
 | R5 | Program reload after deselect works | MET in simulation | `test_reset_reload_run_again` in `test/test.py`; it reloads after a reset, deselection itself is not simulated |
 | R6 | Timing closes after place-and-route at the chosen clock (60 MHz target) | MET, with extrapolated timing at SRAM pins whose edges are too slow | [Run 44076197046](https://github.com/MikeKovetsky/protoemu/actions/runs/44076197046) at 16.6 ns: worst setup slack 4.20 ns (slow corner), worst hold slack 0.095 ns (fast corner), 0 setup and 0 hold violations in all three corners |
@@ -221,11 +221,16 @@ make it novel". The main session's reading of it:
    Mike reads `SCENARIOS.md` (what counts as correct stays human), a reviewer checks the benches (Mike allowed
    one on 2026-11-21: rule 1 under "Rules for agents working here"), then the
    stranger runs, locked out of the folder and of every agent transcript by the OS sandbox, with only `SCENARIOS.md`, `docs/` and the compiler.
-4. **Not started.**
-   1. The write-up (R11).
-   2. The SPI controller and I2C end to end at the pins; today they are checked against the golden model.
-   3. The sby reset and instruction proofs, and an independent decoder check (sigrok).
-   4. Local hardening, which needs a container engine. CI builds take about 40 minutes, so it is not needed now.
+4. **The pin tests (branch `pin-tests`, e2127dc, not reviewed yet).** All 14 scenarios run through the pins, 27 of
+   27 tests pass on RTL, and `test/known_gaps.py` holds 17 failing reproductions of program gaps. They have not
+   run on the routed netlist. Their timing limits were typed from a model's memory and need checking against
+   the standards.
+5. **The program fixes (branch `program-fixes`, on the pin tests).** UART, SPI and I2C come first (R3), then the
+   gaps in USB, Ethernet, 1-Wire, PS/2 and WS2812. Whatever needs an RTL change is reported, not worked around.
+6. **The proofs (branch `formal`).** The reset and instruction proofs, the host link in `src/project.v`, and
+   mutation coverage are being built.
+7. **Not started.** An independent decoder check (sigrok is not installed), and local hardening, which needs a
+   container engine and is not needed while CI builds in about 40 minutes.
 
 ### Layout (target)
 
