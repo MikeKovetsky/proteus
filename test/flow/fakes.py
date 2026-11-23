@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
 """
-Just enough of OpenROAD's odb, click and LibreLane's Python to run librelane_plugin_protoemu without them.
+Just enough of OpenROAD's odb, click and LibreLane's Python to run librelane_plugin_proteus without them.
 
 The odb calls keep the behaviour the scripts rely on (OpenROAD dcf36133a369, src/odb/src/db): create() returns
 None for a name that exists, connect() moves a terminal, and power pins are neither signal inputs nor outputs.
@@ -13,7 +13,7 @@ import types
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PLUGIN = os.path.join(ROOT, "librelane_plugin_protoemu")
+PLUGIN = os.path.join(ROOT, "librelane_plugin_proteus")
 SRAM = "RM_IHPSG13_1P_512x32_c2_bm_bist"
 
 

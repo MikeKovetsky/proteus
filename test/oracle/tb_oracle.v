@@ -4,7 +4,7 @@
 `timescale 1ns / 1ps
 
 // Testbench wrapper exposing 1-bit protocol wires for independent third-party cocotbext VIPs
-// (cocotbext-uart, cocotbext-i2c, cocotbext-spi) against tt_um_mikekovetsky_protoemu.
+// (cocotbext-uart, cocotbext-i2c, cocotbext-spi) against tt_um_mikekovetsky_proteus.
 module tb_oracle ();
 
   reg clk;
@@ -55,7 +55,7 @@ module tb_oracle ();
     endcase
   end
 
-  tt_um_mikekovetsky_protoemu user_project (
+  tt_um_mikekovetsky_proteus user_project (
       .ui_in  (ui_in),
       .uo_out (uo_out),
       .uio_in (uio_in_mux),

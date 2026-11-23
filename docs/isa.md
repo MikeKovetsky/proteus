@@ -1,13 +1,13 @@
-# protoemu instruction set
+# proteus instruction set
 
-This is the programmer's reference for protoemu: the 64-bit table entry, the machine configuration, the image
+This is the programmer's reference for proteus: the 64-bit table entry, the machine configuration, the image
 format, the state-machine language that produces them, the compiler's limits and messages, and how to run a
 program on the model and load it into the chip. [architecture.md](architecture.md) explains why the chip is
 built this way, and [programming.md](programming.md) walks through writing a new protocol.
 
 Every encoding below comes from [entry.py](../bakeoff/cand_table/entry.py) and
 [compiler.py](../bakeoff/cand_table/compiler.py), and every behaviour from the golden model
-[chip.py](../bakeoff/cand_table/chip.py), which the RTL core ([protoemu_core.v](../src/protoemu_core.v)) matches on
+[chip.py](../bakeoff/cand_table/chip.py), which the RTL core ([proteus_core.v](../src/proteus_core.v)) matches on
 every clock of the recorded traces.
 
 1. [How a machine steps](#1-how-a-machine-steps)

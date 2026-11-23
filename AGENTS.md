@@ -1,12 +1,13 @@
-# AGENTS.md — protoemu (RTL v2)
+# AGENTS.md — Proteus (RTL v2)
 
 ## The Pitch
 
 **Learn it, become it — a 60 MHz silicon protocol chameleon in 28.8% of 1 mm².**
 
-`protoemu` is a Tiny Tapeout IHP 130 nm CMOS5L (`8×4` tile) entry for Jane Street's
-[Protocol Emulator ASIC Competition](https://blog.janestreet.com/protocol-emulator-asic-competition/).
-Instead of putting another small CPU or bit-banged PIO on silicon, `protoemu` is a **single-cycle,
+Named after the Greek shapeshifting sea-god who only reveals the truth when held and questioned,
+`proteus` (`tt_um_mikekovetsky_proteus`) is a Tiny Tapeout IHP 130 nm CMOS5L (`8×4` tile) entry for
+Jane Street's [Protocol Emulator ASIC Competition](https://blog.janestreet.com/protocol-emulator-asic-competition/).
+Instead of putting another small CPU or bit-banged PIO on silicon, `proteus` is a **single-cycle,
 SRAM-backed state-table protocol engine** co-designed for two things:
 
 1. **Deterministic wire-speed protocol emulation** — up to 4 time-sliced state machines sharing two hard
@@ -31,7 +32,7 @@ sign-off at **60 MHz** in **28.8% effective utilization** with **+3.55 ns slow-c
 ## Key Selling Points & Architecture Features
 
 ### 1. Hardware Architecture (RTL v2, 100% backward-compatible with v1 images)
-- **Single-cycle SRAM state-table core (`src/protoemu_core.v`, `src/protoemu_table.v`):**
+- **Single-cycle SRAM state-table core (`src/proteus_core.v`, `src/proteus_table.v`):**
   512 × 64-bit table entries stored in two hard `RM_IHPSG13_1P_512x32_c2_bm_bist` macros. Each clock
   executes pin output ops (low/high/release/data/negated-data/toggle/open-drain), serial shift, 16-bit
   timer, 16-bit counter `N`, 4-bit counters `K`/`J`, 32-bit programmable LFSR/CRC, FIFO push/pop, call/return,
@@ -49,7 +50,7 @@ sign-off at **60 MHz** in **28.8% effective utilization** with **+3.55 ns slow-c
 - **4th per-machine input pin (`in_d`):**
   Reclaims condition 12 (`rx3`) as a 4th physical input pin when `in_d_en = 1`, enabling SPI targets
   (`SCK`, `MOSI`, `CS`) to monitor hardware `nRESET` on `P4` directly in silicon.
-- **32-entry Port-3 hardware pin-change trace buffer (`src/protoemu_trace.v`):**
+- **32-entry Port-3 hardware pin-change trace buffer (`src/proteus_trace.v`):**
   Passive on-chip logic analyzer active whenever `running == 1`. Records `{delta[7:0], pins[7:0]}` on any
   masked pin transition (with `0xFF` cycle-delta heartbeats, programmable pin mask, and arm-on-trigger)
   for exact cycle-accurate protocol observation through Host Port 3.
@@ -103,12 +104,12 @@ All results below are measured on `rtl-v2` (commit `78be664`, merged to `main`):
 
 | Verification Layer | Result | Source / Run |
 |---|---|---|
-| **IHP 130 nm GDS + Layout Report** | **PASS** — 28.8% util, 0 DRC, 0 LVS, 0 antenna, 0 slew/cap/setup/hold vios in all 3 corners; **+3.5512 ns** slow setup WS, **+0.0997 ns** fast hold WS at 60 MHz | GitHub run [45097155765](https://github.com/MikeKovetsky/protoemu/actions/runs/45097155765) (`gds`) |
-| **Tiny Tapeout KLayout Precheck** | **PASS** — `Precheck passed for tt_um_mikekovetsky_protoemu.gds!` | GitHub run [45097155765](https://github.com/MikeKovetsky/protoemu/actions/runs/45097155765) (`precheck`) |
-| **Gate-Level Simulation (routed netlist)** | **130 / 130 PASS** (`FAIL=0, SKIP=0`) | GitHub run [45097155765](https://github.com/MikeKovetsky/protoemu/actions/runs/45097155765) (`gl_test`) |
-| **Independent 3rd-Party Protocol Oracles** | **6 / 6 PASS** against unmodified `cocotbext-uart` (0.1.4), `cocotbext-i2c` (0.1.2), `cocotbext-spi` (0.6.2) (UART 115.2k/921.6k, I2C 400k/100k/plain-read/NACK, SPI modes 0–3, 5 MHz v2 TCAM SPI target) | `test/oracle/` & GitHub run [45097155470](https://github.com/MikeKovetsky/protoemu/actions/runs/45097155470) |
+| **IHP 130 nm GDS + Layout Report** | **PASS** — 28.8% util, 0 DRC, 0 LVS, 0 antenna, 0 slew/cap/setup/hold vios in all 3 corners; **+3.5512 ns** slow setup WS, **+0.0997 ns** fast hold WS at 60 MHz | GitHub run [45097155765](https://github.com/MikeKovetsky/proteus/actions/runs/45097155765) (`gds`) |
+| **Tiny Tapeout KLayout Precheck** | **PASS** — `Precheck passed for tt_um_mikekovetsky_proteus.gds!` | GitHub run [45097155765](https://github.com/MikeKovetsky/proteus/actions/runs/45097155765) (`precheck`) |
+| **Gate-Level Simulation (routed netlist)** | **130 / 130 PASS** (`FAIL=0, SKIP=0`) | GitHub run [45097155765](https://github.com/MikeKovetsky/proteus/actions/runs/45097155765) (`gl_test`) |
+| **Independent 3rd-Party Protocol Oracles** | **6 / 6 PASS** against unmodified `cocotbext-uart` (0.1.4), `cocotbext-i2c` (0.1.2), `cocotbext-spi` (0.6.2) (UART 115.2k/921.6k, I2C 400k/100k/plain-read/NACK, SPI modes 0–3, 5 MHz v2 TCAM SPI target) | `test/oracle/` & GitHub run [45097155470](https://github.com/MikeKovetsky/proteus/actions/runs/45097155470) |
 | **Learn-it, Become-it Suite (`test/learn`)** | **82 / 82 PASS** (Flash 5 MHz & 6 MHz TCAM + `P4` `nRESET`, 2-chip Icarus replacement, 12 negative controls, jail isolation, MicroPython syntax) | Local `LEARN_JOBS=2 make -C test/learn` |
-| **Golden-Model Lockstep & Mutants** | **323 / 323 traces** (3,050,238 clocks) match; **21 / 21** RTL mutants killed | `make -C test mutants` & GitHub run [45097155470](https://github.com/MikeKovetsky/protoemu/actions/runs/45097155470) |
+| **Golden-Model Lockstep & Mutants** | **323 / 323 traces** (3,050,238 clocks) match; **21 / 21** RTL mutants killed | `make -C test mutants` & GitHub run [45097155470](https://github.com/MikeKovetsky/proteus/actions/runs/45097155470) |
 | **Compiler, Bake-off & Flow Suites** | **68 / 68** compiler tests, **14 / 14** bake-off benches, **50 / 50** flow tests, **0** Verilator lint warnings | `test_compiler`, `bakeoff.run`, `test/flow`, `make -C test lint` |
 
 ### Honest Limits (Keep Claims Grounded)
@@ -117,8 +118,7 @@ All results below are measured on `rtl-v2` (commit `78be664`, merged to `main`):
 - **Max-fanout warnings remain:** 150 CTS/fanout warnings (`clkbuf_leaf_*` fanout 15–17 vs. limit 8) remain
   in OpenSTA; they do not fail timing, slew, cap, DRC, LVS, or precheck.
 - **Submission items still open before 2027-01-18:** Finalize `WRITEUP.md`, update `docs/architecture.md` /
-  `docs/isa.md` / `docs/programming.md` with RTL v2 features, decide on final project name, and submit via
-  the competition form once posted.
+  `docs/isa.md` / `docs/programming.md` with RTL v2 features, and submit via the competition form once posted.
 
 ---
 

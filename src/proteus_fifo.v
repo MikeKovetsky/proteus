@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Mike Kovetsky
  * SPDX-License-Identifier: Apache-2.0
  *
- * protoemu_fifo: a 4-byte FIFO between the host and the machines.
+ * proteus_fifo: a 4-byte FIFO between the host and the machines.
  *
  * It does what it is told. The caller decides whether a push or a pop is allowed: a push only when there
  * is room after this clock's pop, a pop only when there is a byte after this clock's push. A push into a
@@ -11,7 +11,7 @@
 
 `default_nettype none
 
-module protoemu_fifo (
+module proteus_fifo (
     input  wire       clk,
     input  wire       rst_n,
     input  wire       push,

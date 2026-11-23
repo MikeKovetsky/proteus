@@ -1,4 +1,4 @@
-# protoemu
+# proteus
 
 A programmable protocol-emulator chip for Tiny Tapeout's IHP shuttle, built for Jane Street's
 [protocol-emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/). AI agents

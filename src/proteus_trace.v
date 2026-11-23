@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Mike Kovetsky
  * SPDX-License-Identifier: Apache-2.0
  *
- * protoemu_trace: 32-entry hardware pin-change logic analyzer on Host Port 3.
+ * proteus_trace: 32-entry hardware pin-change logic analyzer on Host Port 3.
  *
  * Passively snoops the synchronized protocol pins `pins[7:0]` (P0..P7) while the chip is running
  * (`enable == 1`). Each recorded event is 16 bits: {delta[7:0], pins[7:0]}, read by the host as two
@@ -18,7 +18,7 @@
 
 `default_nettype none
 
-module protoemu_trace (
+module proteus_trace (
     input  wire       clk,
     input  wire       rst_n,
     input  wire       enable,

@@ -1,10 +1,10 @@
 # Generic Yosys synthesis of the whole chip. The two SRAM macros are black boxes.
 # Run from test/synth (make -C test/synth).
 
-read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v ../../src/protoemu_trace.v
+read_verilog -DSYNTHESIS ../../src/project.v ../../src/proteus_core.v ../../src/proteus_fifo.v ../../src/proteus_table.v ../../src/proteus_trace.v
 read_verilog -lib -DFUNCTIONAL ../ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v
-hierarchy -check -top tt_um_mikekovetsky_protoemu
-synth -top tt_um_mikekovetsky_protoemu -flatten
+hierarchy -check -top tt_um_mikekovetsky_proteus
+synth -top tt_um_mikekovetsky_proteus -flatten
 
 # R4: every flop has an asynchronous reset from rst_n. A flop type without one fails the run.
 select -assert-none t:$_DFF_P_ t:$_DFF_N_ t:$_DFFE_PP_ t:$_DFFE_PN_ t:$_DFFE_NP_ t:$_DFFE_NN_ t:$_SDFF_* t:$_SDFFE_* t:$_SDFFCE_* t:$_DLATCH_*

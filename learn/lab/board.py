@@ -18,12 +18,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 BUILD = ROOT / "learn" / "build"
 SOURCES = (
-    "test/lint/waivers.vlt", "src/project.v", "src/protoemu_core.v", "src/protoemu_fifo.v", "src/protoemu_table.v",
-    "src/protoemu_trace.v",
+    "test/lint/waivers.vlt", "src/project.v", "src/proteus_core.v", "src/proteus_fifo.v", "src/proteus_table.v",
+    "src/proteus_trace.v",
 )
 OPTIONS = (
     "--cc", "--exe", "--build", "-O3", "--savable", "--no-timing", "--x-initial", "unique",
-    "-Wno-STMTDLY", "--timescale", "1ns/1ps", "-DFUNCTIONAL", "--top-module", "tt_um_mikekovetsky_protoemu",
+    "-Wno-STMTDLY", "--timescale", "1ns/1ps", "-DFUNCTIONAL", "--top-module", "tt_um_mikekovetsky_proteus",
     "-CFLAGS", "-fPIC -O3", "-MAKEFLAGS", "OPT_FAST=-O3 OPT_SLOW=-O1 OPT_GLOBAL=-O2", "-LDFLAGS", "-shared",
 )
 CLOCKS_PER_US = 60

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Mike Kovetsky
  * SPDX-License-Identifier: Apache-2.0
  *
- * protoemu_core: the table machine of bakeoff/cand_table, clock for clock.
+ * proteus_core: the table machine of bakeoff/cand_table, clock for clock.
  *
  * The golden model is bakeoff/cand_table/chip.py. One rising edge here is one `TableChip.step`, and every
  * register below has a twin there:
@@ -16,7 +16,7 @@
  *   out, inp, msb          r_omap, r_imap, r_msb (written by the loader)
  *   poly, init, match      r_poly, r_init, r_match (written by the loader)
  *   out, oe                pin_out, pin_oe: the pad output registers
- *   fifo[0..3]             the four protoemu_fifo instances
+ *   fifo[0..3]             the four proteus_fifo instances
  *   slot, q_valid, nm      slot, q_valid, nm
  *   loaded                 running
  *   overflow (a count)     overflow (sticky: set by the first dropped push)
@@ -34,7 +34,7 @@
 
 `default_nettype none
 
-module protoemu_core (
+module proteus_core (
     input  wire       clk,
     input  wire       rst_n,
 
@@ -84,7 +84,7 @@ module protoemu_core (
   wire [63:0] ram_bm;
   wire [63:0] ram_dout;
 
-  protoemu_table table_ram (
+  proteus_table table_ram (
       .clk (clk),
       .men (ram_men),
       .wen (ram_wen),
@@ -214,7 +214,7 @@ module protoemu_core (
   assign st_head1 = head1;
   assign st_head2 = head2;
 
-  protoemu_fifo fifo0 (
+  proteus_fifo fifo0 (
       .clk (clk),
       .rst_n(rst_n),
       .push(h_push0 & h_room0),
@@ -223,7 +223,7 @@ module protoemu_core (
       .cnt (cnt0),
       .head(head0)
   );
-  protoemu_fifo fifo1 (
+  proteus_fifo fifo1 (
       .clk (clk),
       .rst_n(rst_n),
       .push(acc1),
@@ -232,7 +232,7 @@ module protoemu_core (
       .cnt (cnt1),
       .head(head1)
   );
-  protoemu_fifo fifo2 (
+  proteus_fifo fifo2 (
       .clk (clk),
       .rst_n(rst_n),
       .push(acc2),
@@ -241,7 +241,7 @@ module protoemu_core (
       .cnt (cnt2),
       .head(head2)
   );
-  protoemu_fifo fifo3 (
+  proteus_fifo fifo3 (
       .clk (clk),
       .rst_n(rst_n),
       .push(h_push3 & h_room3),

@@ -130,7 +130,7 @@ def read_text(path):
 
 def report(run_dir):
     """Every line to print, and the exit status."""
-    lines = ["==== protoemu layout report ===="]
+    lines = ["==== proteus layout report ===="]
     step = post_pnr_step(run_dir)
     # A step writes state_out.json only once it has succeeded.
     if not step or not isinstance(read_json(os.path.join(step, "state_out.json")), dict):

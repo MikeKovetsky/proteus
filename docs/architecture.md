@@ -1,6 +1,6 @@
-# protoemu architecture
+# proteus architecture
 
-protoemu is a programmable protocol emulator on Tiny Tapeout's IHP shuttle. A program is a **state table**: one
+proteus is a programmable protocol emulator on Tiny Tapeout's IHP shuttle. A program is a **state table**: one
 64-bit entry per state, held in two SRAMs. On every clock a machine reads its state's entry, and that one entry
 says everything about the clock: which pins to drive, what to count, shift or move, and which of up to four next
 states to take, chosen by two conditions. With one machine, the chip decides on every
@@ -276,12 +276,12 @@ Tiny Tapeout's flow in CI.
 2. **Logic: 3,310 multi-input combinational cells** after CI maps it to IHP cells, besides buffers and inverters.
 3. **SRAM: 32,768 bits,** both IHP 512x32 macros, all of it the state table.
 4. **Layout:** the whole design passes Tiny Tapeout's flow at 8x4 tiles: layout, precheck, and the pin tests on
-   the routed netlist ([CI run 44998474402](https://github.com/MikeKovetsky/protoemu/actions/runs/44998474402)).
+   the routed netlist ([CI run 44998474402](https://github.com/MikeKovetsky/proteus/actions/runs/44998474402)).
    Setup, hold, slew and capacitance limits are met at a 16.6 ns clock in all three corners, with 4.0960 ns of
    worst setup slack at the slow corner in that run. A buffer at each of the 216 live SRAM pins keeps the edges
    there inside the library's limits. 97 max-fanout warnings remain and do not fail the build, as
    [CLAUDE.md's R6 line](../CLAUDE.md#requirements-checklist) records. With today's programs and 122 pin tests
-   the flow passes again ([CI run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274)).
+   the flow passes again ([CI run 45060257274](https://github.com/MikeKovetsky/proteus/actions/runs/45060257274)).
 5. **Where the flops go:** a third of them (384) are the LFSRs' configured polynomial, start and match values.
    They let one unit serve CRCs of up to 32 bits.
 
@@ -308,9 +308,9 @@ Tiny Tapeout's flow in CI.
 
 | File | What it holds |
 |---|---|
-| [src/protoemu_table.v](../src/protoemu_table.v) | The table: two IHP SRAM macros side by side |
-| [src/protoemu_core.v](../src/protoemu_core.v) | The machines, the shared datapath, the FIFOs' wiring and the loader |
-| [src/protoemu_fifo.v](../src/protoemu_fifo.v) | One 4-byte FIFO |
+| [src/proteus_table.v](../src/proteus_table.v) | The table: two IHP SRAM macros side by side |
+| [src/proteus_core.v](../src/proteus_core.v) | The machines, the shared datapath, the FIFOs' wiring and the loader |
+| [src/proteus_fifo.v](../src/proteus_fifo.v) | One 4-byte FIFO |
 | [src/project.v](../src/project.v) | The top level: synchronisers, the nibble host link, the status pins |
 | [bakeoff/cand_table/chip.py](../bakeoff/cand_table/chip.py) | The golden model: the RTL core matches it on every clock of the recorded traces ([test/README.md](../test/README.md)) |
 | [bakeoff/cand_table/entry.py](../bakeoff/cand_table/entry.py) | The entry's fields and the image format, shared by the compiler and the model |

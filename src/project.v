@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Mike Kovetsky
  * SPDX-License-Identifier: Apache-2.0
  *
- * protoemu: a table-driven protocol emulator for Tiny Tapeout (IHP SG13CMOS5L, 8x4 tiles, 60 MHz).
+ * proteus: a table-driven protocol emulator for Tiny Tapeout (IHP SG13CMOS5L, 8x4 tiles, 60 MHz).
  *
  * Pins (docs/info.md has the host's side in full):
  *   uio[7:0]    P0..P7, the protocol pins. In through a 2-flop synchroniser, out from the core's pad
@@ -23,7 +23,7 @@
 
 // The template names this file project.v; Tiny Tapeout names the module.
 /* verilator lint_off DECLFILENAME */
-module tt_um_mikekovetsky_protoemu (
+module tt_um_mikekovetsky_proteus (
     input  wire [7:0] ui_in,    // Dedicated inputs
     output wire [7:0] uo_out,   // Dedicated outputs
     input  wire [7:0] uio_in,   // IOs: Input path
@@ -165,7 +165,7 @@ module tt_um_mikekovetsky_protoemu (
   // Snoop the effective pin levels: chip-driven outputs when oe=1, synchronised external inputs when oe=0.
   wire [7:0] trace_pins = (uio_oe & uio_out) | (~uio_oe & pin_s2);
 
-  protoemu_trace trace_buf (
+  proteus_trace trace_buf (
       .clk      (clk),
       .rst_n    (rst_i),
       .enable   (running),
@@ -182,7 +182,7 @@ module tt_um_mikekovetsky_protoemu (
   wire h_has1, h_has2;
   wire [7:0] h_q1, h_q2;
 
-  protoemu_core core (
+  proteus_core core (
       .clk      (clk),
       .rst_n    (rst_i),
       .pins     (pin_s2),

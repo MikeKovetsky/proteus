@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Mike Kovetsky
  * SPDX-License-Identifier: Apache-2.0
  *
- * protoemu_table: the 512 x 64 state table, as two IHP 512x32 single-port SRAM macros side by side.
+ * proteus_table: the 512 x 64 state table, as two IHP 512x32 single-port SRAM macros side by side.
  *
  * Word A (bits 31:0) is in the first macro and word B (bits 63:32) in the second, at the same address, so
  * both are read together. The macros are synchronous: the address is latched on a rising edge and the
@@ -12,7 +12,7 @@
 
 `default_nettype none
 
-module protoemu_table (
+module proteus_table (
     input  wire        clk,
     input  wire        men,
     input  wire        wen,

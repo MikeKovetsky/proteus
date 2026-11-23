@@ -2,7 +2,7 @@
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../../src
-PROJECT_SOURCES = project.v protoemu_core.v protoemu_fifo.v protoemu_table.v protoemu_trace.v
+PROJECT_SOURCES = project.v proteus_core.v proteus_fifo.v proteus_table.v proteus_trace.v
 SRAM_MODELS = $(PWD)/../ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v $(PWD)/../ihp_sram/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 
 SIM_BUILD = sim_build

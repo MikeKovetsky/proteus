@@ -114,9 +114,9 @@ gates and 0.6 ns flops (17 and 18 minutes of CPU on a busy laptop). The programs
 tie cell the SRAM model prints an `A_DLY` error at time 0 and runs on. That is the stand-in's doing.
 
 Later that day the same 28 passed on the routed netlist of `a60b878`, with IHP's own cell models and the cocotb
-2.0.1 that CI installs ([run 45050985947](https://github.com/MikeKovetsky/protoemu/actions/runs/45050985947)):
+2.0.1 that CI installs ([run 45050985947](https://github.com/MikeKovetsky/proteus/actions/runs/45050985947)):
 2.2 million clocks in 13 minutes. With the fixed programs, all 122 tests then passed on the routed netlist of
-`539d19e` ([run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274)): 9.1 million
+`539d19e` ([run 45060257274](https://github.com/MikeKovetsky/proteus/actions/runs/45060257274)): 9.1 million
 clocks in 43 minutes.
 
 The SRAM model in `ihp_sram/` is IHP's own (its README says where it comes from), and all three runs use it.

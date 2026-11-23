@@ -257,3 +257,9 @@ A dated log, written as the work happens. The verification write-up's AI section
     45097155470 passed `test` (130 RTL pin tests + 6 of 6 `cocotbext` oracle tests) and `suites`. Local
     `make -C test/learn` passed 82 of 82 tests. Added `AGENTS.md` with the project pitch, feature summary,
     verified figures, and agent rules, and fast-forwarded `main` to `rtl-v2` on Mike's instruction.
+53. **Project renamed to `proteus` (`tt_um_mikekovetsky_proteus`).** Mike chose `proteus` as the final chip
+    and repository name. Renamed `src/protoemu_{core,fifo,table,trace}.v` to `src/proteus_*.v`,
+    `librelane_plugin_protoemu/` to `librelane_plugin_proteus/` (`Proteus.*` steps), `info.yaml`
+    (`top_module: tt_um_mikekovetsky_proteus`), all active tests (`test/`, `test/oracle/`, `test/lockstep/`,
+    `test/synth/`, `test/flow/`, `learn/lab/`), docs, and the GitHub repository (`MikeKovetsky/proteus`).
+    Preserved historical log entries and frozen test random seeds (`test/test_scenarios.py`).

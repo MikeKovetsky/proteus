@@ -24,7 +24,7 @@ module tb ();
   wire [7:0] uio_oe;
 
   // The design under test:
-  tt_um_mikekovetsky_protoemu user_project (
+  tt_um_mikekovetsky_proteus user_project (
       .ui_in  (ui_in),    // Dedicated inputs
       .uo_out (uo_out),   // Dedicated outputs
       .uio_in (uio_in),   // IOs: Input path

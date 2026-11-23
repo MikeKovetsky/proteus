@@ -6,7 +6,7 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v protoemu_core.v protoemu_fifo.v protoemu_table.v protoemu_trace.v
+PROJECT_SOURCES = project.v proteus_core.v proteus_fifo.v proteus_table.v proteus_trace.v
 
 # The two table SRAMs are IHP's RM_IHPSG13_1P_512x32_c2_bm_bist macro. Its simulation model is vendored from
 # IHP's open PDK (test/ihp_sram/README.md); FUNCTIONAL selects the model without timing checks.
@@ -54,7 +54,7 @@ COCOTB_TEST_MODULES = test,test_scenarios,test_programs,test_v2
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
-# ---- protoemu's own targets (after the include, so `make` alone still runs the cocotb test) ------------
+# ---- proteus's own targets (after the include, so `make` alone still runs the cocotb test) ------------
 
 .PHONY: lockstep mutants lint synth
 
@@ -69,7 +69,7 @@ mutants: lockstep
 # Verilator lint of src/, every warning on. The vendored SRAM model's own warnings are waived.
 # $(CURDIR), not the template's $(PWD), so that `make -C test lint` works from anywhere.
 lint:
-	verilator --lint-only -Wall --timescale 1ns/1ps -DFUNCTIONAL --top-module tt_um_mikekovetsky_protoemu \
+	verilator --lint-only -Wall --timescale 1ns/1ps -DFUNCTIONAL --top-module tt_um_mikekovetsky_proteus \
 		$(CURDIR)/lint/waivers.vlt $(addprefix $(CURDIR)/../src/,$(PROJECT_SOURCES)) \
 		$(CURDIR)/ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v $(CURDIR)/ihp_sram/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 

@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: © 2026 Ken Pettit
 # SPDX-License-Identifier: Apache-2.0
 #
-# protoemu: copied unchanged from odb_stripes.py in Ken Pettit's https://github.com/kdp1965/ihp-um-janestreet-prism
+# proteus: copied unchanged from odb_stripes.py in Ken Pettit's https://github.com/kdp1965/ihp-um-janestreet-prism
 # (main, 2026-10-15; Apache-2.0, the same license as this repository). It powers his two IHP 512x32 SRAMs at
 # (3.36, 3.78) FS and (3.36, 340.20) N, and his design passes precheck with it. This design uses the same
 # orientations at (273.12, 3.78) and (273.12, 514.08): x is 6 stripe pitches right of his, so every SRAM column
 # sits where it did against the grid and the script makes the same choices, shifted (src/config.json, //macros).
-# Run by the Protoemu.ExtendPowerStripes step in __init__.py, inside OpenROAD's Python. The paths for his CFGMEM
+# Run by the Proteus.ExtendPowerStripes step in __init__.py, inside OpenROAD's Python. The paths for his CFGMEM
 # macros and for a TopMetal1 grid (sg13g2) are unused here: this tile has no other macros and its SRAM columns
 # are on the stripe layer, Metal4.
 #

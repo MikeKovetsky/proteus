@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
-  title:        "protoemu: a programmable protocol emulator"      # Project title
+  title:        "Proteus: a 60 MHz silicon protocol chameleon"      # Project title
   author:       "Mike Kovetsky"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "A small programmable chip that runs protocol state tables loaded through its pins"      # One line description of what your project does
+  description:  "SRAM state-table protocol emulator & TCAM engine that learns unknown ICs and becomes them at wire speed"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     60000000       # Clock frequency in Hz (or 0 if not applicable)
 
@@ -11,23 +11,23 @@ project:
   tiles: "8x4"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2, 8x2, 3x4, 4x4, 5x4, 6x4 or 8x4
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_mikekovetsky_protoemu"
+  top_module:  "tt_um_mikekovetsky_proteus"
 
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
-  # protoemu: the SRAM macro's black box (RM_IHPSG13_1P_512x32_c2_bm_bist_bb.v) is not listed:
+  # proteus: the SRAM macro's black box (RM_IHPSG13_1P_512x32_c2_bm_bist_bb.v) is not listed:
   # src/config.json gives it to the flow as the macro's view, and the tests use IHP's model in test/ihp_sram/.
   source_files:
     - "project.v"
-    - "protoemu_core.v"
-    - "protoemu_fifo.v"
-    - "protoemu_table.v"
-    - "protoemu_trace.v"
+    - "proteus_core.v"
+    - "proteus_fifo.v"
+    - "proteus_table.v"
+    - "proteus_trace.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
-# protoemu: the host (the demo board's RP2350) talks on ui and uo; the protocols run on uio. docs/info.md
+# proteus: the host (the demo board's RP2350) talks on ui and uo; the protocols run on uio. docs/info.md
 # describes the host link.
 pinout:
   # Inputs: the host link

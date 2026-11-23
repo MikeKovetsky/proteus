@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "Vprotoemu_core.h"
+#include "Vproteus_core.h"
 #include "verilated.h"
 
 namespace {
@@ -121,9 +121,9 @@ bool read_traces(const char *path, std::vector<Trace> &out) {
 
 class Dut {
  public:
-  Dut() : ctx_(new VerilatedContext), top_(new Vprotoemu_core{ctx_.get()}) {}
+  Dut() : ctx_(new VerilatedContext), top_(new Vproteus_core{ctx_.get()}) {}
   ~Dut() { top_->final(); }
-  Vprotoemu_core *operator->() { return top_.get(); }
+  Vproteus_core *operator->() { return top_.get(); }
   void clear_inputs() {
     top_->pins = 0;
     top_->pins_half = 0;
@@ -160,7 +160,7 @@ class Dut {
 
  private:
   std::unique_ptr<VerilatedContext> ctx_;
-  std::unique_ptr<Vprotoemu_core> top_;
+  std::unique_ptr<Vproteus_core> top_;
 };
 
 struct Mismatch {

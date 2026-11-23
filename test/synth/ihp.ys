@@ -4,10 +4,10 @@
 # Run from test/synth (make -C test/synth), after the liberty file is fetched into build/.
 
 read_liberty -lib build/sg13cmos5l_stdcell_slow_1p08V_125C.lib
-read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v ../../src/protoemu_trace.v
+read_verilog -DSYNTHESIS ../../src/project.v ../../src/proteus_core.v ../../src/proteus_fifo.v ../../src/proteus_table.v ../../src/proteus_trace.v
 read_verilog -lib -DFUNCTIONAL ../ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v
-hierarchy -check -top tt_um_mikekovetsky_protoemu
-synth -top tt_um_mikekovetsky_protoemu -flatten
+hierarchy -check -top tt_um_mikekovetsky_proteus
+synth -top tt_um_mikekovetsky_proteus -flatten
 dfflibmap -liberty build/sg13cmos5l_stdcell_slow_1p08V_125C.lib
 abc -liberty build/sg13cmos5l_stdcell_slow_1p08V_125C.lib -D 16600
 hilomap -hicell sg13cmos5l_tiehi L_HI -locell sg13cmos5l_tielo L_LO

@@ -1,6 +1,6 @@
 ## How it works
 
-protoemu is a programmable protocol emulator: a state table in SRAM that up to four small machines walk, one entry
+proteus is a programmable protocol emulator: a state table in SRAM that up to four small machines walk, one entry
 per clock, driving and sampling eight protocol pins. A program written in a state-machine language is compiled to
 a table image and loaded through the host pins after reset. It is an entry for Jane Street's protocol-emulator
 ASIC competition. The cycle-accurate Python model in `bakeoff/cand_table/chip.py` is the golden model the RTL is
@@ -15,7 +15,7 @@ tested against.
 ### The machine
 
 1. **The table.** 512 entries of 64 bits, in two IHP `RM_IHPSG13_1P_512x32_c2_bm_bist` SRAM macros side by side
-   (`src/protoemu_table.v`). One entry is one state.
+   (`src/proteus_table.v`). One entry is one state.
 2. **One decision per clock.** The SRAM's address register is the state register. The entry on the SRAM outputs
    picks two of 16 conditions and ORs them into its `base` address, and that address is latched at the end of the
    same clock. A return takes the machine's link register instead.
@@ -23,9 +23,9 @@ tested against.
    step, and counter and timer updates. Pin operations alone may be gated by the first condition.
 4. **Four machines take turns** on the one SRAM port, each with its own registers (timer T, counter N, K, J,
    shifter S, R, a 32-bit LFSR with its polynomial, start and match values, a link register and its pin map).
-   The datapath logic is shared (`src/protoemu_core.v`).
+   The datapath logic is shared (`src/proteus_core.v`).
 5. **Four 4-byte FIFOs** connect the machines to the host: channels 0 and 3 from the host, 1 and 2 to it
-   (`src/protoemu_fifo.v`). A machine that pushes into a full FIFO drops the byte and sets the overflow flag.
+   (`src/proteus_fifo.v`). A machine that pushes into a full FIFO drops the byte and sets the overflow flag.
 
 ### Pins
 
@@ -143,7 +143,7 @@ What to know before using them:
 
 The default test runs the whole chip through its 24 pins on Icarus: 122 tests in 3 to 4 minutes. They are
 written to run on a gate-level netlist too (`GATES=yes`), and all 122 passed on the routed netlist with these
-programs, under CI's cocotb 2.0.1 ([run 45060257274](https://github.com/MikeKovetsky/protoemu/actions/runs/45060257274),
+programs, under CI's cocotb 2.0.1 ([run 45060257274](https://github.com/MikeKovetsky/proteus/actions/runs/45060257274),
 on `539d19e`).
 
 ```sh

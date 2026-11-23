@@ -2,15 +2,15 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
 #
-# protoemu: odb_sram_diodes.py from Ken Pettit's https://github.com/kdp1965/ihp-um-janestreet-prism (main,
+# proteus: odb_sram_diodes.py from Ken Pettit's https://github.com/kdp1965/ihp-um-janestreet-prism (main,
 # 2026-10-15; Apache-2.0, the same license as this repository). The code is his with two changes: a pin behind
-# one of protoemu's pin buffers gets its diode on that buffer's input (long_wire_end), and a diode beside a
+# one of proteus's pin buffers gets its diode on that buffer's input (long_wire_end), and a diode beside a
 # standard cell takes the pin's side, because LibreLane picks a random side when no source is given. This
 # comment is new:
 # his said the SRAM LEF carries no antenna data, but the LEF at IHP-Open-PDK 89d42ee6d2fd (the same file as at
 # his 2bbec755dc67) has ANTENNAGATEAREA on every input. His walkthrough gives the reason he kept the step: in his
 # flow, OpenROAD's rule-based repair did not always protect the nets that drive the SRAM. Run by the
-# Protoemu.DiodesOnSramPins step in __init__.py, inside OpenROAD's Python.
+# Proteus.DiodesOnSramPins step in __init__.py, inside OpenROAD's Python.
 #
 # One antenna diode for every signal input pin of every hard macro whose master name starts with --macro-prefix
 # (the IHP SRAMs). Placement is the LibreLane inserter's: the nearest row point to a macro pin, or beside a

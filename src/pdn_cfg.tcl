@@ -1,11 +1,11 @@
-# protoemu: LibreLane 3.1.0.dev4's scripts/openroad/common/pdn_cfg.tcl without its last block, the per-macro
+# proteus: LibreLane 3.1.0.dev4's scripts/openroad/common/pdn_cfg.tcl without its last block, the per-macro
 # grid. Selected by PDN_CFG in src/config.json.
 #
 # The Tiny Tapeout CMOS5L tile's power grid is one layer of vertical Metal4 stripes (PDN_MULTILAYER 0). pdngen
 # cuts those stripes around the SRAM macros, and the default macro grid would connect Metal4 to TopMetal1,
 # which a tile does not have, so it gets no shapes and pdngen fails with PDN-0233 "Failed to generate full
-# power grid". The SRAMs are powered instead by the Protoemu.ExtendPowerStripes step
-# (librelane_plugin_protoemu/), which runs full-height stripes over their Metal4 supply columns right after
+# power grid". The SRAMs are powered instead by the Proteus.ExtendPowerStripes step
+# (librelane_plugin_proteus/), which runs full-height stripes over their Metal4 supply columns right after
 # pdngen. Ken Pettit's ihp-um-janestreet-prism found and solved this the same way (src/pdn_cfg.tcl there).
 #
 # Copyright 2025 LibreLane Contributors

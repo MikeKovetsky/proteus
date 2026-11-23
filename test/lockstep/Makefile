@@ -14,7 +14,7 @@ CYCLES  ?= 4000
 SEED    ?= 1
 VERILATOR ?= verilator
 
-RTL := $(ROOT)/src/protoemu_core.v $(ROOT)/src/protoemu_fifo.v $(ROOT)/src/protoemu_table.v
+RTL := $(ROOT)/src/proteus_core.v $(ROOT)/src/proteus_fifo.v $(ROOT)/src/proteus_table.v
 SRAM := $(ROOT)/test/ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v \
         $(ROOT)/test/ihp_sram/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 
@@ -28,7 +28,7 @@ bin: $(BUILD)/lockstep
 $(BUILD)/lockstep: lockstep.cpp $(RTL) $(SRAM)
 	mkdir -p $(BUILD)/obj
 	$(VERILATOR) --cc --exe --build -j 0 -O3 --no-timing -Wno-STMTDLY --timescale 1ns/1ps -DFUNCTIONAL \
-		--top-module protoemu_core --Mdir $(BUILD)/obj -o $(BUILD)/lockstep \
+		--top-module proteus_core --Mdir $(BUILD)/obj -o $(BUILD)/lockstep \
 		$(ROOT)/test/lint/waivers.vlt $(RTL) $(SRAM) $(abspath lockstep.cpp)
 
 traces:

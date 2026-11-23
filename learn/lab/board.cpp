@@ -16,7 +16,7 @@
 #include <memory>
 #include <vector>
 
-#include "Vtt_um_mikekovetsky_protoemu.h"
+#include "Vtt_um_mikekovetsky_proteus.h"
 #include "verilated.h"
 #include "verilated_save.h"
 
@@ -77,7 +77,7 @@ class Board {
   Board(uint8_t pull, uint32_t seed) : ctx_(new VerilatedContext), pull_(pull) {
     ctx_->randReset(2);  // power-up values are random: nothing may lean on them
     ctx_->randSeed(static_cast<int>(seed | 1));
-    top_.reset(new Vtt_um_mikekovetsky_protoemu{ctx_.get()});
+    top_.reset(new Vtt_um_mikekovetsky_proteus{ctx_.get()});
     top_->ena = 1;
     top_->clk = 0;
     top_->rst_n = 0;
@@ -463,7 +463,7 @@ class Board {
   }
 
   std::unique_ptr<VerilatedContext> ctx_;
-  std::unique_ptr<Vtt_um_mikekovetsky_protoemu> top_;
+  std::unique_ptr<Vtt_um_mikekovetsky_proteus> top_;
   uint64_t cycle_ = 0, contention_ = 0, chip_high_ = 0;
   uint8_t pull_, wire_ = 0, line_ = 0, last_line_ = 0;
   uint8_t c_oe_ = 0, c_out_ = 0, d_mask_ = 0, d_val_ = 0, f_mask_ = 0, f_val_ = 0;

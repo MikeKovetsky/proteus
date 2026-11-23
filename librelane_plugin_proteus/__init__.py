@@ -2,13 +2,13 @@
 # SPDX-FileCopyrightText: © 2026 Ken Pettit (ihp-um-janestreet-prism, Apache-2.0)
 # SPDX-License-Identifier: Apache-2.0
 """
-LibreLane plugin for protoemu: power the two IHP SRAM macros on the Tiny Tapeout CMOS5L tile, buffer their
+LibreLane plugin for proteus: power the two IHP SRAM macros on the Tiny Tapeout CMOS5L tile, buffer their
 signal pins, and protect their inputs from the antenna effect.
 
 Adapted from Ken Pettit's librelane_plugin_prism_pdn.py in https://github.com/kdp1965/ihp-um-janestreet-prism
 (main, 2026-10-15), which hardens two of these macros at 8x4 and passes precheck. Only the three pieces this
 design needs are kept: the stripe step, the diodes on the SRAM inputs, and the Netgen report fix. The buffers
-on the SRAM pins are protoemu's own.
+on the SRAM pins are proteus's own.
 
 How it gets loaded: LibreLane imports every module on the Python path whose name starts with
 ``librelane_plugin_`` (librelane/plugins.py), and ``python3 -m librelane`` puts the current directory first on
@@ -17,9 +17,9 @@ root, on the host and again inside LibreLane's container (same working directory
 both times without installing anything. src/config.json then adds the three steps to the Classic flow:
 
     "meta": {"flow": "Classic", "substituting_steps": {
-        "+OpenROAD.GeneratePDN": "Protoemu.ExtendPowerStripes",
-        "+OpenROAD.CTS": "Protoemu.BuffersOnSramPins",
-        "+OpenROAD.ResizerTimingPostCTS": "Protoemu.DiodesOnSramPins"}}
+        "+OpenROAD.GeneratePDN": "Proteus.ExtendPowerStripes",
+        "+OpenROAD.CTS": "Proteus.BuffersOnSramPins",
+        "+OpenROAD.ResizerTimingPostCTS": "Proteus.DiodesOnSramPins"}}
 
 Nothing here may import ``odb``: that module exists only inside OpenROAD, where the odb_*.py scripts run.
 """
@@ -55,7 +55,7 @@ class ExtendPowerStripes(OdbpyStep):
     full-height box per stripe.
     """
 
-    id = "Protoemu.ExtendPowerStripes"
+    id = "Proteus.ExtendPowerStripes"
     name = "Extend Power Stripes Over the SRAM Macros"
 
     config_vars = [
@@ -127,7 +127,7 @@ class ExtendPowerStripes(OdbpyStep):
 class SramPinBufferPlacement(OdbpyStep):
     """One SRAM_PIN_BUFFER_CELL beside every live signal pin of the IHP SRAMs (odb_sram_buffers.py)."""
 
-    id = "Protoemu.SramPinBufferPlacement"
+    id = "Proteus.SramPinBufferPlacement"
     name = "Buffers on SRAM Signal Pins"
 
     config_vars = [
@@ -170,7 +170,7 @@ class BuffersOnSramPins(CompositeStep):
     the pins it inserts in front of, and stop the flow with RSZ-3009 when that leaves none.
     """
 
-    id = "Protoemu.BuffersOnSramPins"
+    id = "Proteus.BuffersOnSramPins"
     name = "Buffers on SRAM Pins"
     Steps = [SramPinBufferPlacement, DetailedPlacement]
 
@@ -179,7 +179,7 @@ class BuffersOnSramPins(CompositeStep):
 class SramPinDiodePlacement(OdbpyStep):
     """One DIODE_CELL per SRAM input, where its long wire ends (odb_sram_diodes.py), from Pettit's plugin."""
 
-    id = "Protoemu.SramPinDiodePlacement"
+    id = "Proteus.SramPinDiodePlacement"
     name = "Diodes on SRAM Input Pins"
 
     def get_script_path(self):
@@ -209,12 +209,12 @@ class DiodesOnSramPins(CompositeStep):
     about 312 diode cells for the two macros. It runs before global routing (after
     OpenROAD.ResizerTimingPostCTS), so that one routing pass includes the diodes, and the rule-based repair
     still runs afterwards for every other net. From Pettit's plugin, with one change: for a pin that has a
-    buffer from Protoemu.BuffersOnSramPins, the diode goes on the buffer's input, where the long wire now ends
+    buffer from Proteus.BuffersOnSramPins, the diode goes on the buffer's input, where the long wire now ends
     (a buf_2 gate alone allows about 210 um of minimum-width wire). Running after the hold repair matters for
     the same reason: the diode ends up on the last, long piece of the net.
     """
 
-    id = "Protoemu.DiodesOnSramPins"
+    id = "Proteus.DiodesOnSramPins"
     name = "Diodes on SRAM Pins"
     Steps = [SramPinDiodePlacement, DetailedPlacement]
 

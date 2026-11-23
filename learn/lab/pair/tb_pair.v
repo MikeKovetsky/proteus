@@ -29,12 +29,12 @@ module tb_pair;
     end
   endgenerate
 
-  tt_um_mikekovetsky_protoemu c (
+  tt_um_mikekovetsky_proteus c (
       .ui_in(c_ui), .uo_out(c_uo), .uio_in(seen), .uio_out(c_out), .uio_oe(c_oe),
       .ena(1'b1), .clk(c_clk), .rst_n(c_rst_n)
   );
 
-  tt_um_mikekovetsky_protoemu x (
+  tt_um_mikekovetsky_proteus x (
       .ui_in(x_ui), .uo_out(x_uo), .uio_in(seen), .uio_out(x_out), .uio_oe(x_oe),
       .ena(1'b1), .clk(x_clk), .rst_n(x_rst_n)
   );

@@ -18,7 +18,7 @@ jobs:
         with:
           pdk: ihp-sg13cmos5l # or ihp-sg13g2
 
-      # protoemu: LibreLane's own table is cut short in the log and the violating pins are only in an artifact.
+      # proteus: LibreLane's own table is cut short in the log and the violating pins are only in an artifact.
       # This prints both, also after a failed layout, and fails on a violation or a missing figure.
       - name: Layout report
         if: always()
@@ -45,7 +45,7 @@ jobs:
 
   viewer:
     needs: gds
-    # protoemu: the public Pages viewer shows main's layout only, never an unmerged branch's. Two locks: the
+    # proteus: the public Pages viewer shows main's layout only, never an unmerged branch's. Two locks: the
     # condition, and the github-pages environment's main-only rule, which binds only a job that names it (the
     # electrical-fix branch deployed past it in run 44111759734).
     if: github.ref == 'refs/heads/main'

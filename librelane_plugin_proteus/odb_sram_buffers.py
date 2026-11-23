@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
 #
-# One buffer beside every live signal pin of both table SRAMs. Run by the Protoemu.BuffersOnSramPins step in
+# One buffer beside every live signal pin of both table SRAMs. Run by the Proteus.BuffersOnSramPins step in
 # __init__.py, inside OpenROAD's Python, between clock tree synthesis and the post-CTS timing repair.
 #
 # The SRAM's limits are far tighter than a standard cell's: 0.5952 ns of slew on an input at the slow corner
@@ -21,7 +21,7 @@ from reader import click_odb   # LibreLane's odbpy directory is on the path for 
 
 LIVE_INPUT = re.compile(r"A_(MEN|WEN|REN|ADDR\[\d+\]|DIN\[\d+\]|BM\[\d+\])")
 LIVE_OUTPUT = re.compile(r"A_DOUT\[\d+\]")
-MACROS, INPUTS, OUTPUTS = 2, 76, 32   # src/protoemu_table.v: A_CLK is CTS's, and A_DLY and the BIST pins are tied
+MACROS, INPUTS, OUTPUTS = 2, 76, 32   # src/proteus_table.v: A_CLK is CTS's, and A_DLY and the BIST pins are tied
 BUFFER_PREFIX = "sram_pin_buf_"
 
 

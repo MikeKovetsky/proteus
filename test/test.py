@@ -48,7 +48,7 @@ async def start(dut):
     return host
 
 
-SRAM = "RM_IHPSG13_1P_512x32_c2_bm_bist"  # the macro the table is built from (src/protoemu_table.v)
+SRAM = "RM_IHPSG13_1P_512x32_c2_bm_bist"  # the macro the table is built from (src/proteus_table.v)
 
 
 def table_srams(dut):

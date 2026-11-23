@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""Independent third-party protocol oracle verification against tt_um_mikekovetsky_protoemu RTL.
+"""Independent third-party protocol oracle verification against tt_um_mikekovetsky_proteus RTL.
 
 Every protocol waveform below is judged or driven by an external open-source cocotb VIP written
 independently of this repository:

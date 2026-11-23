@@ -189,7 +189,7 @@ class Pair:
             sys.path.append(str(ROOT))  # the simulator's Python gets this process's path
         self.runner = get_runner("icarus")
         sources = [PAIR / "tb_pair.v"] + [ROOT / "src" / name for name in (
-            "project.v", "protoemu_core.v", "protoemu_fifo.v", "protoemu_table.v", "protoemu_trace.v")]
+            "project.v", "proteus_core.v", "proteus_fifo.v", "proteus_table.v", "proteus_trace.v")]
         sources += sorted((ROOT / "test" / "ihp_sram").glob("*.v"))
         self.runner.build(sources=sources, hdl_toplevel="tb_pair", build_dir=self.work / "build",
                           defines={"FUNCTIONAL": 1}, always=True, timescale=("1ns", "1ps"),

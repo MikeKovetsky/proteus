@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""The SRAM pin buffers and diodes of librelane_plugin_protoemu, and the config they rely on."""
+"""The SRAM pin buffers and diodes of librelane_plugin_proteus, and the config they rely on."""
 import contextlib
 import io
 import json
@@ -255,7 +255,7 @@ class Flow(unittest.TestCase):
         return command[2], dict(zip(command[3::2], command[4::2]))
 
     def test_buffer_step_passes_what_its_script_takes(self):
-        step = STEPS["Protoemu.SramPinBufferPlacement"]
+        step = STEPS["Proteus.SramPinBufferPlacement"]
         cell = {v.name: v.default for v in step.config_vars}
         script, args = self.command(step.id, cell)
         self.assertTrue(script.endswith("odb_sram_buffers.py") and os.path.isfile(script))
@@ -265,7 +265,7 @@ class Flow(unittest.TestCase):
         self.assertTrue(fakes.SRAM.startswith(args["--macro-prefix"]))
 
     def test_diode_step_passes_what_its_script_takes(self):
-        script, args = self.command("Protoemu.SramPinDiodePlacement", config())
+        script, args = self.command("Proteus.SramPinDiodePlacement", config())
         self.assertTrue(script.endswith("odb_sram_diodes.py") and os.path.isfile(script))
         self.assertEqual(set(args), {o for o in DIODE_OPTIONS if o.startswith("--")})
         self.assertEqual(args["--net-prefix"], plugin.PIN_NET_PREFIX)
@@ -273,13 +273,13 @@ class Flow(unittest.TestCase):
 
     def test_buffers_before_hold_repair_and_diodes_after(self):
         steps = config()["meta"]["substituting_steps"]
-        self.assertEqual(steps["+OpenROAD.GeneratePDN"], "Protoemu.ExtendPowerStripes")
-        self.assertEqual(steps["+OpenROAD.CTS"], "Protoemu.BuffersOnSramPins")
-        self.assertEqual(steps["+OpenROAD.ResizerTimingPostCTS"], "Protoemu.DiodesOnSramPins")
+        self.assertEqual(steps["+OpenROAD.GeneratePDN"], "Proteus.ExtendPowerStripes")
+        self.assertEqual(steps["+OpenROAD.CTS"], "Proteus.BuffersOnSramPins")
+        self.assertEqual(steps["+OpenROAD.ResizerTimingPostCTS"], "Proteus.DiodesOnSramPins")
         for step in steps.values():
             self.assertIn(step, STEPS)
-        for step, script_step in (("Protoemu.BuffersOnSramPins", "Protoemu.SramPinBufferPlacement"),
-                                  ("Protoemu.DiodesOnSramPins", "Protoemu.SramPinDiodePlacement")):
+        for step, script_step in (("Proteus.BuffersOnSramPins", "Proteus.SramPinBufferPlacement"),
+                                  ("Proteus.DiodesOnSramPins", "Proteus.SramPinDiodePlacement")):
             self.assertEqual([s.id for s in STEPS[step].Steps], [script_step, "OpenROAD.DetailedPlacement"])
 
     def test_slew_and_cap_violations_fail_every_corner(self):

@@ -1,4 +1,4 @@
-# Writing a protocol for protoemu
+# Writing a protocol for proteus
 
 This guide writes a protocol that none of the 14 bench programs uses, a UART with an even-parity bit (8E1), from
 the spec to a program that runs on the chip's model and is checked by a decoder written for the example. Then it shows
