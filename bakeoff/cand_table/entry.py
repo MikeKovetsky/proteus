@@ -20,12 +20,23 @@ Word A (control)                         Word B (datapath)
 """
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 DEPTH = 512          # entries: two 512x32 macros read side by side
 ENTRY_BYTES = 8
 MAX_MACHINES = 4
 MACHINE_CFG_BYTES = 16
+MAX_TCAM = 16
+
+# Gate field (2 bits): 0..2 gate pin operations; 3 selects 1-clock indexed / TCAM dispatch (pin ops off).
+GATE_ALWAYS, GATE_IF, GATE_UNLESS, GATE_DISPATCH = range(4)
+
+# Indexed dispatch modes (when gate == GATE_DISPATCH, selected by ca[1:0]):
+#   0: 4-way S 2-bit slice  {base[8:2], (S >> cb[2:0]) & 3}
+#   1: 16-way S nibble      {base[8:4], (S >> 4) if cb[0] else (S & 15)}
+#   2: 8-way TCAM class     {base[8:3], tcam_cls & 7}
+#   3: 16-way (cb[0]==0) or 4-way (cb[0]==1) TCAM class
+DISP_SLICE2, DISP_NIBBLE, DISP_TCAM8, DISP_TCAM16 = range(4)
 
 # Conditions a state can branch on (4-bit select). All are flags of registered state.
 CONDS = ["0", "a", "b", "c", "edge", "tz", "kz", "jz", "nz", "d", "crc", "rx0", "rx3", "tx1", "tx2", "eq"]
@@ -109,14 +120,19 @@ class MachineConfig:
         self.poly = 0                       # LFSR polynomial, reflected
         self.init = 0                       # what `crc=init` loads
         self.match = 0                      # the `crc` condition is LFSR == match
+        # v2 extensions packed into spare bits of head[0..3] (all 0 in every v1 image):
+        self.in_b_half = 0                  # head[0] bit 6: sample input B from falling-edge (8.33 ns earlier) copy
+        self.edge_b = 0                     # head[0] bit 7: `edge` watches input B as well as input A
+        self.in_d_en = 0                    # head[2] bit 6: cond 12 selects 4th input D instead of rx3
+        self.in_d = 0                       # head[3] bits 6:4: 4th input D -> pin
 
     def to_bytes(self) -> bytes:
         o, i = self.out, self.inp
         head = bytes([
-            o[0] | o[1] << 3,
-            o[2] | o[3] << 3,
-            i[0] | i[1] << 3,
-            i[2] | self.msb << 3,
+            (o[0] & 7) | (o[1] & 7) << 3 | (self.in_b_half & 1) << 6 | (self.edge_b & 1) << 7,
+            (o[2] & 7) | (o[3] & 7) << 3,
+            (i[0] & 7) | (i[1] & 7) << 3 | (self.in_d_en & 1) << 6,
+            (i[2] & 7) | (self.msb & 1) << 3 | (self.in_d & 7) << 4,
         ])
         return (head + self.poly.to_bytes(4, "little") + self.init.to_bytes(4, "little")
                 + self.match.to_bytes(4, "little"))
@@ -125,36 +141,64 @@ class MachineConfig:
     def from_bytes(cls, raw: bytes) -> "MachineConfig":
         cfg = cls()
         cfg.out = [raw[0] & 7, (raw[0] >> 3) & 7, raw[1] & 7, (raw[1] >> 3) & 7]
+        cfg.in_b_half = (raw[0] >> 6) & 1
+        cfg.edge_b = (raw[0] >> 7) & 1
         cfg.inp = [raw[2] & 7, (raw[2] >> 3) & 7, raw[3] & 7]
+        cfg.in_d_en = (raw[2] >> 6) & 1
         cfg.msb = (raw[3] >> 3) & 1
+        cfg.in_d = (raw[3] >> 4) & 7
         cfg.poly = int.from_bytes(raw[4:8], "little")
         cfg.init = int.from_bytes(raw[8:12], "little")
         cfg.match = int.from_bytes(raw[12:16], "little")
         return cfg
 
 
-def build_image(configs: List[MachineConfig], words: List[Tuple[int, int]]) -> bytes:
-    """Image: [machines][16 bytes per machine][entries, 2 bytes][8 bytes per entry, from address 0]."""
-    out = bytearray([len(configs)])
+def build_image(configs: List[MachineConfig], words: List[Tuple[int, int]],
+                tcam: Optional[List[Tuple[int, int, int]]] = None) -> bytes:
+    """Image:
+    v1 (no TCAM): [machines][16 B/machine][entries, 2 B][8 B/entry]
+    v2 (with TCAM): [machines | 0x80][16 B/machine][tcam_count][3 B/rule: val, mask, cls][entries, 2 B][8 B/entry]
+    """
+    has_tcam = bool(tcam)
+    out = bytearray([len(configs) | (0x80 if has_tcam else 0)])
     for cfg in configs:
         out += cfg.to_bytes()
+    if has_tcam:
+        assert tcam is not None
+        out.append(len(tcam))
+        for val, mask, cls in tcam:
+            out.extend((val & 0xFF, mask & 0xFF, cls & 0x0F))
     out += len(words).to_bytes(2, "little")
     for a, b in words:
         out += a.to_bytes(4, "little") + b.to_bytes(4, "little")
     return bytes(out)
 
 
-def parse_image(image: bytes) -> Tuple[List[MachineConfig], List[Tuple[int, int]]]:
-    n = image[0]
+def parse_image_v2(image: bytes) -> Tuple[List[MachineConfig], List[Tuple[int, int]], List[Tuple[int, int, int]]]:
+    hdr = image[0]
+    has_tcam = bool(hdr & 0x80)
+    n = hdr & 0x7F
     pos = 1
     configs = []
     for _ in range(n):
         configs.append(MachineConfig.from_bytes(image[pos:pos + MACHINE_CFG_BYTES]))
         pos += MACHINE_CFG_BYTES
+    tcam: List[Tuple[int, int, int]] = []
+    if has_tcam:
+        tcnt = image[pos]
+        pos += 1
+        for _ in range(tcnt):
+            tcam.append((image[pos], image[pos + 1], image[pos + 2] & 0x0F))
+            pos += 3
     count = int.from_bytes(image[pos:pos + 2], "little")
     pos += 2
     words = []
     for _ in range(count):
         words.append((int.from_bytes(image[pos:pos + 4], "little"), int.from_bytes(image[pos + 4:pos + 8], "little")))
         pos += ENTRY_BYTES
+    return configs, words, tcam
+
+
+def parse_image(image: bytes) -> Tuple[List[MachineConfig], List[Tuple[int, int]]]:
+    configs, words, _tcam = parse_image_v2(image)
     return configs, words

@@ -1,7 +1,7 @@
 # Generic Yosys synthesis of the whole chip. The two SRAM macros are black boxes.
 # Run from test/synth (make -C test/synth).
 
-read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v
+read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v ../../src/protoemu_trace.v
 read_verilog -lib -DFUNCTIONAL ../ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v
 hierarchy -check -top tt_um_mikekovetsky_protoemu
 synth -top tt_um_mikekovetsky_protoemu -flatten

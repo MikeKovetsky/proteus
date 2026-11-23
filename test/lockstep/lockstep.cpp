@@ -126,6 +126,7 @@ class Dut {
   Vprotoemu_core *operator->() { return top_.get(); }
   void clear_inputs() {
     top_->pins = 0;
+    top_->pins_half = 0;
     top_->ld_valid = 0;
     top_->ld_byte = 0;
     top_->h_push0 = 0;
@@ -200,6 +201,7 @@ Mismatch replay(Dut &dut, const Trace &t, uint64_t &compared) {
   size_t e = 0;
   for (size_t k = 0; k < n_steps; k++) {
     dut->pins = t.steps[3 * k];
+    dut->pins_half = t.steps[3 * k];
     dut->h_push0 = dut->h_push3 = dut->h_pop1 = dut->h_pop2 = 0;
     size_t first = e;
     while (e < t.events.size() && t.events[e].step == k) {

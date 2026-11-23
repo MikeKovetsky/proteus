@@ -31,8 +31,8 @@ FIFO_DEPTH = 4
 class Machine:
     """One machine's registers. The logic that updates them is shared by all machines."""
 
-    __slots__ = ("state", "link", "T", "N", "K", "J", "S", "R", "crc", "crc_ok", "prev_a",
-                 "out", "inp", "msb", "poly", "init", "match")
+    __slots__ = ("state", "link", "T", "N", "K", "J", "S", "R", "crc", "crc_ok", "prev_a", "prev_b",
+                 "out", "inp", "msb", "poly", "init", "match", "in_b_half", "edge_b", "in_d_en", "in_d")
 
     def __init__(self, index: int) -> None:
         self.state = index  # machine m starts in table entry m
@@ -46,12 +46,17 @@ class Machine:
         self.crc = 0        # 32-bit LFSR, right-shifting (reflected polynomials)
         self.crc_ok = 0     # LFSR == match, registered: one turn behind the LFSR
         self.prev_a = 1     # input A one turn ago, for `edge`
+        self.prev_b = 1     # input B one turn ago, for `edge_b`
         self.out = [0, 0, 0, 0]
         self.inp = [0, 0, 0]
         self.msb = 0
         self.poly = 0
         self.init = 0
         self.match = 0
+        self.in_b_half = 0
+        self.edge_b = 0
+        self.in_d_en = 0
+        self.in_d = 0
 
 
 class TableChip(Chip):
@@ -76,14 +81,18 @@ class TableChip(Chip):
         self.q_valid = False         # false until the first read after reset has happened
         self.loaded = False
         self.overflow = 0            # pushes dropped because a FIFO was full
+        self.tcam: List[Tuple[int, int, int]] = []  # v2: up to 16 (val, mask, cls) rules
 
     def load(self, image: bytes) -> None:
         """The loader: copies the configuration into flops and the entries into the two SRAMs, in order."""
-        configs, words = E.parse_image(image)
+        configs, words, tcam = E.parse_image_v2(image)
         self.nm = len(configs)
         for m, cfg in zip(self.mach, configs):
             m.out, m.inp, m.msb = list(cfg.out), list(cfg.inp), cfg.msb
             m.poly, m.init, m.match = cfg.poly, cfg.init, cfg.match
+            m.in_b_half, m.edge_b = cfg.in_b_half, cfg.edge_b
+            m.in_d_en, m.in_d = cfg.in_d_en, cfg.in_d
+        self.tcam = list(tcam[:E.MAX_TCAM])
         for addr, (a, b) in enumerate(words):
             self.ram_a[addr] = a
             self.ram_b[addr] = b
@@ -113,7 +122,13 @@ class TableChip(Chip):
         self._decoded[addr] = d
         return d
 
-    def _cond(self, m: Machine, c: int, pins: int, a: int, d: int, imm: int) -> int:
+    def _tcam_cls(self, s: int) -> int:
+        for val, mask, cls in self.tcam:
+            if cls and ((s & mask) == (val & mask)):
+                return cls
+        return 0
+
+    def _cond(self, m: Machine, c: int, pins: int, a: int, b: int, d: int, imm: int) -> int:
         if c == 0:
             return 0
         if c == 5:
@@ -121,9 +136,9 @@ class TableChip(Chip):
         if c == 1:
             return a
         if c == 4:
-            return a ^ m.prev_a
+            return ((a ^ m.prev_a) | (b ^ m.prev_b)) if m.edge_b else (a ^ m.prev_a)
         if c == 2:
-            return (pins >> m.inp[1]) & 1
+            return b
         if c == 3:
             return (pins >> m.inp[2]) & 1
         if c == 6:
@@ -139,16 +154,18 @@ class TableChip(Chip):
         if c == 11:
             return 1 if self.fifo[0] else 0
         if c == 12:
-            return 1 if self.fifo[3] else 0
+            return ((pins >> m.in_d) & 1) if m.in_d_en else (1 if self.fifo[3] else 0)
         if c == 13:
             return 1 if len(self.fifo[1]) < FIFO_DEPTH else 0
         if c == 14:
             return 1 if len(self.fifo[2]) < FIFO_DEPTH else 0
         return 1 if m.S == (imm & 0xFF) else 0
 
-    def step(self, pins: int) -> Tuple[int, int]:
+    def step(self, pins: int, pins_half: Optional[int] = None) -> Tuple[int, int]:
         if not self.loaded:
             return 0, 0
+        if pins_half is None:
+            pins_half = pins
         mi = self.slot
         nxt = mi + 1
         if nxt >= self.nm:
@@ -163,6 +180,7 @@ class TableChip(Chip):
 
             # Everything below reads the registers as they stood before this clock.
             a = (pins >> m.inp[0]) & 1
+            b = ((pins_half if m.in_b_half else pins) >> m.inp[1]) & 1
             S = m.S
             if dsel:
                 d = m.crc & 1
@@ -170,8 +188,8 @@ class TableChip(Chip):
                 d = S >> 7
             else:
                 d = S & 1
-            va = self._cond(m, ca, pins, a, d, imm) if ca else 0
-            vb = self._cond(m, cb, pins, a, d, imm) if cb else 0
+            va = self._cond(m, ca, pins, a, b, d, imm) if ca else 0
+            vb = self._cond(m, cb, pins, a, b, d, imm) if cb else 0
 
             # The 32-bit compare is registered, so the `crc` flag describes the LFSR one turn ago.
             m.crc_ok = 1 if m.crc == m.match else 0
@@ -179,16 +197,32 @@ class TableChip(Chip):
                 if m.T:
                     m.T -= 1
             else:
-                self._datapath(m, e, pins, a, d, va)
+                self._datapath(m, e, a, b, d, va)
             m.prev_a = a
-            m.state = m.link if nop == E.N_RETURN else base | va | (vb << 1)
+            m.prev_b = b
+            if nop == E.N_RETURN:
+                m.state = m.link
+            elif gate == E.GATE_DISPATCH:
+                mode = ca & 3
+                if mode == E.DISP_SLICE2:
+                    m.state = (base & 0x1FC) | ((S >> (cb & 7)) & 3)
+                elif mode == E.DISP_NIBBLE:
+                    m.state = (base & 0x1F0) | ((S >> 4) if (cb & 1) else (S & 15))
+                elif mode == E.DISP_TCAM8:
+                    m.state = (base & 0x1F8) | (self._tcam_cls(S) & 7)
+                elif cb & 1:
+                    m.state = (base & 0x1FC) | (self._tcam_cls(S) & 3)
+                else:
+                    m.state = (base & 0x1F0) | (self._tcam_cls(S) & 15)
+            else:
+                m.state = base | va | (vb << 1)
 
         # The SRAMs latch the address of whoever steps next. With one machine that is the state just chosen.
         self.q_addr = self.mach[nxt].state
         self.q_valid = True
         return self.out, self.oe
 
-    def _datapath(self, m: Machine, e: tuple, pins: int, a: int, d: int, va: int) -> None:
+    def _datapath(self, m: Machine, e: tuple, a: int, b: int, d: int, va: int) -> None:
         (base, ca, cb, p0, p0op, p1, p1op, gate, dsel, din, imm, src, dst, shift, crcop, nop, kj, tload,
          quiet) = e
 
@@ -243,7 +277,7 @@ class TableChip(Chip):
         if din == E.DIN_A:
             bit_in = a
         elif din == E.DIN_B:
-            bit_in = (pins >> m.inp[1]) & 1
+            bit_in = b
         else:
             bit_in = din
         if shift:

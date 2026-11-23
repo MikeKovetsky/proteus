@@ -40,6 +40,7 @@ module protoemu_core (
 
     // Protocol pins P0..P7, already through the synchronisers.
     input  wire [7:0] pins,
+    input  wire [7:0] pins_half,
     output reg  [7:0] pin_out,
     output reg  [7:0] pin_oe,
 
@@ -114,16 +115,26 @@ module protoemu_core (
   reg [4*32-1:0] r_crc;
   reg [3:0]      r_crcok;
   reg [3:0]      r_preva;
+  reg [3:0]      r_prevb;
   reg [3:0]      r_tz;
   reg [3:0]      r_kz;
   reg [3:0]      r_jz;
   reg [3:0]      r_nz;
   reg [4*12-1:0] r_omap;   // logical outputs 0..3 -> pin, 3 bits each
   reg [4*9-1:0]  r_imap;   // inputs A, B, C -> pin, 3 bits each
+  reg [4*3-1:0]  r_imap_d; // v2: 4th input D -> pin, 3 bits
+  reg [3:0]      r_in_d_en;
+  reg [3:0]      r_in_b_half;
+  reg [3:0]      r_edge_b;
   reg [3:0]      r_msb;
   reg [4*32-1:0] r_poly;
   reg [4*32-1:0] r_init;
   reg [4*32-1:0] r_match;
+
+  // v2: shared 16-rule masked Byte-Class TCAM (320 flops). Evaluates m_S in parallel with the SRAM read.
+  reg [16*8-1:0] tcam_val;
+  reg [16*8-1:0] tcam_mask;
+  reg [16*4-1:0] tcam_cls;
 
   // The machine whose turn it is.
   wire [8:0]  m_link  = r_link[slot*9+:9];
@@ -136,12 +147,17 @@ module protoemu_core (
   wire [31:0] m_crc   = r_crc[slot*32+:32];
   wire        m_crcok = r_crcok[slot];
   wire        m_preva = r_preva[slot];
+  wire        m_prevb = r_prevb[slot];
   wire        m_tz    = r_tz[slot];
   wire        m_kz    = r_kz[slot];
   wire        m_jz    = r_jz[slot];
   wire        m_nz    = r_nz[slot];
   wire [11:0] m_omap  = r_omap[slot*12+:12];
   wire [8:0]  m_imap  = r_imap[slot*9+:9];
+  wire [2:0]  m_imap_d    = r_imap_d[slot*3+:3];
+  wire        m_in_d_en   = r_in_d_en[slot];
+  wire        m_in_b_half = r_in_b_half[slot];
+  wire        m_edge_b    = r_edge_b[slot];
   wire        m_msb   = r_msb[slot];
   wire [31:0] m_poly  = r_poly[slot*32+:32];
   wire [31:0] m_init  = r_init[slot*32+:32];
@@ -238,20 +254,61 @@ module protoemu_core (
   // ---- conditions and the next address -----------------------------------------------------------------
 
   wire in_a = pins[m_imap[2:0]];
-  wire in_b = pins[m_imap[5:3]];
+  wire in_b = m_in_b_half ? pins_half[m_imap[5:3]] : pins[m_imap[5:3]];
   wire in_c = pins[m_imap[8:6]];
-  wire d    = f_dsel ? m_crc[0] : (m_msb ? m_S[7] : m_S[0]);
-  wire s_eq = m_S == f_imm[7:0];
+  wire in_d = pins[m_imap_d];
+  wire edge_cond = m_edge_b ? ((in_a ^ m_preva) | (in_b ^ m_prevb)) : (in_a ^ m_preva);
+  wire cond12    = m_in_d_en ? in_d : (cnt3 != 3'd0);
+  wire d         = f_dsel ? m_crc[0] : (m_msb ? m_S[7] : m_S[0]);
+  wire s_eq      = m_S == f_imm[7:0];
 
   wire [15:0] conds = {
-    s_eq, cnt2 != 3'd4, cnt1 != 3'd4, cnt3 != 3'd0, cnt0 != 3'd0, m_crcok, d, m_nz,
-    m_jz, m_kz, m_tz, in_a ^ m_preva, in_c, in_b, in_a, 1'b0
+    s_eq, cnt2 != 3'd4, cnt1 != 3'd4, cond12, cnt0 != 3'd0, m_crcok, d, m_nz,
+    m_jz, m_kz, m_tz, edge_cond, in_c, in_b, in_a, 1'b0
   };
   wire va = conds[f_ca];
   wire vb = conds[f_cb];
 
-  wire [8:0] link_n  = (f_dst == 3'd7) ? f_imm[8:0] : m_link;
-  wire [8:0] state_n = (f_nop == 2'd3) ? link_n : {f_base[8:2], f_base[1] | vb, f_base[0] | va};
+  // v2: 16-rule masked Byte-Class TCAM (lowest matching rule wins; 0 = miss).
+  reg [3:0] tcam_hit_cls;
+  integer t;
+  always @(*) begin
+    tcam_hit_cls = 4'd0;
+    for (t = 15; t >= 0; t = t - 1) begin
+      if ((tcam_cls[t*4+:4] != 4'd0) &&
+          ((m_S & tcam_mask[t*8+:8]) == (tcam_val[t*8+:8] & tcam_mask[t*8+:8]))) begin
+        tcam_hit_cls = tcam_cls[t*4+:4];
+      end
+    end
+  end
+
+  // v2: 1-clock indexed / TCAM dispatch when f_gate == 2'd3.
+  reg [1:0] s_slice2;
+  always @(*) begin
+    case (f_cb[2:0])
+      3'd0:    s_slice2 = m_S[1:0];
+      3'd1:    s_slice2 = m_S[2:1];
+      3'd2:    s_slice2 = m_S[3:2];
+      3'd3:    s_slice2 = m_S[4:3];
+      3'd4:    s_slice2 = m_S[5:4];
+      3'd5:    s_slice2 = m_S[6:5];
+      3'd6:    s_slice2 = m_S[7:6];
+      default: s_slice2 = {1'b0, m_S[7]};
+    endcase
+  end
+  reg [8:0] disp_addr;
+  always @(*) begin
+    case (f_ca[1:0])
+      2'd0:    disp_addr = {f_base[8:2], s_slice2};
+      2'd1:    disp_addr = {f_base[8:4], f_cb[0] ? m_S[7:4] : m_S[3:0]};
+      2'd2:    disp_addr = {f_base[8:3], tcam_hit_cls[2:0]};
+      default: disp_addr = f_cb[0] ? {f_base[8:2], tcam_hit_cls[1:0]} : {f_base[8:4], tcam_hit_cls[3:0]};
+    endcase
+  end
+
+  wire [8:0] link_n    = (f_dst == 3'd7) ? f_imm[8:0] : m_link;
+  wire [8:0] norm_addr = {f_base[8:2], f_base[1] | vb, f_base[0] | va};
+  wire [8:0] state_n   = (f_nop == 2'd3) ? link_n : (f_gate == 2'd3) ? disp_addr : norm_addr;
 
   wire [2:0] slot_inc = {1'b0, slot} + 3'd1;
   wire [1:0] nxt      = (slot_inc >= nm) ? 2'd0 : slot_inc[1:0];
@@ -346,24 +403,29 @@ module protoemu_core (
 
   // ---- loader ------------------------------------------------------------------------------------------
 
-  localparam [2:0] L_HDR = 3'd0, L_CFG = 3'd1, L_CLO = 3'd2, L_CHI = 3'd3, L_ENT = 3'd4, L_FILL = 3'd5,
-                   L_DONE = 3'd6;
+  localparam [3:0] L_HDR = 4'd0, L_CFG = 4'd1, L_TCNT = 4'd2, L_TCAM = 4'd3,
+                   L_CLO = 4'd4, L_CHI = 4'd5, L_ENT = 4'd6, L_FILL = 4'd7, L_DONE = 4'd8;
 
-  reg  [2:0]  ld_st;
-  reg  [12:0] ld_pos;   // L_CFG: {machine, byte}; L_ENT and L_FILL: {entry, byte lane}
-  reg  [9:0]  ld_cnt;   // L_CFG: machines in the image; later: entries, at most 512
+  reg  [3:0]  ld_st;
+  reg  [12:0] ld_pos;   // L_CFG: {machine, byte}; L_TCAM: rule index; L_ENT/L_FILL: {entry, byte lane}
+  reg  [9:0]  ld_cnt;   // L_CFG: machines; L_TCAM: rules; L_ENT: entries, at most 512
+  reg         ld_has_tcam;
+  reg  [1:0]  ld_tbyte; // 0: val, 1: mask, 2: cls
 
-  assign ld_ready = (ld_st == L_HDR) | (ld_st == L_CFG) | (ld_st == L_CLO) | (ld_st == L_CHI) |
-                    (ld_st == L_ENT);
-  wire       take    = ld_valid & ld_ready;
-  wire       ld_ent  = (ld_st == L_ENT) & take;
-  wire       ld_fill = (ld_st == L_FILL) & ~ld_pos[12];
+  assign ld_ready = (ld_st == L_HDR) | (ld_st == L_CFG) | (ld_st == L_TCNT) | (ld_st == L_TCAM) |
+                    (ld_st == L_CLO) | (ld_st == L_CHI) | (ld_st == L_ENT);
+  wire        take    = ld_valid & ld_ready;
+  wire        ld_ent  = (ld_st == L_ENT) & take;
+  wire        ld_fill = (ld_st == L_FILL) & ~ld_pos[12];
   wire [15:0] ld_count = {ld_byte, ld_cnt[7:0]};
-  wire [9:0] ld_next_entry = ld_pos[12:3] + 10'd1;
-  wire       cfg_last = (ld_pos[3:0] == 4'd15) & (ld_pos[11:4] == ld_cnt[7:0] - 8'd1);
-  wire       cfg_we   = (ld_st == L_CFG) & take & (ld_pos[11:6] == 6'd0);
-  wire [1:0] cfg_m    = ld_pos[5:4];
-  wire [3:0] cfg_b    = ld_pos[3:0];
+  wire [9:0]  ld_next_entry = ld_pos[12:3] + 10'd1;
+  wire        cfg_last = (ld_pos[3:0] == 4'd15) & (ld_pos[11:4] == ld_cnt[7:0] - 8'd1);
+  wire        cfg_we   = (ld_st == L_CFG) & take & (ld_pos[11:6] == 6'd0);
+  wire [1:0]  cfg_m    = ld_pos[5:4];
+  wire [3:0]  cfg_b    = ld_pos[3:0];
+  wire [6:0]  hdr_m    = ld_byte[6:0];
+  wire        tcam_we  = (ld_st == L_TCAM) & take & (ld_pos[7:4] == 4'd0);
+  wire [3:0]  tcam_i   = ld_pos[3:0];
 
   assign ram_men  = running | ld_ent | ld_fill;
   assign ram_wen  = ld_ent | ld_fill;
@@ -376,16 +438,18 @@ module protoemu_core (
   integer m;
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      running  <= 1'b0;
-      slot     <= 2'd0;
-      nm       <= 3'd1;
-      q_valid  <= 1'b0;
-      pin_out  <= 8'd0;
-      pin_oe   <= 8'd0;
-      overflow <= 1'b0;
-      ld_st    <= L_HDR;
-      ld_pos   <= 13'd0;
-      ld_cnt   <= 10'd0;
+      running     <= 1'b0;
+      slot        <= 2'd0;
+      nm          <= 3'd1;
+      q_valid     <= 1'b0;
+      pin_out     <= 8'd0;
+      pin_oe      <= 8'd0;
+      overflow    <= 1'b0;
+      ld_st       <= L_HDR;
+      ld_pos      <= 13'd0;
+      ld_cnt      <= 10'd0;
+      ld_has_tcam <= 1'b0;
+      ld_tbyte    <= 2'd0;
       r_st     <= {9'd3, 9'd2, 9'd1, 9'd0};  // machine m starts in entry m
       r_link   <= 36'd0;
       r_T      <= 64'd0;
@@ -397,16 +461,24 @@ module protoemu_core (
       r_crc    <= 128'd0;
       r_crcok  <= 4'b0000;
       r_preva  <= 4'b1111;
-      r_tz     <= 4'b1111;
-      r_kz     <= 4'b1111;
-      r_jz     <= 4'b1111;
-      r_nz     <= 4'b1111;
-      r_omap   <= 48'd0;
-      r_imap   <= 36'd0;
-      r_msb    <= 4'b0000;
-      r_poly   <= 128'd0;
-      r_init   <= 128'd0;
-      r_match  <= 128'd0;
+      r_prevb  <= 4'b1111;
+      r_tz        <= 4'b1111;
+      r_kz        <= 4'b1111;
+      r_jz        <= 4'b1111;
+      r_nz        <= 4'b1111;
+      r_omap      <= 48'd0;
+      r_imap      <= 36'd0;
+      r_imap_d    <= 12'd0;
+      r_in_d_en   <= 4'b0000;
+      r_in_b_half <= 4'b0000;
+      r_edge_b    <= 4'b0000;
+      r_msb       <= 4'b0000;
+      r_poly      <= 128'd0;
+      r_init      <= 128'd0;
+      r_match     <= 128'd0;
+      tcam_val    <= 128'd0;
+      tcam_mask   <= 128'd0;
+      tcam_cls    <= 64'd0;
     end else begin
       // One step of the machine whose turn it is.
       if (running) begin
@@ -430,6 +502,7 @@ module protoemu_core (
             r_crc[m*32+:32] <= crc_n;
             r_crcok[m]      <= m_crc == m_match;  // the compare is registered: one turn behind the LFSR
             r_preva[m]      <= in_a;
+            r_prevb[m]      <= in_b;
             r_tz[m]         <= t1 == 16'd0;
             r_kz[m]         <= k1 == 4'd0;
             r_jz[m]         <= j1 == 4'd0;
@@ -442,15 +515,33 @@ module protoemu_core (
       case (ld_st)
         L_HDR:
         if (take) begin
-          nm     <= (ld_byte > 8'd4) ? 3'd4 : ld_byte[2:0];
-          ld_cnt <= {2'b00, ld_byte};
-          ld_pos <= 13'd0;
-          ld_st  <= (ld_byte == 8'd0) ? L_CLO : L_CFG;
+          ld_has_tcam <= ld_byte[7];
+          nm          <= (hdr_m > 7'd4) ? 3'd4 : hdr_m[2:0];
+          ld_cnt      <= {3'b000, hdr_m};
+          ld_pos      <= 13'd0;
+          ld_st       <= (hdr_m == 7'd0) ? (ld_byte[7] ? L_TCNT : L_CLO) : L_CFG;
         end
         L_CFG:
         if (take) begin
           ld_pos <= ld_pos + 13'd1;
-          if (cfg_last) ld_st <= L_CLO;
+          if (cfg_last) ld_st <= ld_has_tcam ? L_TCNT : L_CLO;
+        end
+        L_TCNT:
+        if (take) begin
+          ld_cnt   <= {2'b00, ld_byte};
+          ld_pos   <= 13'd0;
+          ld_tbyte <= 2'd0;
+          ld_st    <= (ld_byte == 8'd0) ? L_CLO : L_TCAM;
+        end
+        L_TCAM:
+        if (take) begin
+          if (ld_tbyte == 2'd2) begin
+            ld_tbyte <= 2'd0;
+            ld_pos   <= ld_pos + 13'd1;
+            if (ld_pos[7:0] == ld_cnt[7:0] - 8'd1) ld_st <= L_CLO;
+          end else begin
+            ld_tbyte <= ld_tbyte + 2'd1;
+          end
         end
         L_CLO:
         if (take) begin
@@ -478,17 +569,34 @@ module protoemu_core (
         default: ;
       endcase
 
+      // v2: TCAM rules, 3 bytes each (val, mask, cls[3:0]).
+      if (tcam_we) begin
+        case (ld_tbyte)
+          2'd0:    tcam_val[tcam_i*8+:8]  <= ld_byte;
+          2'd1:    tcam_mask[tcam_i*8+:8] <= ld_byte;
+          default: tcam_cls[tcam_i*4+:4]  <= ld_byte[3:0];
+        endcase
+      end
+
       // Configuration bytes, 16 per machine (MachineConfig in entry.py).
       if (cfg_we) begin
         for (m = 0; m < 4; m = m + 1) begin
           if (cfg_m == m[1:0]) begin
             case (cfg_b)
-              4'd0: r_omap[m*12+:6] <= ld_byte[5:0];
+              4'd0: begin
+                r_omap[m*12+:6] <= ld_byte[5:0];
+                r_in_b_half[m]  <= ld_byte[6];
+                r_edge_b[m]     <= ld_byte[7];
+              end
               4'd1: r_omap[m*12+6+:6] <= ld_byte[5:0];
-              4'd2: r_imap[m*9+:6] <= ld_byte[5:0];
+              4'd2: begin
+                r_imap[m*9+:6] <= ld_byte[5:0];
+                r_in_d_en[m]   <= ld_byte[6];
+              end
               4'd3: begin
                 r_imap[m*9+6+:3] <= ld_byte[2:0];
                 r_msb[m]         <= ld_byte[3];
+                r_imap_d[m*3+:3] <= ld_byte[6:4];
               end
               4'd4:  r_poly[m*32+:8] <= ld_byte;
               4'd5:  r_poly[m*32+8+:8] <= ld_byte;

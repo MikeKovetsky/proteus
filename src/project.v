@@ -49,12 +49,14 @@ module tt_um_mikekovetsky_protoemu (
   // ---- input synchronisers: protocol pins and host pins -----------------------------------------------
 
   reg [7:0] pin_s1, pin_s2;
+  reg [7:0] pin_n1, pin_n2, pin_n3;  // v2: falling-edge synchroniser (8.33 ns earlier sample)
   reg [7:0] ui_s1, ui_s2;
   reg       wr_d, rd_d;  // the strobes one clock ago, for edge detection
   always @(posedge clk or negedge rst_i) begin
     if (!rst_i) begin
       pin_s1 <= 8'd0;
       pin_s2 <= 8'd0;
+      pin_n3 <= 8'd0;
       ui_s1  <= 8'd0;
       ui_s2  <= 8'd0;
       wr_d   <= 1'b0;
@@ -62,10 +64,20 @@ module tt_um_mikekovetsky_protoemu (
     end else begin
       pin_s1 <= uio_in;
       pin_s2 <= pin_s1;
+      pin_n3 <= pin_n2;
       ui_s1  <= ui_in;
       ui_s2  <= ui_s1;
       wr_d   <= ui_s2[6];
       rd_d   <= ui_s2[7];
+    end
+  end
+  always @(negedge clk or negedge rst_i) begin
+    if (!rst_i) begin
+      pin_n1 <= 8'd0;
+      pin_n2 <= 8'd0;
+    end else begin
+      pin_n1 <= uio_in;
+      pin_n2 <= pin_n1;
     end
   end
 
@@ -92,26 +104,16 @@ module tt_um_mikekovetsky_protoemu (
   wire       h_room0, h_room3, ld_ready, running, overflow;
   wire       st_room0, st_room3, st_has1, st_has2;
   wire [7:0] st_head1, st_head2;
+  wire       tr_has;
+  wire [7:0] tr_head;
+
+  // v2: Port 3 hardware pin-trace buffer (active once running; silent before load).
+  wire tr_wr  = wr_byte & (h_port == 2'd3) & running;
+  wire tr_pop = rd_byte & (h_port == 2'd3) & running & tr_has;
 
   // A pop is only asked for a byte the host has been shown, so it always gets that byte.
   wire h_pop1 = rd_byte & (h_port == 2'd0) & st_has1;
   wire h_pop2 = rd_byte & (h_port == 2'd1) & st_has2;
-
-  always @(posedge clk or negedge rst_i) begin
-    if (!rst_i) begin
-      wr_hi <= 1'b0;
-      wr_lo <= 4'd0;
-      rd_hi <= 1'b0;
-      hdrop <= 1'b0;
-    end else begin
-      if (wr_edge) begin
-        wr_hi <= ~wr_hi;
-        if (!wr_hi) wr_lo <= h_nib;
-      end
-      if (rd_edge) rd_hi <= ~rd_hi;
-      if ((h_push0 & ~h_room0) | (h_push3 & ~h_room3) | (ld_valid & ~ld_ready)) hdrop <= 1'b1;
-    end
-  end
 
   reg       room, has;
   reg [7:0] head;
@@ -133,14 +135,47 @@ module tt_um_mikekovetsky_protoemu (
         head = 8'd0;
       end
       default: begin
-        room = 1'b0;
-        has  = 1'b0;
-        head = 8'd0;
+        room = running;
+        has  = running & tr_has;
+        head = tr_head;
       end
     endcase
   end
 
+  always @(posedge clk or negedge rst_i) begin
+    if (!rst_i) begin
+      wr_hi <= 1'b0;
+      wr_lo <= 4'd0;
+      rd_hi <= 1'b0;
+      hdrop <= 1'b0;
+    end else begin
+      if (wr_edge) begin
+        wr_hi <= ~wr_hi;
+        if (!wr_hi) wr_lo <= h_nib;
+      end
+      // v2 host-read strobe guard: ignore stray rd_strobe edges when HAS_BYTE is low.
+      if (rd_edge & has) rd_hi <= ~rd_hi;
+      if ((h_push0 & ~h_room0) | (h_push3 & ~h_room3) | (ld_valid & ~ld_ready)) hdrop <= 1'b1;
+    end
+  end
+
   assign uo_out = {overflow | hdrop, running, has, room, rd_hi ? head[7:4] : head[3:0]};
+
+  // ---- v2: Port 3 pin-trace buffer --------------------------------------------------------------------
+  // Snoop the effective pin levels: chip-driven outputs when oe=1, synchronised external inputs when oe=0.
+  wire [7:0] trace_pins = (uio_oe & uio_out) | (~uio_oe & pin_s2);
+
+  protoemu_trace trace_buf (
+      .clk      (clk),
+      .rst_n    (rst_i),
+      .enable   (running),
+      .pins     (trace_pins),
+      .cmd_valid(tr_wr),
+      .cmd_byte (h_byte),
+      .rd_pop   (tr_pop),
+      .has_byte (tr_has),
+      .head_byte(tr_head)
+  );
 
   // ---- the table machine -------------------------------------------------------------------------------
 
@@ -148,9 +183,10 @@ module tt_um_mikekovetsky_protoemu (
   wire [7:0] h_q1, h_q2;
 
   protoemu_core core (
-      .clk     (clk),
-      .rst_n   (rst_i),
-      .pins    (pin_s2),
+      .clk      (clk),
+      .rst_n    (rst_i),
+      .pins     (pin_s2),
+      .pins_half(pin_n3),
       .pin_out (uio_out),
       .pin_oe  (uio_oe),
       .ld_valid(ld_valid),

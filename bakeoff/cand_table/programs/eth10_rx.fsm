@@ -1,33 +1,116 @@
-# 10 Mbit Ethernet receiver. Every byte after the start-of-frame byte goes to channel 1 (CRC included).
+# 10 Mbit Ethernet receiver (v2: dual-edge 8.33 ns sampling via RXH=P2.half, +/-13.5 ns IEEE 802.3 jitter).
+# Every byte after the start-of-frame byte goes to channel 1 (CRC included).
 # At the end of a frame channel 2 gets [0x00 good CRC or 0x01 bad][len low][len high].
 #
-# Manchester code: every bit has an edge in its middle, and the level after that edge is the bit.
-# The receiver takes the bit one clock after the edge, looks away for three more clocks (an edge between
-# two bits may fall there), then waits for the next middle edge. Each edge re-times it, so it follows the
-# sender's clock, and half bits of 2, 3 or 4 clocks all decode. One line below is one clock.
+# Manchester code: nominal bit period is 100 ns = 6 clocks = 12 half-clocks (8.33 ns each).
+# A 3-point deadband DPLL tracks the nominal mid-bit grid G across two phases:
+#   P0 (even half-clock): samples s11, s13, bit from RX  (posedge P2)
+#   P1 (odd  half-clock): samples s11, s13, bit from RXH (negedge P2, 8.33 ns earlier)
+# with leaky-integrator accumulator acc in {-2, -1, 0, +1, +2} (th=3 in frame, th=2 in preamble).
+
+# Frame bit cell:
+#   Entry is at B+1 (D=4 -> 3 pad clocks -> S11 at B+4).
+#   `late_d` shifts at B+1, checks kz at B+2, pushes at B+3 -> L_S11 at B+4 (exact match!).
+macro rx_node(INP, S11, E_TGT, O_TGT, L_TGT, L_S11)
+        => kz: p4 | n4
+p4:     push1=S, N+=1, K=8 => w4
+n4:     nop => w4
+w4:     nop => S11
+
+S11:    => INP & edge: s13_1e | !INP & edge: s13_0e | INP: s13_1n | s13_0n
+s13_0n: => INP: bit_01 | bit_00n
+s13_0e: => INP: bit_01 | bit_00e
+s13_1n: => INP: bit_11n | bit_10
+s13_1e: => INP: bit_11e | bit_10
+
+bit_00n: => INP: late_d1 | end
+bit_11n: => INP: end | late_d0
+bit_00e: shift INP, crc+=INP, K-=1 => INP: L_TGT | E_TGT
+bit_11e: shift INP, crc+=INP, K-=1 => INP: E_TGT | L_TGT
+bit_01:  shift INP, crc+=INP, K-=1 => O_TGT
+bit_10:  shift INP, crc+=INP, K-=1 => O_TGT
+
+late_d1: shift 1, crc+=1, K-=1 => lk
+late_d0: shift 0, crc+=0, K-=1 => lk
+lk:     => kz: lp | ln
+lp:     push1=S, N+=1, K=8 => L_S11
+ln:     nop => L_S11
+end
+
+# Preamble node (th=2, checks S==0xD5 during the pad clocks).
+macro pre_node(INP, S11, E_TGT, O_TGT, L_TGT, L_S11, SFD_S11)
+        => S==0xD5: sfd | np4
+np4:    nop => nw4
+nw4:    nop => S11
+sfd:    K=8, N=0, crc=init, hold 2 => SFD_S11
+
+S11:     => INP & edge: ps13_1e | !INP & edge: ps13_0e | INP: ps13_1n | ps13_0n
+ps13_0n: => INP: pbit_01 | pbit_00n
+ps13_0e: => INP: pbit_01 | pbit_00e
+ps13_1n: => INP: pbit_11n | pbit_10
+ps13_1e: => INP: pbit_11e | pbit_10
+
+pbit_00n: => INP: plate_d1 | hunt
+pbit_11n: => INP: hunt | plate_d0
+pbit_00e: shift INP => INP: L_TGT | E_TGT
+pbit_11e: shift INP => INP: E_TGT | L_TGT
+pbit_01:  shift INP => O_TGT
+pbit_10:  shift INP => O_TGT
+
+plate_d1: shift 1 => plk
+plate_d0: shift 0 => plk
+plk:     => S==0xD5: sfd_k | pln
+pln:     nop => L_S11
+sfd_k:   K=8, N=0, crc=init => SFD_S11
+end
 
 machine eth
-    in    RX=P2
+    in    RX=P2, RXH=P2.half
+    edge_b
     order lsb
-    crc   poly=0xEDB88320 init=0xFFFFFFFF match=0xDEBB20E3   # CRC-32 over frame and CRC leaves this
+    crc   poly=0xEDB88320 init=0xFFFFFFFF match=0xDEBB20E3
 
-        hold 4                       # after reset the pin's history is not yet real: no `edge` for 4 clocks
-hunt:   wait edge                    # in the preamble every edge is a middle edge
-        shift RX                     # edge + 1: the bit
-        => S==0xD5: frame            # the last eight bits are the start-of-frame byte
-        nop
-        nop => hunt                  # edge + 4
+        hold 4
+hunt:   S=0
+hunt_w: wait edge
+        # Edge arrived on clock c; this clock is c+1. Enter pre0_0 (3 pad clocks c+2..4 -> s11 at c+5).
+        shift RX => pre0_0
 
-frame:  K=8, N=0, crc=init
-        T=9
-idle:   wait => edge: bit | tz: end  # no edge for two bit times: the frame is over
-bit:    shift RX, crc+=RX, K-=1, T=9 # edge + 1
-        => kz: byte                  # edge + 2
-        nop
-        nop => idle                  # edge + 4
-byte:   push1=S, N+=1, K=8           # edge + 3
-        nop => idle
+# ---- Preamble lock (th=2) ---------------------------------------------------------------------------
+pre0_m1: use pre_node(RX,  pre0_m1_s, pre1_0,    pre0_m1, pre0_0,    pre0_0_s,  f0_0_s)
+pre0_0:  use pre_node(RX,  pre0_0_s,  pre0_m1,   pre0_0,  pre0_p1,   pre0_p1_s, f0_0_s)
+pre0_p1: use pre_node(RX,  pre0_p1_s, pre0_0,    pre0_p1, pre1_0_d5, pre1_0_w1, f0_0_s)
 
+pre1_m1: use pre_node(RXH, pre1_m1_s, pre0_0_d3, pre1_m1, pre1_0,    pre1_0_s,  f1_0_s)
+pre1_0:  use pre_node(RXH, pre1_0_s,  pre1_m1,   pre1_0,  pre1_p1,   pre1_p1_s, f1_0_s)
+pre1_p1: use pre_node(RXH, pre1_p1_s, pre1_0,    pre1_p1, pre0_0,    pre0_0_s,  f1_0_s)
+
+pre1_0_d5:  nop => pre1_0
+pre1_0_w1:  nop => pre1_0_s
+pre0_0_d3:  => S==0xD5: sfd0_d3 | pre0_0_d3n
+pre0_0_d3n: nop => pre0_0_s
+sfd0_d3:    K=8, N=0, crc=init => f0_0_s
+
+# ---- Frame receive (th=3: acc in {-2, -1, 0, +1, +2}) -----------------------------------------------
+f0_m2: use rx_node(RX,  f0_m2_s, f1_0,    f0_m2, f0_m1,   f0_m1_s)
+f0_m1: use rx_node(RX,  f0_m1_s, f0_m2,   f0_m1, f0_0,    f0_0_s)
+f0_0:  use rx_node(RX,  f0_0_s,  f0_m1,   f0_0,  f0_p1,   f0_p1_s)
+f0_p1: use rx_node(RX,  f0_p1_s, f0_0,    f0_p1, f0_p2,   f0_p2_s)
+f0_p2: use rx_node(RX,  f0_p2_s, f0_p1,   f0_p2, f1_0_d5, f1_0_w1)
+
+f1_m2: use rx_node(RXH, f1_m2_s, f0_0_d3, f1_m2, f1_m1,   f1_m1_s)
+f1_m1: use rx_node(RXH, f1_m1_s, f1_m2,   f1_m1, f1_0,    f1_0_s)
+f1_0:  use rx_node(RXH, f1_0_s,  f1_m1,   f1_0,  f1_p1,   f1_p1_s)
+f1_p1: use rx_node(RXH, f1_p1_s, f1_0,    f1_p1, f1_p2,   f1_p2_s)
+f1_p2: use rx_node(RXH, f1_p2_s, f1_p1,   f1_p2, f0_0,    f0_0_s)
+
+f1_0_d5:  nop => f1_0
+f1_0_w1:  nop => f1_0_s
+f0_0_d3:  => kz: f0_0_d3p | f0_0_d3n
+f0_0_d3p: push1=S, N+=1, K=8 => f0_0_s
+f0_0_d3n: nop => f0_0_s
+
+# ---- End of frame -----------------------------------------------------------------------------------
 end:    => crc: good
         push2=1 => len
 good:   push2=0

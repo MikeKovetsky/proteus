@@ -370,7 +370,7 @@ class Bug8Messages(Refusals):
         ("in B\n", 4, "expected NAME=P0..P7, got `B`", "in B"),
         ("out T=P4\n", 4, "T is a reserved word", "out T=P4"),
         ("out X=P4\n", 4, "`out` pin X is declared twice", "out X=P4"),
-        ("in B=P2, C=P3, D=P4\n", 4, "a machine has at most 3 `in` pins", "in B=P2, C=P3, D=P4"),
+        ("in B=P2, C=P3, D=P4, E=P5\n", 4, "a machine has at most 4 `in` pins", "in B=P2, C=P3, D=P4, E=P5"),
         ("out Y=P2, Z=P3, U=P4, V=P5\n", 4, "a machine has at most 4 `out` pins", "out Y=P2, Z=P3, U=P4, V=P5"),
         ("order up\n", 4, "order is lsb or msb", "order up"),
         ("order lsb\norder msb\n", 5, "order is set twice", "order msb"),
@@ -586,6 +586,104 @@ class Bug10Files(unittest.TestCase):
         done, _paths = command_line(b"machine m\nidle: halt\nlost: halt\n")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("warning: m.lost (line 3) is never reached", done.stdout)
+
+
+class V2Features(unittest.TestCase):
+    """v2 ISA: 4th input D, half-clock input B, edge_b, 16-rule TCAM, and 1-clock indexed dispatch."""
+
+    def test_fourth_input_and_rx3_conflict(self) -> None:
+        src = (
+            "machine m\n"
+            "    in A=P0, B=P1, C=P2, RST=P4\n"
+            "idle: wait RST\n"
+            "      halt\n"
+        )
+        res = compile_text(src)
+        [cfg], _words, tcam = E.parse_image_v2(res.image)
+        self.assertEqual(cfg.in_d_en, 1)
+        self.assertEqual(cfg.in_d, 4)
+        self.assertEqual(tcam, [])
+        self.assertEqual(res.image[0] & 0x80, 0)  # no TCAM -> v1 header byte
+        with self.assertRaises(CompileError) as ctx:
+            compile_text(src.replace("halt", "wait rx3\n halt"))
+        self.assertIn("rx3", str(ctx.exception))
+
+    def test_half_clock_input_b_and_edge_b(self) -> None:
+        src = (
+            "machine m\n"
+            "    in A=P2, AH=P2.half\n"
+            "    edge_b\n"
+            "idle: wait edge => AH: hi | lo\n"
+            "hi:   halt\n"
+            "lo:   halt\n"
+        )
+        res = compile_text(src)
+        [cfg], _words, _tcam = E.parse_image_v2(res.image)
+        self.assertEqual(cfg.in_b_half, 1)
+        self.assertEqual(cfg.edge_b, 1)
+        # .half on first input is refused
+        with self.assertRaises(CompileError):
+            compile_text("machine m\n in A=P2.half\nidle: halt\n")
+
+    def test_tcam_and_dispatch_model_execution(self) -> None:
+        src = (
+            "tcam 0x03/0xFF -> 1\n"
+            "tcam 0x80/0xF0 -> 2\n"
+            "machine m\n"
+            "idle: wait rx0\n"
+            "      S=pop0\n"
+            "      dispatch tcam4 => miss | 1: hit1 | 2: hit2\n"
+            "miss: push1=0x00 => idle\n"
+            "hit1: push1=0x11 => idle\n"
+            "hit2: push1=0x22 => idle\n"
+        )
+        res = compile_text(src)
+        self.assertEqual(res.image[0] & 0x80, 0x80)
+        _cfgs, _words, tcam = E.parse_image_v2(res.image)
+        self.assertEqual(tcam, [(0x03, 0xFF, 1), (0x80, 0xF0, 2)])
+        chip = TableChip()
+        chip.load(res.image)
+        for byte, want in ((0x03, 0x11), (0x85, 0x22), (0x8F, 0x22), (0x44, 0x00)):
+            chip.host_push(0, byte)
+            got = None
+            for _ in range(20):
+                chip.step(0)
+                got = chip.host_pop(1)
+                if got is not None:
+                    break
+            self.assertEqual(got, want, "byte 0x%02x" % byte)
+
+    def test_nibble_and_slice_dispatch_model(self) -> None:
+        src = (
+            "machine m\n"
+            "idle: wait rx0\n"
+            "      S=pop0\n"
+            "      dispatch S[7:4] => other | 0xA: hi_a\n"
+            "hi_a: dispatch S[1:0] => other | 2: hit_a2\n"
+            "hit_a2: push1=0xAA => idle\n"
+            "other:  push1=0x55 => idle\n"
+        )
+        res = compile_text(src)
+        chip = TableChip()
+        chip.load(res.image)
+        for byte, want in ((0xA2, 0xAA), (0xAE, 0xAA), (0xA1, 0x55), (0xB2, 0x55)):
+            chip.host_push(0, byte)
+            got = None
+            for _ in range(20):
+                chip.step(0)
+                got = chip.host_pop(1)
+                if got is not None:
+                    break
+            self.assertEqual(got, want, "byte 0x%02x" % byte)
+
+    def test_dispatch_refuses_pins(self) -> None:
+        src = (
+            "machine m\n"
+            "    out X=P0\n"
+            "idle: X=1, dispatch S[1:0] => idle\n"
+        )
+        with self.assertRaises(CompileError):
+            compile_text(src)
 
 
 if __name__ == "__main__":

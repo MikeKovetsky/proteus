@@ -4,7 +4,7 @@
 # Run from test/synth (make -C test/synth), after the liberty file is fetched into build/.
 
 read_liberty -lib build/sg13cmos5l_stdcell_slow_1p08V_125C.lib
-read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v
+read_verilog -DSYNTHESIS ../../src/project.v ../../src/protoemu_core.v ../../src/protoemu_fifo.v ../../src/protoemu_table.v ../../src/protoemu_trace.v
 read_verilog -lib -DFUNCTIONAL ../ihp_sram/RM_IHPSG13_1P_512x32_c2_bm_bist.v
 hierarchy -check -top tt_um_mikekovetsky_protoemu
 synth -top tt_um_mikekovetsky_protoemu -flatten

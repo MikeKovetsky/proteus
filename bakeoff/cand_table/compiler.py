@@ -78,6 +78,7 @@ BUS_DSTS = {"S": E.DST_S, "R": E.DST_R, "N": E.DST_N, "Nhi": E.DST_NHI, "push1":
 BUS_SRCS = {"pop0": E.SRC_POP0, "pop3": E.SRC_POP3, "S": E.SRC_S, "R": E.SRC_R, "Nlo": E.SRC_NLO, "Nhi": E.SRC_NHI}
 RESERVED = set(BUILTIN_CONDS) | set(BUS_DSTS) | set(BUS_SRCS) | {
     "T", "K", "J", "d", "c", "wait", "hold", "goto", "nop", "halt", "shift", "else", "when", "use", "call", "ret",
+    "dispatch", "tcam", "edge_b",
 }
 NEXT, STAY = "#next", "#stay"  # where a state goes when no rule fires; `#` starts a comment, so no source has these
 LABEL_RE = re.compile(r"^([A-Za-z_]\w*)\s*:(?!=[^>])\s*(.*)$")  # `idle:=> kz: done` has a label too
@@ -105,6 +106,8 @@ class State:
         self.call: Optional[str] = None   # `call X`: go to X, and `ret` there comes back to the next line
         self.ret = False
         self.cont: Optional[int] = None   # the state a call returns to
+        self.dispatch: Optional[Tuple[int, int, int, str]] = None  # (mode, cb, size, label)
+        self.dispatch_cases: Dict[int, str] = {}
         # Filled in by the back end.
         self.conds: List[object] = []
         self.targets: Tuple[int, ...] = ()
@@ -164,6 +167,7 @@ class Compiler:
         self.consts: Dict[str, float] = {}
         self.macros: Dict[str, Tuple[List[str], List[Tuple[int, str]]]] = {}
         self.machines: List[Machine] = []
+        self.tcam: List[Tuple[int, int, int]] = []
         self.uses = 0
         self.lines = self._expand(self._macros(self._read(text)))
 
@@ -272,6 +276,22 @@ class Compiler:
                     raise CompileError("%s is a reserved word" % found.group(1), number, line)
                 self.consts[found.group(1)] = self.value(found.group(2), number, line)
                 continue
+            if key == "tcam":
+                lhs, arrow, rhs = rest.partition("->")
+                if not arrow or not lhs.strip() or not rhs.strip():
+                    raise CompileError("expected `tcam VAL[/MASK] -> CLASS`", number, line)
+                if len(self.tcam) == E.MAX_TCAM:
+                    raise CompileError("at most %d tcam rules" % E.MAX_TCAM, number, line)
+                val_s, slash, mask_s = lhs.partition("/")
+                val = self.value(val_s, number, line)
+                mask = self.value(mask_s, number, line) if slash else 0xFF
+                cls = self.value(rhs, number, line)
+                if not (0 <= val <= 0xFF and 0 <= mask <= 0xFF):
+                    raise CompileError("tcam value and mask must fit 0 to 255", number, line)
+                if not 1 <= cls <= 15:
+                    raise CompileError("tcam class must be 1 to 15 (0 is miss)", number, line)
+                self.tcam.append((val, mask, cls))
+                continue
             if key == "machine":
                 if pending_labels:
                     name, number, line = pending_labels[0]
@@ -284,9 +304,12 @@ class Compiler:
             if machine is None:
                 raise CompileError("expected `machine NAME` first", number, line)
             if key in ("in", "out"):
-                table, limit = (machine.ins, 3) if key == "in" else (machine.outs, 4)
+                table, limit = (machine.ins, 4) if key == "in" else (machine.outs, 4)
                 for part in rest.split(","):
-                    found = re.match(r"^\s*(%s)\s*=\s*P([0-7])\s*$" % NAME, part)
+                    if key == "in":
+                        found = re.match(r"^\s*(%s)\s*=\s*P([0-7])(\.half)?\s*$" % NAME, part)
+                    else:
+                        found = re.match(r"^\s*(%s)\s*=\s*P([0-7])\s*$" % NAME, part)
                     if not found:
                         raise CompileError("expected NAME=P0..P7, got `%s`" % part.strip(), number, line)
                     if found.group(1) in RESERVED:
@@ -296,8 +319,31 @@ class Compiler:
                     if len(table) == limit:
                         raise CompileError("a machine has at most %d `%s` pins" % (limit, key), number, line)
                     index = len(table)
-                    table[found.group(1)] = index
-                    (machine.cfg.inp if key == "in" else machine.cfg.out)[index] = int(found.group(2))
+                    pin_num = int(found.group(2))
+                    if key == "in":
+                        is_half = bool(found.group(3))
+                        if is_half and index != 1:
+                            raise CompileError("`.half` is supported only on the second `in` pin (input B)",
+                                               number, line)
+                        if is_half:
+                            machine.cfg.in_b_half = 1
+                        table[found.group(1)] = index
+                        if index < 3:
+                            machine.cfg.inp[index] = pin_num
+                        else:
+                            machine.cfg.in_d_en = 1
+                            machine.cfg.in_d = pin_num
+                    else:
+                        table[found.group(1)] = index
+                        machine.cfg.out[index] = pin_num
+                continue
+            if key == "edge_b":
+                if rest.strip():
+                    raise CompileError("`edge_b` takes no arguments", number, line)
+                if key in machine.given:
+                    raise CompileError("edge_b is set twice: it holds for the whole machine", number, line)
+                machine.given.add(key)
+                machine.cfg.edge_b = 1
                 continue
             if key == "order":
                 if rest not in ("lsb", "msb"):
@@ -378,9 +424,39 @@ class Compiler:
             elif item.startswith("call "):
                 state.call = item[5:].strip()
                 self._bus(state, E.SRC_IMM, E.DST_LINK)
+            elif item.startswith("dispatch "):
+                if state.dispatch is not None:
+                    state.fail("one `dispatch` per line")
+                state.dispatch = self._parse_dispatch_sel(state, item[9:].strip())
             else:
                 self._action(machine, state, item)
-        if rules.strip():
+        if state.dispatch is not None:
+            _mode, _cb, dsize, _dlabel = state.dispatch
+            if state.pins:
+                state.fail("`dispatch` uses the gate field and cannot share a line with pin operations")
+            if state.call or state.ret or state.wait or halt or hold is not None:
+                state.fail("`dispatch` cannot share a line with `call`, `ret`, `wait`, `halt` or `hold`")
+            if not rules.strip():
+                state.fail("`dispatch` needs `=>` cases")
+            seen_default = False
+            for rule in rules.split("|"):
+                guard, colon, target = rule.rpartition(":")
+                target = target.strip()
+                if not re.match(r"^\w+$", target):
+                    state.fail("bad rule `%s`" % rule.strip())
+                if not colon or guard.strip() == "else":
+                    if seen_default:
+                        state.fail("`dispatch` has two default targets")
+                    seen_default = True
+                    state.default = target
+                else:
+                    idx = self.value(guard, number, line)
+                    if not 0 <= idx < dsize:
+                        state.fail("dispatch case %d is outside 0 to %d" % (idx, dsize - 1))
+                    if idx in state.dispatch_cases:
+                        state.fail("dispatch case %d is listed twice" % idx)
+                    state.dispatch_cases[idx] = target
+        elif rules.strip():
             for rule in rules.split("|"):
                 guard, colon, target = rule.rpartition(":")
                 target = target.strip()
@@ -419,13 +495,35 @@ class Compiler:
             state.fail("pin operations in one state are all gated by the same condition, or none is")
         self._lower(machine, state, hold)
 
+    def _parse_dispatch_sel(self, state: State, spec: str) -> Tuple[int, int, int, str]:
+        s = spec.replace(" ", "")
+        if s == "tcam4":
+            return (E.DISP_TCAM16, 1, 4, "tcam4")
+        if s == "tcam8":
+            return (E.DISP_TCAM8, 0, 8, "tcam8")
+        if s == "tcam16":
+            return (E.DISP_TCAM16, 0, 16, "tcam16")
+        if s == "S[7:4]":
+            return (E.DISP_NIBBLE, 1, 16, "S[7:4]")
+        if s == "S[3:0]":
+            return (E.DISP_NIBBLE, 0, 16, "S[3:0]")
+        m = re.match(r"^S\[([0-7]):([0-7])\]$", s)
+        if m:
+            hi, lo = int(m.group(1)), int(m.group(2))
+            if hi == lo + 1 and 0 <= lo <= 6:
+                return (E.DISP_SLICE2, lo, 4, "S[%d:%d]" % (hi, lo))
+        state.fail("unknown dispatch `%s`; expected tcam4, tcam8, tcam16, S[7:4], S[3:0] or S[n+1:n]" % spec)
+        raise AssertionError  # unreachable
+
     def _cond(self, machine: Machine, state: State, name: str) -> object:
         name = name.strip()
         if name in machine.ins:
-            return (E.C_A, E.C_B, E.C_C)[machine.ins[name]]
+            return (E.C_A, E.C_B, E.C_C, E.C_RX3)[machine.ins[name]]
         if name in BUILTIN_CONDS:
             if name == "edge" and not machine.ins:  # it would watch P0, where an undeclared input maps
                 state.fail("`edge` watches the machine's first `in` pin, and none is declared")
+            if name == "rx3" and machine.cfg.in_d_en:
+                state.fail("`rx3` cannot be tested in a machine with four `in` pins: the 4th input shares cond 12")
             return BUILTIN_CONDS[name]
         if name in ("d", "c"):
             state.use_dsel(0 if name == "d" else 1)
@@ -665,6 +763,11 @@ class Compiler:
                 # still selects a flag every turn, and a `when` on the line gates the pins with that flag.
                 item.conds = [item.gate[0]] if item.gate is not None else []
                 continue
+            if item.dispatch is not None:
+                _mode, _cb, dsize, _dlabel = item.dispatch
+                item.conds = []
+                item.targets = tuple(target(item.dispatch_cases.get(i, item.default)) for i in range(dsize))
+                continue
             if item.call:
                 if following is None:
                     item.fail("nothing follows this call to return to")
@@ -761,11 +864,16 @@ class Compiler:
             state = machine.states[si]
             f = dict(state.fields)
             f["base"] = base_of[tuple((mi, t) for t in state.targets)] if state.targets else 0
-            cond_numbers = [E.C_EQ if isinstance(key, tuple) else key for key in state.conds] + [0, 0]
-            f["ca"], f["cb"] = cond_numbers[0], cond_numbers[1]
+            if state.dispatch is not None:
+                mode, cb, _dsize, _dlabel = state.dispatch
+                f["ca"], f["cb"] = mode, cb
+                f["gate"] = E.GATE_DISPATCH
+            else:
+                cond_numbers = [E.C_EQ if isinstance(key, tuple) else key for key in state.conds] + [0, 0]
+                f["ca"], f["cb"] = cond_numbers[0], cond_numbers[1]
+                f["gate"] = 0 if state.gate is None else (1 if state.gate[1] else 2)
             f["dsel"] = state.dsel or 0
             f["din"] = state.din or 0
-            f["gate"] = 0 if state.gate is None else (1 if state.gate[1] else 2)
             imm = 0
             for _mask, value, _what in state.imm_users:
                 imm |= value
@@ -774,7 +882,7 @@ class Compiler:
             f["imm"] = imm
             words.append(E.pack(f))
             listing.append("%3d  %-22s %s" % (addr, "%s.%s" % (machine.name, state.name), describe(f, machine, state)))
-        image = E.build_image([m.cfg for m in self.machines], words)
+        image = E.build_image([m.cfg for m in self.machines], words, self.tcam)
         unreached = ["%s.%s (line %d)" % (m.name, state.name, state.line)
                      for m in self.machines for si, state in enumerate(m.states) if (m.index, si) not in reached]
         return Result(image, listing, count, len(reached), count - len(placed), unreached)
@@ -783,7 +891,7 @@ class Compiler:
 def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
     """One listing line for an entry: what it does and where it goes."""
     outs = {index: name for name, index in machine.outs.items()}
-    ins = {E.C_A + index: name for name, index in machine.ins.items()}
+    ins = {(E.C_A, E.C_B, E.C_C, E.C_RX3)[index]: name for name, index in machine.ins.items()}
     data = "c" if f["dsel"] else "d"  # the data bit: the shifter's end bit, or LFSR bit 0
     serial = str(f["din"]) if f["din"] < E.DIN_A else ins[E.C_A + f["din"] - E.DIN_A]
 
@@ -800,7 +908,7 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
         if op:
             value = {E.P_DATA: data, E.P_NDATA: "!" + data}.get(op, E.PIN_OPS[op])
             parts.append("%s=%s" % (outs.get(f[slot], "O%d" % f[slot]), value))
-    if f["gate"]:
+    if f["gate"] in (1, 2):
         parts.append("(pins if %s%s)" % ("" if f["gate"] == 1 else "!", cond(f["ca"])))
     if f["dst"] == E.DST_LINK:
         parts.append("call, back to %d" % f["imm"])
@@ -821,10 +929,12 @@ def describe(f: Dict[str, int], machine: Machine, state: State) -> str:
             parts.append("%s-=1" % reg if op == E.DEC else "%s=%d" % (reg, (f["imm"] >> shift) & 15))
     if f["tload"]:
         parts.append("T=%d" % f["imm"])
-    conds = [cond(c) for c in (f["ca"], f["cb"]) if c]
     names = [machine.states[t].name for t in state.targets]
     if state.ret:
         return "%-40s -> link" % (", ".join(parts) or "-")
+    if state.dispatch is not None:
+        return "%-40s -> %d | dispatch(%s) [%s]" % (", ".join(parts) or "-", f["base"], state.dispatch[3], " ".join(names))
+    conds = [cond(c) for c in (f["ca"], f["cb"]) if c]
     where = "-> %d" % f["base"] if not conds else "-> %d | %s" % (f["base"], ",".join(conds))
     return "%-40s %s [%s]" % (", ".join(parts) or "-", where, " ".join(names))
 

@@ -6,7 +6,7 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v protoemu_core.v protoemu_fifo.v protoemu_table.v
+PROJECT_SOURCES = project.v protoemu_core.v protoemu_fifo.v protoemu_table.v protoemu_trace.v
 
 # The two table SRAMs are IHP's RM_IHPSG13_1P_512x32_c2_bm_bist macro. Its simulation model is vendored from
 # IHP's open PDK (test/ihp_sram/README.md); FUNCTIONAL selects the model without timing checks.
@@ -49,7 +49,7 @@ VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tb
 
 # List test modules to run, separated by commas and without the .py suffix:
-COCOTB_TEST_MODULES = test,test_scenarios,test_programs
+COCOTB_TEST_MODULES = test,test_scenarios,test_programs,test_v2
 
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim

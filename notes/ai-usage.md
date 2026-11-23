@@ -203,3 +203,14 @@ A dated log, written as the work happens. The verification write-up's AI section
 45. **The program fixes landed.** An agent wrote them and fresh Opus 5.5 reviewers checked them, the last at max
     effort. The main session pushed the reviewed merge to its own branch, read GitHub's logs for 122 of 122 tests
     on RTL and on the routed netlist, and only then fast-forwarded `main` to it. No person reviewed the code.
+46. **RTL v2 (branch `rtl-v2`).** Following an architecture and strategy review, Mike approved the RTL v2 spec
+    (Option A: silicon-accelerated reverse engineering and wire-speed emulation). An Antigravity (Gemini) session
+    implemented the backward-compatible v2 extensions across the golden model, compiler and RTL: 1-clock indexed
+    dispatch and a shared 16-rule masked Byte-Class TCAM (`gate == 3`), dual-edge 8.33 ns input sampling (`P2.half`)
+    and a 4th per-machine input (`in_d`), a 32-entry Port-3 hardware pin-trace buffer (`src/protoemu_trace.v`), and
+    a host-read strobe guard (`project.v`), plus an 8.33 ns 3-point deadband DPLL in `eth10_rx.fsm` that closes
+    `gap_eth10_rx_jitter` (±13.5 ns IEEE 802.3 jitter). Verified locally: Verilator lint clean, Yosys generic R4
+    async-reset check and IHP slow-corner timing estimate pass (2,105 flops, 9.53 ns decision loop), 68 of 68
+    compiler tests, 14 of 14 bake-off benches, 50 of 50 flow tests, 323 of 323 lockstep traces (3,050,238 clocks),
+    21 of 21 lockstep mutants killed, and 127 of 127 pin-level cocotb tests on RTL (including 5 new v2 pin tests).
+    GDS layout, precheck, gate-level simulation and formal proofs on `rtl-v2` have not run yet.
