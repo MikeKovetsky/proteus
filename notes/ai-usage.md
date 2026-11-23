@@ -250,3 +250,10 @@ A dated log, written as the work happens. The verification write-up's AI section
     slack), failing only on 2 long-wire `sg13cmos5l_nor3_1` loader nets exceeding 2.507 ns max slew (4.61 ns and
     2.515 ns) because IHP CMOS5L leaves `LAYERS_RC` unset; fixed in `src/config.json` with
     `DESIGN_REPAIR_MAX_WIRE_LENGTH: 250` and `EXTRA_EXCLUDED_CELLS: ["sg13cmos5l_nor3_1", "sg13cmos5l_nor4_1"]`.
+52. **RTL v2 sign-off, `AGENTS.md`, and merge to `main`.** On commit `78be664`, GitHub Actions run
+    45097155765 passed `gds` (28.8% effective utilization, 0 DRC/LVS/antenna/slew/cap/setup/hold violations
+    across all three corners, +3.5512 ns slow setup slack, +0.0997 ns fast hold slack), `precheck` ("Precheck
+    passed"), and `gl_test` (130 of 130 gate-level tests pass on the routed IHP 130 nm netlist); run
+    45097155470 passed `test` (130 RTL pin tests + 6 of 6 `cocotbext` oracle tests) and `suites`. Local
+    `make -C test/learn` passed 82 of 82 tests. Added `AGENTS.md` with the project pitch, feature summary,
+    verified figures, and agent rules, and fast-forwarded `main` to `rtl-v2` on Mike's instruction.
