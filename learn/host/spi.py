@@ -112,6 +112,24 @@ class Spi(Bus):
         filler = model.defaults[0] if model.defaults else 0
         return [filler, DESELECT] + self.probes(model, turn) + [SELECT, filler]
 
+    def openers(self, model):
+        if self.inputs is not None:
+            return []
+        return list(range(256))
+
+    def opening(self, model, x, y):
+        """x and y, then a byte to read what they started."""
+        filler = model.defaults[0] if model.defaults else 0
+        return [SELECT, x, y, filler, DESELECT]
+
+    def readback(self, model):
+        """Every command found, each with two bytes to read it."""
+        filler = model.defaults[0] if model.defaults else 0
+        word = []
+        for c in self.commands(model):
+            word += [SELECT, c, filler, filler, DESELECT]
+        return word
+
     def transactions(self, model):
         return [(SELECT, a, DESELECT) for a in self.commands(model)]
 

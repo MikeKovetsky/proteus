@@ -4,7 +4,8 @@
 
   python3 -m learn             the demonstration and the negative controls, in a few minutes, and an account
                                of each device learned, written for a person (--dot DIR: also as Graphviz graphs)
-  python3 -m learn evaluate    the 160 seeded devices the host was not tuned on, every failure counted
+  python3 -m learn evaluate    the 160 devices seeded from the first freeze, every failure counted: the first
+                               blind run's, now a development set. --host first runs the first freeze's host
   python3 -m learn baselines   the baselines in full, as long as the questions
   python3 -m learn measure     capacity and memory
 
@@ -16,6 +17,7 @@ import argparse
 import os
 import shutil
 import sys
+import tempfile
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,7 +27,7 @@ from .lab import board, cases, cloning, devices, families, judge, measure, passi
 
 SHORT = (1000, 10000)  # transactions recorded, in the demonstration
 LONG = (100, 1000, 10000, 100000)
-OVER_RATE = 5000  # kHz: the rate the SPI controller ships at
+OVER_RATE = 10000  # kHz: twice the rate the SPI controller ships at, past what the flash's copy serves
 WIDTH = 118
 
 
@@ -114,7 +116,7 @@ def show_replacement(done):
             for key, value in found.items():
                 if key.startswith(("test", "same")):
                     say("    %-52s %s" % (key, "yes" if value else "NO"))
-                elif key.startswith("at 5 MHz"):
+                elif key.startswith("at 10 MHz"):
                     say("    outside its rate, %-34s %s" % (key + " that test", "yes" if value else "no"))
             for edge in sorted(found["delays"]["device"]):
                 device, clone = (found["delays"][who].get(edge) or [0, 0] for who in ("device", "clone"))
@@ -229,17 +231,23 @@ def demonstration(dot=None):
     return 0 if good else 1
 
 
-def evaluation(out):
-    if not families.frozen():
-        say("learn/host or learn/programs is not what was frozen at %s, so this would be no evaluation."
-            % families.FREEZE[:7])
-        return 1
-    if out:
-        with open(out, "w"):
-            pass
-    began = time.time()
-    rows = families.evaluate(out, say=say)
-    heading("The host frozen at %s, on devices seeded from that hash" % families.FREEZE[:7])
+def evaluation(out, host):
+    with tempfile.TemporaryDirectory(prefix="learn-first-") as kept:
+        if host == "first":
+            source, which = families.first_host(kept), "first freeze"
+        else:
+            source, which = families.ROOT / "learn/host", families.which()
+        if out:
+            with open(out, "w"):
+                pass
+        began = time.time()
+        rows = families.evaluate(out, say=say, source=source)
+    if which == "first freeze":
+        title = "The host frozen at %s, on devices seeded from that hash: the first blind run" % families.FREEZE[:7]
+    else:
+        title = ("The host as it is now (%s, digest %s), on the devices seeded from the first freeze: a development "
+                 "set, no blind result" % (which or "no freeze", families.digest()[:12]))
+    heading(title)
     for line in families.summary(rows):
         say(line)
     say("%.0f s" % (time.time() - began))
@@ -300,6 +308,8 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("what", nargs="?", default="demo", choices=("demo", "evaluate", "baselines", "measure"))
     parser.add_argument("--out", help="evaluate: also write each device's row to this file, as JSON lines")
+    parser.add_argument("--host", choices=("now", "first"), default="now",
+                        help="evaluate: the host as it is now, or the first freeze's, from git")
     parser.add_argument("--dot", metavar="DIR", help="demo: also write each learned device as a Graphviz graph here")
     asked = parser.parse_args(argv)
     missing = [tool for tool in ("verilator", "iverilog") if not shutil.which(tool)]
@@ -307,7 +317,7 @@ def main(argv=None):
         say("%s not found. Run this first:  source ~/oss-cad-suite/environment" % " and ".join(missing))
         return 2
     if asked.what == "evaluate":
-        return evaluation(asked.out)
+        return evaluation(asked.out, asked.host)
     if asked.what == "baselines":
         return baselines()
     if asked.dot and not os.path.isdir(asked.dot):

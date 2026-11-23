@@ -18,12 +18,20 @@ to find counterexamples sooner and to catch devices outside the assumptions. The
   scout   each byte from each state, followed by probes of the commands found so far
   streaks the same symbol, and the same transaction, eight times over (counters and lock-outs)
   walks   seeded random walks, each ended by an identifying sequence
+  pairs   every opening of two bytes, from every state that waits for a transaction, PAIRS of them to a
+          question and each question ended by reading back every command found. The suites take a byte not
+          learned in full to act as the default does, and follow a learned command's next byte only with the
+          words that tell the model's states apart, so a command with an argument (a bank switch, say) can hide
+          from both. It is the costliest stage, so it runs last but one, and stops short where the budget would
+          run out
   audit   scouting again in the opposite order from each phase's first state, transitions again in reverse
           order, with pauses, and after a reset of a dirtied device"""
 
 from .bus import Refused
 
 STREAK = 8
+PAIRS = 128  # two-byte openings in one question of the pairs stage
+SPARE = 10   # the pairs stage stops where less than a tenth of the budget would be left
 MULTIPLIERS = (101, 107, 109, 113, 127, 131)  # prime to the size of every bus phase
 DEEPEST = 32
 
@@ -41,6 +49,12 @@ class Random:
         return x % n
 
 
+def coprime(a, b):
+    while b:
+        a, b = b, a % b
+    return a == 1
+
+
 class Search:
     def __init__(self, learner):
         self.learner = learner
@@ -51,6 +65,8 @@ class Search:
         self.scout_words = None  # how large the alphabet was when this pass began
         self.sweep_from = (0, 0)
         self.depth_from = 0
+        self.pairs_from = (0, 0)
+        self.pairs_cover = None  # (questions asked, questions in a full pass) on the last pass
         self.found_by = {}
         self.extra = 0
         self.short = ""  # why the depth suite cannot run, if it cannot
@@ -217,6 +233,49 @@ class Search:
                         return found
         return None
 
+    def pairs(self, model):
+        """None, or a counterexample. Like the sweep, a pass resumes where the last counterexample was found and
+        comes round to it again, so the pass that finds nothing has covered the final model."""
+        self.pairs_cover = None
+        firsts = self.bus.openers(model)
+        modes = [q for q in range(model.n) if model.phases[q] == 0]
+        if not firsts or not modes:
+            return None
+        size = len(firsts) * 256
+        questions = (size + PAIRS - 1) // PAIRS
+        step = 40503  # near 0.618 of 65536, so that one question holds openings of many first bytes
+        while not coprime(step, size):
+            step += 2
+        back = self.bus.readback(model)
+        first, at = self.pairs_from
+        first %= len(modes)
+        floor = self.told["budget"] // SPARE
+        asked = 0
+        for turn in range(len(modes) + 1):
+            p = (first + turn) % len(modes)
+            q = modes[p]
+            begin, end = 0, questions
+            if turn == 0:
+                begin = min(at, end)
+            elif turn == len(modes):
+                end = min(at, end)
+            for k in range(begin, end):
+                word = []
+                for i in range(k * PAIRS, min(size, (k + 1) * PAIRS)):
+                    j = (self.told["seed"] * 17 + i * step) % size
+                    word += self.bus.opening(model, firsts[j >> 8], j & 0xFF)
+                word += back
+                if self.told["budget"] - self.learner.symbols - len(model.access[q]) - len(word) - 2 < floor:
+                    self.pairs_cover = (asked, questions * len(modes))
+                    return None
+                found = self.test(model, q, word)
+                if found:
+                    self.pairs_from = (p, k)
+                    return found
+                asked += 1
+        self.pairs_cover = (asked, questions * len(modes))
+        return None
+
     def depth(self, model):
         """Every word of up to m + 1 learned symbols from every state, depth first."""
         # Only here can the bound be refused: n grows while the cheaper stages still find counterexamples, and
@@ -371,7 +430,7 @@ class Search:
         if depth_cost is not None and depth_cost < self.sweep_cost(model):
             suites.reverse()
         report = {}
-        for name, stage in stages + suites + [("audit", self.audit)]:
+        for name, stage in stages + suites + [("pairs", self.pairs), ("audit", self.audit)]:
             tests = self.tests
             found = stage(model)
             report[name] = self.tests - tests

@@ -10,7 +10,7 @@ from learn.host import learner as learner_module
 from learn.host import session
 from learn.host.search import Search
 from learn.host.spi import Spi
-from learn.lab import cloning, devices, judge
+from learn.lab import cloning, devices, families, judge
 
 
 class Flat:
@@ -156,6 +156,92 @@ class Learner(unittest.TestCase):
                 self.assertEqual(self.missing_from_sweep(engine, search, model, tried), [],
                                  "%s, from state %d at %d" % (table.name, first, at))
 
+    def test_a_bank_switch_is_found_by_the_pairs_search(self):
+        """A command and then a value that show nothing until a later read: the suites take the command for the
+        default, so only the pairs search tries it with every value after it. Without it the copy is wrong."""
+        banks = [i for i in range(16) if families.FAMILIES["spi registers"](
+            families.random.Random(families.seed("spi registers", i))).banks > 1][:2]
+        self.assertEqual(len(banks), 2)
+        pairs = Search.pairs
+        for i in banks:
+            table = families.device("spi registers", i)
+            result = learn(table)
+            self.assertEqual(verdict(table, result), judge.EXACT, table.name)
+            self.assertGreater(result["stats"]["found_by"].get("pairs", 0), 0, table.name)
+            self.assertIn("found outside the bounds", result["flags"])
+            Search.pairs = lambda self, model: None
+            try:
+                self.assertEqual(verdict(table, learn(table)), judge.MISSED, table.name)
+            finally:
+                Search.pairs = pairs
+
+    def test_the_pairs_search_covers_every_opening_from_every_mode(self):
+        """On the pass that found nothing, every two-byte opening, from every state that waits for a transaction,
+        with what reads its effect back."""
+        test = Search.test
+        passes = []
+
+        def recorded(search, model, q, word, *rest):
+            if getattr(search, "in_pairs", False):
+                passes[-1][1].add(q)
+                for k in range(0, len(word), 5):
+                    if word[k] == 256 and word[k + 4] == 257:
+                        passes[-1][2].add((q, word[k + 1], word[k + 2]))
+            return test(search, model, q, word, *rest)
+
+        pairs = Search.pairs
+
+        def recorded_pairs(search, model):
+            passes.append((model, set(), set()))
+            search.in_pairs = True
+            try:
+                return pairs(search, model)
+            finally:
+                search.in_pairs = False
+
+        Search.test, Search.pairs = recorded, recorded_pairs
+        try:
+            table = families.device("spi registers", 1)
+            result = learn(table)
+        finally:
+            Search.test, Search.pairs = test, pairs
+        self.assertEqual(verdict(table, result), judge.EXACT)
+        model, asked, opened = passes[-1]
+        modes = [q for q in range(len(model.rows)) if model.phases[q] == 0]
+        self.assertEqual(asked, set(modes))
+        self.assertEqual(len(opened), len(modes) * 256 * 256)  # a read-back is an opening too, and one of these
+        self.assertEqual(tuple(result["stats"]["pairs"]), (len(modes) * 256 * 256 // 128,) * 2)
+
+    def test_a_pairs_search_cut_short_is_flagged(self):
+        whole = learn(devices.flash(), serve=2000)
+        before = whole["stats"]["symbols"]
+        self.assertEqual(whole["flags"], [])
+        result = learn(devices.flash(), serve=2000, budget=before * 2 // 3)
+        self.assertTrue(result["ok"], result["reason"])
+        asked, of = result["stats"]["pairs"]
+        self.assertLess(asked, of)
+        self.assertIn("pairs cut short", result["flags"])
+        self.assertIn("%d of %d questions" % (asked, of), " ".join(result["warnings"]))
+        self.assertNotIn("every two bytes were tried", " ".join(result["warnings"]))
+        self.assertIn("every two bytes were tried", " ".join(whole["warnings"]))
+
+    def test_an_untraced_secret_leaves_no_trace_in_the_result(self):
+        """Why no flag can single out an untraced secret: the run of a device whose key is never completed is the
+        run of its twin, whose key can't be, and the twin's copy is exact. Every line the host prints is the
+        same for both."""
+        for family in ("spi untraced", "i2c untraced"):
+            for i in range(2):
+                part, twin = (families.FAMILIES[family](families.random.Random(families.seed(family, i)))
+                              for _ in range(2))
+                twin.key = twin.key + [256]  # no byte is 256, so the key never opens
+                make = devices.spi_table if part.name == "spi" else devices.i2c_table
+                tables = [make(part), make(twin)]
+                results = [learn(table) for table in tables]
+                self.assertEqual([verdict(t, r) for t, r in zip(tables, results)], [judge.MISSED, judge.EXACT],
+                                 (family, i))
+                for key in ("model", "image", "flags", "warnings", "guarantee"):
+                    self.assertEqual(results[0][key], results[1][key], (family, i, key))
+
     def test_a_declared_size_is_not_refused_while_the_model_is_still_small(self):
         table = cloning.two_byte(32, 32)
         inputs = devices.LOCK_INPUTS
@@ -196,7 +282,7 @@ class Learner(unittest.TestCase):
             ("budget", Ideal(flash), {"budget": 5000}),
             ("states", Ideal(flash), {"limit_states": 8}),
             ("alphabet", Ideal(flash), {"limit_alphabet": 5}),
-            ("too fast", Ideal(flash), {"rate": 2500, "serve": 5000}),
+            ("too fast", Ideal(flash), {"rate": 2500, "serve": 10000}),
             ("nothing", Ideal(devices.spi_table(Flat(0xFF))), {}),
             ("nothing", Ideal(devices.spi_table(Flat(0x00))), {}),
         ):

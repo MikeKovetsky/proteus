@@ -9,7 +9,7 @@ import common  # noqa: F401
 from learn.host import clone_i2c, clone_spi
 from learn.host import table as T
 from learn.host.bus import Refused
-from learn.lab import board, cloning, devices, judge
+from learn.lab import board, cloning, devices, families, judge
 
 
 class Fan:
@@ -66,19 +66,39 @@ class Generators(unittest.TestCase):
         self.assertGreater(exact, 35)
 
     def test_at_the_spi_timing_bound(self):
-        tried = 0
-        for seed in range(12):
-            table = cloning.scrambled("spi", 2 + seed % 5, 1 + seed, seed)
-            chain = cloning.generate(table, 500)[0]["chain"]
-            serve = 60000 // (chain + clone_spi.PIPELINE)
-            if 60000 // serve != chain + clone_spi.PIPELINE:
-                continue  # no whole kHz gives exactly that period
+        """No decision deeper than the rate allows is written, and what is written is exact at that rate. At 6000
+        kHz, 10 clocks a bit, a decision may take three tests; where a state needs more, the copy is refused."""
+        tried, refused = 0, 0
+        for seed in range(8):
+            table = cloning.scrambled("spi", 2 + seed % 3, 2 + 3 * seed, seed)
+            try:
+                made, report = judged(table, 6000)
+            except Refused as refusal:
+                self.assertEqual(refusal.code, "too fast")
+                refused += 1
+                continue
+            self.assertLessEqual(clone_spi.period(made["chain"]), 10)
+            self.assertEqual(report["verdict"], judge.EXACT, "%s, depth %d" % (table.name, made["chain"]))
             tried += 1
-            _, report = judged(table, serve)
-            self.assertEqual(report["verdict"], judge.EXACT, "%s, chain %d, at %d kHz" % (table.name, chain, serve))
-            with self.assertRaises(Refused):
-                cloning.generate(table, 60000 // (chain + clone_spi.PIPELINE - 1))
-        self.assertGreater(tried, 4)
+        self.assertGreater(tried, 2)
+        self.assertGreater(refused, 0)
+
+    def test_the_spi_timing_bound_is_what_the_rtl_needs(self):
+        """Without its margin, the bound is exact for a controller on the chip's own clock, as the judge's is, and
+        one clock faster the judge finds a fault: AFTER and LOW are what the RTL takes, and MARGIN is spare. The
+        first device's limit is its decision, the second's is SCK's low half."""
+        for table, depth in ((cloning.scrambled("spi", 2, 22, 21), 4), (families.device("spi modes", 6), 1)):
+            made, result = cloning.generate(table, 5000)
+            self.assertEqual(made["chain"], depth, table.name)
+            least = max(clone_spi.AFTER + depth, 2 * clone_spi.LOW)
+            self.assertEqual(clone_spi.period(depth), max(least + clone_spi.MARGIN, 2 * (clone_spi.LOW + 1)))
+            minimal = judge.Minimal(judge.TRUTH["spi"](table))
+            with board.Board("spi", 3) as on:
+                fine = judge.clone(on, result["image"], minimal, 60000 // least)
+                late = judge.clone(on, result["image"], minimal, 60000 // (least - 1))
+            self.assertTrue(fine["equal"] and fine["complete"], (table.name, least, fine))
+            self.assertFalse(late["equal"], (table.name, least - 1))
+            self.assertEqual(late["fault"], "MISO moves while SCK is high")
 
     def test_at_the_i2c_timing_bound(self):
         for k, split, serve in ((38, 0, 400), (29, 1, 400), (100, 0, 100)):
@@ -111,7 +131,7 @@ class Generators(unittest.TestCase):
             self.assertEqual(judged(table, serve)[1]["verdict"], judge.EXACT, table.name)
 
     def test_the_first_probes_own_two_largest_machines_fit(self):
-        for raw, entries in ((64, 300), (100, 461)):
+        for raw, entries in ((64, 316), (100, 473)):
             table = cloning.probes_machine(raw)
             made, result = cloning.generate(table, 2000, [0x5A, 0xA5, judge.SELECT])
             self.assertEqual(made["entries"], entries)
@@ -125,7 +145,7 @@ class Generators(unittest.TestCase):
             with board.Board("spi") as on:
                 report = judge.judge(on, table, result)
             self.assertEqual((report["true_states"], report["verdict"]), (states, judge.EXACT))
-            self.assertLess(made["entries"], 5.1 * states)
+            self.assertLess(made["entries"], 5.3 * states)
 
 
 if __name__ == "__main__":

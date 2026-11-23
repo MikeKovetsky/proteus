@@ -38,6 +38,10 @@ class Bus:
         if self.rate not in self.ENGINES:
             raise Refused("told", "there is a query engine for %s kHz only" % sorted(self.ENGINES))
 
+    def openers(self, model):
+        """The first symbols of the pairs stage's openings: none, unless the bus has openings to try."""
+        return []
+
     def image(self):
         return self.ENGINES[self.rate]
 

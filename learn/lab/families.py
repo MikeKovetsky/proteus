@@ -12,11 +12,19 @@ Each bus has five families:
   untraced    the same with nothing to read before the last step: outside what any bound here promises
   fields      whole ranges of opcodes or addresses act alike, against the host's one default for each kind
 
-Nothing is dropped: each refusal, miss, failure and crash is counted."""
+Nothing is dropped: each refusal, miss, failure and crash is counted.
+
+The first blind run is learn/results/families.jsonl, by the host frozen at FREEZE. Its devices have been seen
+since, so they are now a development set: `evaluate` runs any host on them, says which, and `--host first`
+runs the first freeze's host again, taken from git and checked against FROZEN_DIGEST. A blind run needs devices
+seeded from a later freeze."""
 
 import hashlib
+import io
 import json
 import random
+import subprocess
+import tarfile
 import traceback
 from collections import Counter, OrderedDict
 from multiprocessing import Pool
@@ -411,26 +419,50 @@ def digest(root=ROOT):
 
 
 def frozen(root=ROOT):
-    """Is the host that runs the host that was frozen?"""
+    """Is the host under root the host of the first freeze?"""
     return digest(root) == FROZEN_DIGEST
 
 
+def which(root=ROOT):
+    """The freeze whose host is under root, or None for a host that is no freeze."""
+    found = digest(root)
+    return {FROZEN_DIGEST: "first freeze"}.get(found)
+
+
+def first_host(into):
+    """The first freeze's host, out of git into the folder `into`, checked against its digest. Its learn/host."""
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", FREEZE] + list(FROZEN), check=True,
+                             stdout=subprocess.PIPE).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        try:
+            tar.extractall(str(into), filter="data")
+        except TypeError:  # a Python without extraction filters
+            tar.extractall(str(into))
+    if not frozen(into):
+        raise RuntimeError("the first freeze's host from git does not match its digest")
+    return Path(into) / "learn/host"
+
+
 def one(task):
-    """One device learned in the jail and judged. Whatever goes wrong is a row, and a failure."""
-    family, i = task
+    """One device learned in the jail and judged, by the host in `source`. Whatever goes wrong is a row, and a
+    failure."""
+    family, i = task[:2]
+    source = task[2] if len(task) > 2 else jail.HOST
     row = {"family": family, "i": i}
     try:
         table = device(family, i)
         run_seed = seed(family, i) % 100000 + 1
         with board.Board(table.bus, run_seed) as on:
             on.plug(table)
-            result = jail.learn(on, {"bus": table.bus, "seed": run_seed})
+            result = jail.learn(on, {"bus": table.bus, "seed": run_seed}, source=source)
             report = judge.judge(on, table, result)
         stats = result.get("stats") or {}
         row.update(verdict=report["verdict"], code=result["code"], reason=result["reason"],
                    true_states=report["true_states"], states=report.get("learned_states"),
                    inside=report.get("inside"), uniform=report.get("uniform"),
-                   entries=stats.get("entries"), symbols=stats.get("symbols"),
+                   entries=stats.get("entries"), chain=stats.get("chain"), symbols=stats.get("symbols"),
+                   queries=stats.get("queries"),
+                   flags=result.get("flags", []), found_by=stats.get("found_by"), pairs=stats.get("pairs"),
                    chip_ms=result.get("chip_ms"), wall_s=result.get("wall_s"))
         wrong = [found for found in [report.get("model")] + report["clone"] if found and not found["equal"]]
         if wrong:
@@ -446,11 +478,11 @@ def tasks(count=COUNT):
     return [(family, i) for i in range(count) for family in FAMILIES]
 
 
-def evaluate(out=None, count=COUNT, workers=None, say=print):
+def evaluate(out=None, count=COUNT, workers=None, say=print, source=jail.HOST):
     board.library()  # built once, before there are several to build it
     rows = []
     with Pool(workers or board.jobs()) as pool:
-        for row in pool.imap_unordered(one, tasks(count)):
+        for row in pool.imap_unordered(one, [task + (str(source),) for task in tasks(count)]):
             rows.append(row)
             if out:
                 with open(str(out), "a") as log:
@@ -467,6 +499,24 @@ def span(numbers):
     return "%d" % min(numbers) if min(numbers) == max(numbers) else "%d-%d" % (min(numbers), max(numbers))
 
 
+def flagged(rows):
+    """Per flag, how many copies carry it and how many of those are exact or wrong. A copy is a row with a
+    program; wrong is missed or failed."""
+    copies = [row for row in rows if row["verdict"] != judge.REFUSED and row["code"] == "ok"]
+    names = sorted(set(flag for row in copies for flag in row.get("flags") or []))
+    lines = ["%-26s %6s %6s %6s" % ("warning", "copies", "exact", "wrong")]
+    for name in ["every copy"] + names + ["no flag"]:
+        chosen = [row for row in copies if name == "every copy" or name in (row.get("flags") or []) or
+                  (name == "no flag" and not row.get("flags"))]
+        exact = sum(row["verdict"] == judge.EXACT for row in chosen)
+        lines.append("%-26s %6d %6d %6d" % (name, len(chosen), exact, len(chosen) - exact))
+    asked = [row["queries"] for row in rows if row.get("queries") is not None]
+    if asked:
+        lines.append("questions per device: %d on average, %d at most, %d in all" % (
+            sum(asked) // len(asked), max(asked), sum(asked)))
+    return lines
+
+
 def summary(rows):
     """A line a family, a total, and every reason that was not a copy."""
     lines = ["%-14s %7s %6s %8s %8s %8s  %-11s %s" % ("family", "devices", "exact", "refused", "missed", "FAILED",
@@ -478,6 +528,7 @@ def summary(rows):
             family, len(chosen), verdicts[judge.EXACT], verdicts[judge.REFUSED], verdicts[judge.MISSED],
             sum(verdicts[failure] for failure in judge.FAILURES), span(row.get("true_states") for row in chosen),
             span(row.get("entries") for row in chosen if row["verdict"] == judge.EXACT)))
+    lines += flagged(rows)
     refusals = Counter((row["family"], row["code"]) for row in rows if row["verdict"] == judge.REFUSED)
     for (family, code), count in sorted(refusals.items()):
         lines.append("refused: %-14s %2d  %s" % (family, count, code))

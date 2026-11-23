@@ -359,7 +359,7 @@ def lock_code(steps):
 
 
 LOCK_INPUTS = [0x5A, 0xA5, SELECT]
-SILENT_KEY = (0x3C, 0xC3)
+SILENT_KEY = (0x3C, 0xC3, 0x96)
 
 
 def flash():
@@ -378,9 +378,9 @@ def lock(steps):
     return spi_table(Lock(lock_code(steps)))
 
 
-def silent_key():
-    table = spi_table(Lock(SILENT_KEY))
-    table.name = "silent two-byte key"
+def silent_key(steps=2):
+    table = spi_table(Lock(SILENT_KEY[:steps]))
+    table.name = "silent %s-byte key" % {2: "two", 3: "three"}[steps]
     return table
 
 

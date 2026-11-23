@@ -40,7 +40,7 @@ class EndToEnd(unittest.TestCase):
             self.assertLessEqual(set(hidden), set(self.done[name][0]["model"]["alphabet"]), name)
 
     def test_the_first_probes_two_largest_are_learned_through_the_pins(self):
-        for case, entries in zip(PROBES, (300, 461)):
+        for case, entries in zip(PROBES, (316, 473)):
             result, report = self.done[case.name]
             self.assertEqual((report["verdict"], result["stats"].get("entries")), (judge.EXACT, entries),
                              "%s: %s" % (case.name, result["reason"]))

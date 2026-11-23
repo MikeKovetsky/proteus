@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Mike Kovetsky
 # SPDX-License-Identifier: Apache-2.0
-"""The evaluation can't be bent afterwards: the host is the frozen one, the devices follow from the seeds, and a
-failure can't drop out of the summary."""
+"""The evaluation can't be bent afterwards: a freeze's host can be run again, a changed host is noticed, the
+devices follow from the seeds, and a failure can't drop out of the summary."""
 
 import json
 import shutil
@@ -14,18 +14,27 @@ from learn.lab import families, judge
 
 
 class Families(unittest.TestCase):
-    def test_the_host_is_the_frozen_one(self):
-        self.assertTrue(families.frozen(),
-                        "learn/host or learn/programs changed after the freeze, so the evaluation is void")
+    def test_the_first_freeze_can_be_run_again(self):
+        """The first blind run stays reproducible: its host comes back out of git, as it was frozen."""
+        with tempfile.TemporaryDirectory() as root:
+            host = families.first_host(root)
+            self.assertTrue(families.frozen(root))
+            self.assertEqual(families.which(root), "first freeze")
+            self.assertTrue((host / "search.py").is_file())
 
     def test_a_changed_host_is_noticed(self):
         with tempfile.TemporaryDirectory() as root:
-            for folder in families.FROZEN:
-                shutil.copytree(str(families.ROOT / folder), str(Path(root) / folder))
-            self.assertTrue(families.frozen(root))
+            families.first_host(root)
             path = Path(root) / "learn/host/search.py"
             path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
             self.assertFalse(families.frozen(root))
+            self.assertIsNone(families.which(root))
+        with tempfile.TemporaryDirectory() as root:  # and a file added counts as a change
+            for folder in families.FROZEN:
+                shutil.copytree(str(families.ROOT / folder), str(Path(root) / folder))
+            before = families.digest(root)
+            (Path(root) / "learn/programs/extra.fsm").write_text("", encoding="utf-8")
+            self.assertNotEqual(families.digest(root), before)
 
     def test_devices_follow_from_their_seeds(self):
         for family in families.FAMILIES:

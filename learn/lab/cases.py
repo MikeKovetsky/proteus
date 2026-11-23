@@ -9,7 +9,7 @@ from . import board, devices, jail, judge
 Case = namedtuple("Case", "name bus device told verdict code why")
 
 DEMONSTRATION = (
-    Case("flash", "spi", devices.flash, {"serve": 2000}, judge.EXACT, "ok",
+    Case("flash", "spi", devices.flash, {"serve": 5000}, judge.EXACT, "ok",
          "modes, a sequenced reset, a hidden test mode and a hidden key"),
     Case("sensor", "i2c", devices.sensor, {}, judge.EXACT, "ok",
          "a repeated-START pointer, run modes, a hidden register and a hidden second address"),
@@ -26,8 +26,10 @@ CONTROLS = (
          "bound", "the bound cannot be tested within the budget, so nothing is written"),
     Case("24-step lock, size not told", "spi", lambda: devices.lock(24), dict(LOCK), judge.MISSED, "ok",
          "the limit of any black-box method: missed, and the warning says it could be"),
-    Case("silent two-byte key", "spi", devices.silent_key, {"serve": 2000}, judge.MISSED, "ok",
-         "two bytes in a row that show nothing alone: missed, and the warning says it could be"),
+    Case("silent two-byte key", "spi", devices.silent_key, {"serve": 2000}, judge.EXACT, "ok",
+         "two bytes in a row that show nothing alone: found by the pairs search"),
+    Case("silent three-byte key", "spi", lambda: devices.silent_key(3), {"serve": 2000}, judge.MISSED, "ok",
+         "three bytes in a row that show nothing before the last: missed, and the warning says it could be"),
     Case("noisy flash", "spi", devices.flaky, {}, judge.REFUSED, "nondeterministic",
          "0.2% of the bytes it sends have a bit flipped"),
     Case("flash with a time-out", "spi", devices.forgetful, {}, judge.REFUSED, "timing",

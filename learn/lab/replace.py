@@ -21,8 +21,8 @@ from .board import BUILD, ROOT
 from .board import jobs as default_jobs
 
 PAIR = Path(__file__).resolve().parent / "pair"
-CLOCK_PS = {"spi": 41670, "i2c": 16668}  # 24 MHz makes the shipped 5 MHz SPI program a 2 MHz controller
-TOO_FAST_PS = 16668  # the same program as it ships
+CLOCK_PS = {"spi": 16668, "i2c": 16668}  # 60 MHz: both controllers run as they ship, SPI at 5 MHz
+TOO_FAST_PS = 8334  # 120 MHz makes the shipped SPI program a 10 MHz controller, past what the copy serves
 CONTROLLER = {"spi": "spi_ctrl_m0", "i2c": "i2c_ctrl"}
 TRAFFIC = 300
 
@@ -141,17 +141,21 @@ def traffic(part, count=TRAFFIC, seed=1):
 
 
 def broken(image, byte, compared):
-    """The image with one byte of one kind of entry wrong, in every copy of it."""
+    """The image with one byte of one kind of entry wrong, in every copy of it: a byte it sends (a load of S with
+    K), or a byte it compares. A compare tests S == imm in either condition. In the SPI copy's decision tree S has
+    been shifted up k places by then, so the compare holds the byte shifted too. Flipping its lowest bit makes it
+    miss the byte."""
     data, changed = bytearray(image), 0
     start = 1 + 16 * image[0] + 2
+    shifted = set((byte << k) & 0xFF for k in range(8)) - {0}
     for at in range(start, len(data), 8):
         a = int.from_bytes(data[at:at + 4], "little")
         b = int.from_bytes(data[at + 4:at + 8], "little")
         if compared:
-            chosen = a >> 9 & 15 == 15
+            chosen = 15 in (a >> 9 & 15, a >> 13 & 15) and b & 0xFF in shifted
         else:
-            chosen = b >> 19 & 7 == 1 and b >> 28 & 7 == 6
-        if chosen and b & 0xFF == byte:
+            chosen = b >> 19 & 7 == 1 and b >> 28 & 7 == 6 and b & 0xFF == byte
+        if chosen:
             data[at + 4] ^= 1
             changed += 1
     if not changed:
@@ -263,7 +267,7 @@ def summary(part, test, got, total):
         for who in ("device", "clone"):
             run = got["tester, " + who]
             out["test/protocols/spi.py passes the " + who] = run["answers"] == sent and not run["faults"]
-        out["at 5 MHz the device passes"] = test_passes(got["too fast, device"])
-        out["at 5 MHz the clone passes"] = test_passes(got["too fast, clone"])  # it is not expected to
+        out["at 10 MHz the device passes"] = test_passes(got["too fast, device"])
+        out["at 10 MHz the clone passes"] = test_passes(got["too fast, clone"])  # it is not expected to
     out["replaced"] = all(out[key] for key in out if key.startswith(("test", "same")))
     return out

@@ -12,7 +12,7 @@ behaviour."""
 from .bus import Refused
 from .i2c import I2c
 from .learner import Learner
-from .search import DEEPEST, Search
+from .search import DEEPEST, PAIRS, Search
 from .spi import Spi
 
 BUSES = {"spi": Spi, "i2c": I2c}
@@ -90,7 +90,14 @@ def guarantee(told, bus, model, search):
 def warnings(told, bus, model, search):
     lines = ["Bounded, not proven: behaviour that needs more states than that, or more steps, can be missing, "
              "and no test through the pins alone can rule it out."]
-    if bus.inputs is None:
+    cover = search.pairs_cover
+    if bus.inputs is None and cover and cover[0] == cover[1]:
+        lines.append("A byte not learned in full was tried singly from each state, and every two bytes were tried "
+                     "at the start of a transaction, from each state that waits for one, %d openings to a "
+                     "question. A secret that shows nothing until its third byte, that starts after a "
+                     "transaction's first byte, that spans transactions, or that a later opening in its question "
+                     "undoes, can be missing." % PAIRS)
+    elif bus.inputs is None:
         lines.append("A symbol not learned in full was tried singly from each state. A secret that starts with "
                      "such a symbol and shows nothing before its next step can be missing.")
     else:
@@ -113,6 +120,25 @@ def warnings(told, bus, model, search):
     return lines
 
 
+def flags(told, bus, model, search):
+    """[(code, line)]: what this run saw that puts its copy more at risk than another's. The warnings above hold
+    for every copy, so they cannot tell one copy from another. These come from the run alone."""
+    out = []
+    late = sum(search.found_by.get(stage, 0) for stage in ("pairs", "audit"))
+    if late:
+        out.append(("found outside the bounds",
+                    "%d counterexample%s turned up after both bounded suites had passed on the model of the time, "
+                    "in the pairs search or the audit. This device does what the bounds do not cover, so more of "
+                    "that kind can be missing." % (late, "" if late == 1 else "s")))
+    cover = search.pairs_cover
+    if cover and cover[0] < cover[1]:
+        out.append(("pairs cut short",
+                    "The budget ran out before the pairs search had tried every two-byte opening from every state "
+                    "that waits for a transaction: %d of %d questions were asked. A command with an argument can "
+                    "be missing." % cover))
+    return out
+
+
 def needs(told, bus):
     """What the host had to be told or given, for a person to check before trusting the program."""
     lines = ["The bus and its wiring: %s, on %s." % (told["bus"], bus.WIRING),
@@ -132,7 +158,7 @@ def needs(told, bus):
 def run(told, link):
     """Plain data, always: either a program and what is known about it, or no program and why."""
     result = {"ok": False, "code": "ok", "reason": "", "image": None, "model": None, "stats": {},
-              "guarantee": [], "warnings": [], "differs": [], "told": None, "wiring": "", "needs": []}
+              "guarantee": [], "warnings": [], "flags": [], "differs": [], "told": None, "wiring": "", "needs": []}
     learner = search = None
     try:
         told = settings(told)
@@ -147,6 +173,9 @@ def run(told, link):
         result["model"] = exported(model, bus)
         result["guarantee"] = guarantee(told, bus, model, search)
         result["warnings"] = warnings(told, bus, model, search)
+        found = flags(told, bus, model, search)
+        result["flags"] = [code for code, _ in found]
+        result["warnings"][1:1] = [line for _, line in found]
         nothing = bus.absent(model)
         if nothing:
             raise Refused("nothing", nothing + ". There is nothing to copy")
@@ -166,5 +195,6 @@ def run(told, link):
                                counterexamples=learner.counterexamples, alphabet=len(learner.alphabet))
         if search is not None:
             result["stats"].update(found_by=dict(search.found_by), extra=search.extra,
-                                   tests_last_pass=dict(search.report), checked_last_pass=search.checked)
+                                   tests_last_pass=dict(search.report), checked_last_pass=search.checked,
+                                   pairs=search.pairs_cover)
     return result
