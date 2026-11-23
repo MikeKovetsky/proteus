@@ -16,9 +16,15 @@ VERILOG_SOURCES += $(SRAM_MODELS)
 ifneq ($(GATES),yes)
 
 # RTL simulation:
-SIM_BUILD				= sim_build/rtl
+SIM_BUILD				= sim_build/rtl_$(SIM)
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
 COMPILE_ARGS    += -DFUNCTIONAL
+ifeq ($(SIM),verilator)
+COMPILE_ARGS    += --timing --x-initial unique -Wno-STMTDLY -Wno-TIMESCALEMOD $(PWD)/lint/waivers.vlt
+ifeq ($(shell uname -s),Darwin)
+SIM_CMD_PREFIX  += DYLD_FALLBACK_LIBRARY_PATH=$(abspath $(dir $(shell which verilator))/../lib)
+endif
+endif
 
 else
 
@@ -43,6 +49,9 @@ endif
 
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
+ifeq ($(NODUMP),1)
+COMPILE_ARGS 		+= -DNODUMP
+endif
 
 # Include the testbench sources:
 VERILOG_SOURCES += $(PWD)/tb.v
@@ -56,7 +65,16 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 
 # ---- proteus's own targets (after the include, so `make` alone still runs the cocotb test) ------------
 
-.PHONY: lockstep mutants lint synth
+.PHONY: lockstep mutants lint synth build_sim parallel
+
+ifeq ($(SIM),verilator)
+build_sim: $(SIM_BUILD)/Vtop
+else
+build_sim: $(SIM_BUILD)/sim.vvp
+endif
+
+parallel:
+	python3 $(CURDIR)/run_parallel.py --sim $(SIM) --gates $(or $(GATES),no)
 
 # The golden model against the RTL core, clock for clock: 14 benches and 300 random tests (Verilator).
 lockstep:

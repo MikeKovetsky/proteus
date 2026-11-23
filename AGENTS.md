@@ -139,7 +139,8 @@ All results below are measured on `rtl-v2` (commit `78be664`, merged to `main`):
    python3 -m bakeoff.run --candidate cand_table --strict
    python3 -m unittest discover -s test/flow
    make -C test mutants
-   make -C test -B
+   make -C test parallel SIM=verilator   # all 130 RTL pin tests in ~17s
+   make -C test parallel                 # all 130 RTL pin tests on Icarus across 4 cores
    make -C test/oracle -B
    LEARN_JOBS=2 make -C test/learn
    ```

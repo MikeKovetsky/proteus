@@ -263,3 +263,10 @@ A dated log, written as the work happens. The verification write-up's AI section
     (`top_module: tt_um_mikekovetsky_proteus`), all active tests (`test/`, `test/oracle/`, `test/lockstep/`,
     `test/synth/`, `test/flow/`, `learn/lab/`), docs, and the GitHub repository (`MikeKovetsky/proteus`).
     Preserved historical log entries and frozen test random seeds (`test/test_scenarios.py`).
+54. **Test suite speedups (waveform gating, Verilator cocotb, parallel sharding).** Gated full-hierarchy
+    `$dumpvars(0, tb)` in `test/tb.v` so `GL_TEST` dumps only top-level pins (`$dumpvars(1, tb)`) unless
+    `-DDUMP_ALL` is passed, and `-DNODUMP` / Verilator skips FST dumping. Added `SIM=verilator` support
+    and `build_sim` / `parallel` targets to `test/Makefile`, plus `test/run_parallel.py` which runs 5
+    balanced shards across CPU cores with duplicate/missing-test checks and merges JUnit XML into
+    `test/results.xml`. Updated `.github/workflows/test.yaml` to run `make parallel`. Verified all 130/130
+    RTL pin tests pass in 17.4 s under parallel Verilator and cleanly under parallel Icarus.

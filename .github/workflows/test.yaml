@@ -30,8 +30,8 @@ jobs:
         run: |
           cd test
           make clean
-          make
-          # make will return success even if the tests fail, so check results.xml for failed tests
+          make parallel
+          # check merged results.xml for failed tests
           python -m cocotb_tools.check_results results.xml
 
       - name: Run independent third-party protocol oracle tests (cocotbext)

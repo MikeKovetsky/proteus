@@ -6,12 +6,26 @@
 */
 module tb ();
 
-  // Dump the signals to a FST file. You can view it with gtkwave or surfer.
+  // Dump signals to an FST file. Gate-level simulation has ~11k cells, so dump only top-level
+  // pins during GL_TEST unless -DDUMP_ALL is set (2-3x faster gl_test). Skip when -DNODUMP or
+  // under Verilator (pass WAVES=1 to cocotb if traces are needed).
+`ifndef VERILATOR
+`ifndef NODUMP
   initial begin
     $dumpfile("tb.fst");
+`ifdef GL_TEST
+`ifdef DUMP_ALL
     $dumpvars(0, tb);
+`else
+    $dumpvars(1, tb);
+`endif
+`else
+    $dumpvars(0, tb);
+`endif
     #1;
   end
+`endif
+`endif
 
   // Wire up the inputs and outputs:
   reg clk;
