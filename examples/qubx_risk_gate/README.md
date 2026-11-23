@@ -33,4 +33,69 @@ Compiled into **127 / 512 SRAM table entries (24.8%, 1,061-byte image, < 1 ms ho
 
 `OrderGate` defines a clean pre-trade boundary (`submit()`, `set_kill_switch()`) between a Qubx strategy and broker connector:
 - **Contest / Hardware-in-the-Loop:** `ProteusHardwareGate` drives real binary 3 Mbaud UART electrical signals through unmodified Proteus RTL v2 (Verilator today; Tang Nano 9K + Pico 2 over physical wires using [fpga/tang_nano_9k/WIRING.md](../../fpga/tang_nano_9k/WIRING.md)).
-- **Live Fund Production:** Swap in a Rust/C sidecar backend implementing the exact same `OrderGate` interface.
+- **Live Fund Production:** Swap in `SoftwareOrderGate` (or a Rust/C sidecar) implementing the exact same `IOrderGate` interface.
+
+---
+
+## Running Inside [xLydianSoftware/Qubx](https://github.com/xLydianSoftware/Qubx) ([PR #465](https://github.com/xLydianSoftware/Qubx/pull/465))
+
+### 1. Verify Live Qubx `TradingManager` → 60 MHz Proteus Verilog
+
+Build the Verilator simulator once in `proteus`, then run Qubx's order-gate test suite:
+
+```bash
+# In proteus:
+source ~/oss-cad-suite/environment
+make -C examples/qubx_risk_gate sim
+
+# In Qubx (on branch feat/pre-trade-order-gate / PR #465):
+PROTEUS_ROOT=~/repos/mike/protoemu uv run pytest tests/qubx/core/test_order_gate.py -v
+```
+
+This runs Qubx's real `TradingManager.trade()` and `cancel_order()` directly through unmodified 60 MHz Proteus Verilog, verifying rate-limit throttling, zero phantom order state on rejection, and Cancel bypass.
+
+### 2. Wire Into Any Qubx Strategy (`on_init`)
+
+#### Option A — Backed by Proteus Silicon (Verilator or Live Tang Nano 9K + Pico 2)
+
+```python
+from pathlib import Path
+from qubx.core.interfaces import IStrategyInitializer
+from qubx.core.order_gate import ProteusOrderGate
+
+def on_init(self, initializer: IStrategyInitializer) -> None:
+    ...
+    # Verilator simulation today:
+    gate = ProteusOrderGate(
+        image_hex=risk_gate_image_hex,
+        sim_bin=Path("~/repos/mike/protoemu/examples/qubx_risk_gate/build/sim_risk_gate").expanduser(),
+    )
+
+    # Or live Tang Nano 9K + Pico 2 breadboard over USB-serial:
+    # gate = ProteusOrderGate(image_hex=risk_gate_image_hex, serial_port="/dev/tty.usbmodem1101")
+
+    initializer.set_order_gate(gate)
+```
+
+Run your strategy normally (`uv run qubx simulate config.yml` or `uv run qubx run config.yml --paper`). Every `ctx.trade()` and `ctx.cancel_order()` is checked by Proteus **before** hitting `AccountManager` or the exchange connector; rejected orders raise `OrderGateRejected` with `.code` (`RATE_LIMIT`, `FAT_FINGER`, `KILL_SWITCH`) and `.decision.latency_ns`.
+
+#### Option B — Live Production Trading (`SoftwareOrderGate`)
+
+Swap one line to guard live capital using the exact same `IOrderGate` interface:
+
+```python
+from qubx.core.order_gate import SoftwareOrderGate
+
+def on_init(self, initializer: IStrategyInitializer) -> None:
+    ...
+    initializer.set_order_gate(
+        SoftwareOrderGate(
+            max_orders=5,
+            window_seconds=1.0,
+            max_order_qty=10.0,
+            max_order_notional=100_000.0,
+        )
+    )
+```
+
+At runtime from any callback or watchdog, `ctx.get_order_gate().set_kill_switch(False)` trips the kill-switch immediately while still allowing safety-critical cancels to pass.
