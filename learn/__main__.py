@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """python3 -m learn: learn it, become it.
 
-  python3 -m learn             the demonstration and the negative controls, in a few minutes
+  python3 -m learn             the demonstration and the negative controls, in a few minutes, and an account
+                               of each device learned, written for a person (--dot DIR: also as Graphviz graphs)
   python3 -m learn evaluate    the 160 seeded devices the host was not tuned on, every failure counted
   python3 -m learn baselines   the baselines in full, as long as the questions
   python3 -m learn measure     capacity and memory
@@ -12,13 +13,15 @@ All of it is simulation. It needs Verilator, Icarus and cocotb from the OSS CAD 
     source ~/oss-cad-suite/environment"""
 
 import argparse
+import os
 import shutil
 import sys
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .lab import board, cases, devices, families, judge, measure, passive, replace
+from . import account
+from .lab import board, cases, cloning, devices, families, judge, measure, passive, replace
 
 SHORT = (1000, 10000)  # transactions recorded, in the demonstration
 LONG = (100, 1000, 10000, 100000)
@@ -177,7 +180,36 @@ def show_controls(done):
     return good
 
 
-def demonstration():
+def show_accounts(done, dot):
+    heading("5. What was learned, written for a person: from the model alone, as the host exported it")
+    wrapped("A mode is a state the device rests in between transactions. Bytes that act alike are grouped. Each "
+            "account is checked against the one written the same way from the device's own description, which "
+            "the host never saw.")
+    good = True
+    for case in cases.DEMONSTRATION:
+        result = done[case.name][0]
+        if not result["model"]:
+            good = False
+            say("%s: no model to write out: %s" % (case.name, result["reason"]))
+            continue
+        lines = account.readable(case.bus, result["model"])
+        truth = cloning.generate(case.device(), case.told.get("serve", 400), case.told.get("inputs"))[1]["model"]
+        same = lines == account.readable(case.bus, truth)
+        good = good and same
+        say()
+        say("%s (%s): %s" % (case.name, case.why, "the same account as its description gives" if same else
+                             "NOT the account its description gives"))
+        for line in lines:
+            say("  " + line if line else "")
+        if dot:
+            path = os.path.join(dot, case.name + ".dot")
+            with open(path, "w") as out:
+                out.write("\n".join(account.dot(case.bus, result["model"], case.name)) + "\n")
+            say("  the states as a graph: %s (dot -Tsvg %s, where Graphviz is installed)" % (path, path))
+    return good
+
+
+def demonstration(dot=None):
     began = time.time()
     say("Learn it, become it. Simulation only: Verilated and Icarus RTL, devices made up for this, no hardware.")
     say("The host writes the program. The chip asks the questions and then runs what was written.")
@@ -191,6 +223,7 @@ def demonstration():
     good = show_limit(done) and good
     show_baselines(done, SHORT)
     good = show_controls(done) and good
+    good = show_accounts(done, dot) and good
     say()
     say("%s in %.0f s" % ("All as it must be," if good else "NOT as it must be,", time.time() - began))
     return 0 if good else 1
@@ -267,6 +300,7 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("what", nargs="?", default="demo", choices=("demo", "evaluate", "baselines", "measure"))
     parser.add_argument("--out", help="evaluate: also write each device's row to this file, as JSON lines")
+    parser.add_argument("--dot", metavar="DIR", help="demo: also write each learned device as a Graphviz graph here")
     asked = parser.parse_args(argv)
     missing = [tool for tool in ("verilator", "iverilog") if not shutil.which(tool)]
     if missing:
@@ -276,7 +310,10 @@ def main(argv=None):
         return evaluation(asked.out)
     if asked.what == "baselines":
         return baselines()
-    return measurements() if asked.what == "measure" else demonstration()
+    if asked.dot and not os.path.isdir(asked.dot):
+        say("--dot needs a folder that exists: %s" % asked.dot)
+        return 2
+    return measurements() if asked.what == "measure" else demonstration(asked.dot)
 
 
 if __name__ == "__main__":

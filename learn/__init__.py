@@ -6,4 +6,6 @@ learn/host      runs on the host: the learner, the two bus adapters and the tabl
                 outside itself and reaches a device only through a link to the chip's host pins.
 learn/programs  the two query engines that the chip runs while it questions a device.
 learn/lab       the bench round it: hidden devices, the board, the judge and the baselines. Never imported by host.
+learn/account   a learned device written for a person: its modes and commands, its states, or a Graphviz graph,
+                from the exported model alone. Never imported by host.
 """
