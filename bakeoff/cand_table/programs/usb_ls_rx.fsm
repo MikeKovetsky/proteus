@@ -1,14 +1,19 @@
 # Low-speed USB receiver (1.5 Mbit/s, 40 clocks per bit). Every byte after SYNC goes to channel 1.
-# At the end of a packet channel 2 gets [0x00 good or 0x01 bad][byte count]. Good means a right CRC-16, as
-# scenario 12 says, for every packet: a handshake, which has none, and a token, whose CRC is 5 bits, read as
-# bad. Seven 1s in a row are bad and end the pushes. Six right before EOP are accepted, as the harness's
-# decoder does. One extra bit before EOP, which a hub may add, is let through.
+# At the end of a packet channel 2 gets [0x00 good or 0x01 bad][byte count]. Valid handshake PIDs
+# (ACK/NAK/STALL/NYET, matched in 1 clock by v2 TCAM) are accepted with 1 byte and no CRC; data packets
+# require a valid CRC-16. Seven 1s in a row are bad and end the pushes. Six right before EOP are accepted,
+# as the harness's decoder does. One extra bit before EOP, which a hub may add, is let through.
 #
 # The bit clock comes from the edges of D+. An edge starts a bit cell and restarts the timer, so the
 # receiver follows the sender. A cell that starts with an edge is a 0; a cell with no edge is a 1.
 # After an edge the line is looked at 16 clocks on, when an SE0 of up to 210 ns inside the transition is
 # over, and otherwise in the middle of the cell. Both lines low (SE0) there ends the packet. The work of
 # a bit must end before the next edge, which that SE0 and jitter can bring to 22 clocks after the last.
+
+tcam 0xD2/0xFF -> 1   # ACK
+tcam 0x5A/0xFF -> 1   # NAK
+tcam 0x1E/0xFF -> 1   # STALL
+tcam 0x96/0xFF -> 1   # NYET
 
 machine usb
     in    DP=P0, DM=P1
@@ -48,6 +53,7 @@ plain:  wait => edge: plain0 | tz: plain1    # the PID, which is not part of the
 plain0: use zero(shift 0, pid, plain)
 plain1: use one(shift 1, pid, plain)
 pid:    push1=S, N+=1, K=7
+        dispatch tcam4 => data | 1: whole    # valid handshake PID: good if EOP follows directly
 data:   wait => edge: data0 | tz: data1
 data0:  use zero({shift 0, crc+=0}, byte, data)
 data1:  use one({shift 1, crc+=1}, byte, data)

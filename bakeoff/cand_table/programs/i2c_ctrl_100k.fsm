@@ -34,7 +34,7 @@ ack:    use pulse(SDA=z)             # the target answers
 end
 
 idle:   wait rx0
-        R=pop0                       # the address is needed twice
+        R=pop0                       # [6:0] = 7-bit address; bit 7 = 1 requests plain read (skip addr+W)
         wait rx0
         N=pop0, J=1                  # bytes to write. J=1: the read count is still in the queue
         call clock                   # SCL must be high, or become so
@@ -42,6 +42,7 @@ idle:   wait rx0
         SDA=0, hold HIGH             # START: SDA falls while SCL is high
         SCL=0
         S=R
+        => d: plain_r                # bit 7 set -> plain read: START, addr+R, nr bytes, STOP
         shift 0, K=8                 # address, then 0 for write
         use send(nack)
 write:  => nz: wrote
@@ -58,7 +59,11 @@ wrote:  wait rx0
         SDA=0, hold HIGH             # repeated START
         SCL=0
         S=R
-        shift 1, K=8                 # address, then 1 for read
+        goto send_r
+plain_r: wait rx0                    # plain read: take nr directly (J=0) and send addr+R after START
+        N=pop0, J=0
+        => nz: done
+send_r: shift 1, K=8                 # address, then 1 for read
         use send(nack)
 read:   K=8
 rbit:   use pulse(SDA=z)             # the target drives SDA

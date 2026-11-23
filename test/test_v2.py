@@ -17,8 +17,8 @@ from host_link import (PORT_CH0_CH1, PORT_CH3_CH2, PORT_NONE, ST_HAS, ST_OVERFLO
                        Host, program, reset, start_clock)
 from bakeoff.cand_table.compiler import compile_text  # host_link puts the repository on the path
 from bench import boot, now
-from protocols import crc, eth10
-from protocols.wave import US
+from protocols import crc, eth10, i2c, usb_ls
+from protocols.wave import CLK, EPS, US
 from test import Pads, pin_level, start
 
 PORT_TRACE = PORT_NONE  # Port 3 is the hardware pin-trace buffer once RUNNING == 1
@@ -232,3 +232,47 @@ async def test_v2_host_read_strobe_guard(dut):
         got = await host.read(PORT_CH3_CH2)
         assert got == want, "after stray rd_strobe, expected 0x%02x got 0x%02x" % (want, got)
     assert host.status() & ST_OVERFLOW == 0
+
+
+@cocotb.test()
+async def test_v2_usb_tx_handshakes(dut):
+    """v2: usb_ls_tx sends 1-byte ACK/NAK/STALL handshakes without CRC-16 via S[1:0] dispatch."""
+    DP, DM = 0, 1
+    chip = await boot(dut, "usb_ls_tx", outputs=[DP, DM], pulled_low=[DP])
+    pids = (usb_ls.ACK, 0x5A, 0x1E)  # ACK, NAK, STALL
+    chip.send(b"".join(bytes([1, pid]) for pid in pids))
+    await chip.sent(500 * US)
+    await chip.quiet([DP, DM], 30 * US, 100 * US)
+    board = chip.board
+    got = usb_ls.decode((board.line[DP], board.line[DM]), (board.chip[DP], board.chip[DM]), board.since)
+    assert got == [bytes([p]) for p in pids], "TX handshakes went out as %s" % [g.hex() for g in got]
+    await chip.finish()
+
+
+@cocotb.test()
+async def test_v2_usb_rx_handshakes(dut):
+    """v2: usb_ls_rx accepts 1-byte ACK/NAK/STALL handshakes via 1-clock TCAM dispatch."""
+    DP, DM = 0, 1
+    chip = await boot(dut, "usb_ls_rx", pulled_low=[DP])
+    pids = (usb_ls.ACK, 0x5A, 0x1E)
+    events, t = [], now() + 1 * US
+    for pid in pids:
+        more, back_to_j = usb_ls.send([DP, DM], bytes([pid]), t)
+        events += more
+        t = back_to_j + 10 * US
+    await chip.board.play(events)
+    await chip.expect(ch1=bytes(pids), ch2=b"\x00\x01" * len(pids), within=50 * US)
+    await chip.finish()
+
+
+@cocotb.test()
+async def test_v2_i2c_plain_read(dut):
+    """v2: i2c_ctrl supports plain read (START, addr+R, data, STOP) via addr | 0x80 without breaking Scenario 7."""
+    chip = await boot(dut, "i2c_ctrl", open_drain=[0, 1])
+    i2c.Target(chip.board, 0, 1, {0x50: b"\x11\x22"}, i2c.FAST, 0)
+    chip.send(bytes([0x80 | 0x50, 0, 2]))
+    await chip.expect(ch1=b"\x11\x22", ch2=b"\x00", within=400 * US)
+    await chip.quiet([0, 1], 10 * US, 50 * US)
+    got, _ = i2c.check(chip.board, 0, 1, i2c.FAST, chip.board.since)
+    assert got == ["S A1+ 11+ 22- P"], "plain read bus carried %s" % got
+    await chip.finish()

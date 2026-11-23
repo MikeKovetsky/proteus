@@ -10,8 +10,13 @@ machine eth
     order lsb
     crc   poly=0xEDB88320 init=0xFFFFFFFF
 
-idle:   TXP=0, TXN=0, wait rx0
-        N=pop0                       # frame length
+idle:   TXP=0, TXN=0, J=14           # 15 x 64,000 = 960,000 clocks = 16.0 ms NLP interval
+        T=64000
+iwait:  wait => rx0: take | tz: itick
+itick:  T=64000, J-=1 => jz: nlp | iwait
+nlp:    TXP=1, TXN=0, hold 6         # 100 ns 10BASE-T Normal Link Pulse (60..200 ns spec)
+        TXP=0, TXN=0 => idle
+take:   N=pop0                       # frame length
         wait rx0
         Nhi=pop0
         => nz: idle                  # no frame: N would count down through 65,535 bytes

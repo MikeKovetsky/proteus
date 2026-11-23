@@ -1,7 +1,7 @@
 # Low-speed USB transmitter (1.5 Mbit/s, 40 clocks per bit). Channel 0 gives [n][PID][n-1 bytes], and an
 # n of 0 is ignored. The chip sends SYNC, the PID and the bytes, NRZI coded with bit stuffing, then SE0 for
-# two bits and J for one, and lets go of the bus. Every packet gets the CRC-16 of the bytes after its PID, as
-# scenario 11 says, so this sends data packets: it has no form for a handshake or for a token's CRC-5.
+# two bits and J for one, and lets go of the bus. Handshake PIDs (PID[1:0] == 2, e.g. ACK/NAK/STALL) with
+# n == 1 send SYNC + PID + EOP with no CRC; DATA packets get the CRC-16 of the bytes after the PID.
 # A host that is late inside a packet ends it in a bit-stuffing error: the chip puts 0x01 on channel 2 and
 # drops the rest of that packet's bytes.
 
@@ -37,10 +37,13 @@ idle:   wait rx0
         J=6
         DP=0, DM=1, call plain       # start driving, in the idle state J, and send SYNC
         S=pop0, K=8, N-=1
+        R=S                          # keep PID to distinguish handshake (PID[1:0]==2) from data packets
         crc=init, call plain         # the PID is not part of the CRC
-more:   => nz: check
+more:   => nz: check_pid
         S=pop0, K=8, N-=1 => !rx0: under
         use nrzi(d, {shift, crc+=d}, more)
+check_pid: S=R
+        dispatch S[1:0] => check | 2: eop   # handshake (ACK/NAK/STALL): no CRC-16
 check:  K=8, N=1                     # the CRC goes out inverted, low bit first: 2 x 8 bits
 crcbit: use nrzi(!c, crc>>=1, half)
 half:   => nz: eop
