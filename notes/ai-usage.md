@@ -203,14 +203,38 @@ A dated log, written as the work happens. The verification write-up's AI section
 45. **The program fixes landed.** An agent wrote them and fresh Opus 5.5 reviewers checked them, the last at max
     effort. The main session pushed the reviewed merge to its own branch, read GitHub's logs for 122 of 122 tests
     on RTL and on the routed netlist, and only then fast-forwarded `main` to it. No person reviewed the code.
-46. **RTL v2 (branch `rtl-v2`).** Following an architecture and strategy review, Mike approved the RTL v2 spec
+46. **A plan for what is left.** Mike asked what was left for a winning submission. The main session tested a
+    candidate feature on the golden model, found that a rival had published the idea, and asked one question about
+    the plan. Mike answered "Yes, run it". While writing the requirements, the main session found that it had
+    overstated the feature: the host, not the chip, writes the learned program.
+47. **The host writes the learned program.** The main session told Mike about that overclaim and asked whether a
+    host computer may write the program. Mike answered "Yes, that's fine", and the requirement now says so.
+48. **Learn it, become it.** An Opus 5.5 agent built the feature from `notes/learn-and-become.md`: the learner, its
+    test suites, the two table generators, a judge that alone sees the truth, the baselines and the demonstration.
+    It improved the host on three of its negative controls, then froze it (a0acf17), committed ten seeded device
+    families (4eb2196) and ran them once. The result was 106 exact, 15 refused and 39 copied wrong with a warning.
+    It kept that result and left the host frozen. A scratch fix tried afterwards repaired 4 of the 7 unintended
+    misses in a simulation without RTL, and it was not committed, since it was made looking at those devices. The
+    same agent wrote the host, the devices, the families and the judge, so none of this is independent. The main
+    session rebuilt the work on `main` without its private notes, with the code unchanged.
+49. **A review of learn it, become it.** A fresh Opus 5.5 agent that had not built the feature reviewed it at max
+    effort, from the diff, the repo and a pack of facts. It broke the code on purpose and found three breaks that
+    every test passed: the sweep taken out, the judge's I2C reset left out, and an unfinished walk counted as
+    finished. It added tests that fail on each, and an end-to-end test for the probe's two largest machines, which
+    only the generator had been tested on. It checked the page's numbers against its own runs and corrected five
+    claims, among them that an SPI register write "can be missed": all seven with a bank switch were. It left
+    `learn/host` and `learn/programs` as frozen. L3 and L4 stay NOT MET, and the warning singles out no wrong copy.
+    Those wait for Mike.
+50. **RTL v2 (branch `rtl-v2`).** Following an architecture and strategy review, Mike approved the RTL v2 spec
     (Option A: silicon-accelerated reverse engineering and wire-speed emulation). An Antigravity (Gemini) session
     implemented the backward-compatible v2 extensions across the golden model, compiler and RTL: 1-clock indexed
     dispatch and a shared 16-rule masked Byte-Class TCAM (`gate == 3`), dual-edge 8.33 ns input sampling (`P2.half`)
     and a 4th per-machine input (`in_d`), a 32-entry Port-3 hardware pin-trace buffer (`src/protoemu_trace.v`), and
     a host-read strobe guard (`project.v`), plus an 8.33 ns 3-point deadband DPLL in `eth10_rx.fsm` that closes
-    `gap_eth10_rx_jitter` (±13.5 ns IEEE 802.3 jitter). Verified locally: Verilator lint clean, Yosys generic R4
-    async-reset check and IHP slow-corner timing estimate pass (2,105 flops, 9.53 ns decision loop), 68 of 68
-    compiler tests, 14 of 14 bake-off benches, 50 of 50 flow tests, 323 of 323 lockstep traces (3,050,238 clocks),
-    21 of 21 lockstep mutants killed, and 127 of 127 pin-level cocotb tests on RTL (including 5 new v2 pin tests).
-    GDS layout, precheck, gate-level simulation and formal proofs on `rtl-v2` have not run yet.
+    `gap_eth10_rx_jitter` (±13.5 ns IEEE 802.3 jitter), USB handshake support (TX `S[1:0]` dispatch, RX TCAM),
+    16 ms 10BASE-T Normal Link Pulses in `eth10_tx.fsm`, and I2C plain read (`addr | 0x80`). Verified locally:
+    Verilator lint clean, Yosys generic R4 async-reset check and IHP slow-corner timing estimate pass (2,105 flops,
+    9.53 ns decision loop), 68 of 68 compiler tests, 14 of 14 bake-off benches, 50 of 50 flow tests, 323 of 323
+    lockstep traces (3,050,238 clocks), 21 of 21 lockstep mutants killed, and 130 of 130 pin-level cocotb tests
+    on RTL (122 existing + 8 v2 tests), plus `gap_eth10_link_pulses` and `gap_eth10_rx_jitter` passing. Pushed to
+    GitHub Actions for GDS/precheck/gate-level verification.

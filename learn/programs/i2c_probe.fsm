@@ -1,0 +1,103 @@
+# The query engine for an I2C target. Both lines are open drain, and a target may stretch SCL for up to 1 ms.
+# The host sends operations on channel 0:
+#   00 r b   reset: nRESET low for r us, then wait b us
+#   01 x     START or repeated START, then the byte x (the address and R/W): answers 0 ACK or 1 NACK
+#   02 x     write the byte x: answers 0 ACK or 1 NACK
+#   03       read a byte and ACK it: answers the byte
+#   04       read a byte and NACK it: answers the byte
+#   05       STOP: answers 0
+#   06 n     pause for n x 25 us
+# START and STOP answer 2 if SDA is held low where it must be high. SCL held low for 1 ms puts 1 on channel 2.
+# learn/programs/build.py sets LOW and HIGH for each rate and packs the image into learn/host/probes.py.
+
+machine i2c_probe
+    out   SCL=P0, SDA=P1, NRST=P4
+    in    SCLI=P0, SDAI=P1
+    order msb
+    const LOW  = 80              # SCL is low for LOW + 3 clocks
+    const HIGH = 63              # and high for HIGH + 4
+    const US   = 60
+
+# One SCL pulse, entered with SCL low.
+macro pulse(SET)
+        hold 25
+        SET, call clock
+end
+
+start:  SCL=z, SDA=z
+        NRST=1
+idle:   wait rx0
+        S=pop0
+        => S==0: reset
+        => S==1: sta
+        => S==2: write
+        => S==3: rack
+        => S==4: rnack
+        => S==5: sto
+        wait rx0                 # 06: pause
+        N=pop0
+ploop:  => nz: idle
+        hold 25*US - 2
+        N-=1 => ploop
+
+reset:  NRST=0, hold 30          # the device lets go of SDA before the bus is released
+        SCL=z, SDA=z
+        wait rx0
+        N=pop0
+        call delay
+        NRST=1
+        wait rx0
+        N=pop0
+        call delay
+        nop => idle
+
+sta:    use pulse(SDA=z)         # SDA high, then SCL high
+        => !SDAI: held           # no START can be made
+        SDA=0, hold HIGH         # START
+        SCL=0 => write
+held:   wait rx0                 # the byte that will not be sent
+        pop0
+bad:    wait tx1
+        push1=2 => idle
+
+write:  wait rx0
+        S=pop0, K=7
+wbit:   use pulse(SDA=od)
+        SCL=0, shift, K-=1 => kz: ack | wbit
+ack:    use pulse(SDA=z)
+        SCL=0 => SDAI: nack
+good:   wait tx1
+        push1=0 => idle
+nack:   wait tx1
+        push1=1 => idle
+
+rack:   J=1 => read
+rnack:  J=0
+read:   K=7
+rbit:   use pulse(SDA=z)
+        SCL=0, shift SDAI, K-=1 => kz: rdone | rbit
+rdone:  => jz: rlast
+        use pulse(SDA=0)         # ACK
+        SCL=0 => got
+rlast:  use pulse(SDA=z)         # NACK
+        SCL=0
+got:    wait tx1
+        push1=S => idle
+
+sto:    use pulse(SDA=0)
+        SDA=z, hold LOW          # STOP
+        => SDAI: good
+        nop => bad
+
+clock:  hold LOW - 25
+        SCL=z, hold 2
+        T=65535
+cwait:  wait => SCLI: high | tz: stuck
+stuck:  push2=1
+high:   hold HIGH - 1
+        ret
+
+delay:  => nz: back
+        hold US - 2
+        N-=1 => delay
+back:   ret
