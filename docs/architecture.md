@@ -309,10 +309,25 @@ Tiny Tapeout's flow in CI.
 | File | What it holds |
 |---|---|
 | [src/proteus_table.v](../src/proteus_table.v) | The table: two IHP SRAM macros side by side |
-| [src/proteus_core.v](../src/proteus_core.v) | The machines, the shared datapath, the FIFOs' wiring and the loader |
+| [src/proteus_core.v](../src/proteus_core.v) | The machines, shared datapath, 16-rule masked TCAM, FIFOs and loader |
 | [src/proteus_fifo.v](../src/proteus_fifo.v) | One 4-byte FIFO |
-| [src/project.v](../src/project.v) | The top level: synchronisers, the nibble host link, the status pins |
+| [src/proteus_trace.v](../src/proteus_trace.v) | 32-entry Port-3 hardware pin-change trace buffer |
+| [src/project.v](../src/project.v) | The top level: dual-edge synchronisers, nibble host link, strobe guard, Port-3 trace wiring |
+| [fpga/tang_nano_9k/](../fpga/tang_nano_9k/) | Unmodified RTL v2 build for Sipeed Tang Nano 9K + Pico 2 MicroPython host firmware |
+| [learn/](../learn/) | *"Learn it, become it"*: active black-box protocol learning & wire-speed hardware cloning |
+| [examples/qubx_risk_gate/](../examples/qubx_risk_gate/) | Inline 60 MHz pre-trade risk gate & physical kill-switch for Qubx |
 | [bakeoff/cand_table/chip.py](../bakeoff/cand_table/chip.py) | The golden model: the RTL core matches it on every clock of the recorded traces ([test/README.md](../test/README.md)) |
 | [bakeoff/cand_table/entry.py](../bakeoff/cand_table/entry.py) | The entry's fields and the image format, shared by the compiler and the model |
 | [bakeoff/cand_table/compiler.py](../bakeoff/cand_table/compiler.py) | The compiler |
 | [bakeoff/cand_table/programs/](../bakeoff/cand_table/programs/) | The 14 bench programs, more rates and modes of them, and the four-machine program |
+
+## RTL v2 extensions (100% backward-compatible with v1 images)
+
+RTL v2 adds five hardware capabilities within the same 8×4 tile envelope, closing all five protocol gaps from v1 while enabling 5–6 MHz learned SPI clones and hardware observability (post-PnR sign-off: **28.8% effective utilization**, **2,105 async-reset flip-flops**, **+3.5512 ns** slow-corner setup slack at 60 MHz, **0** DRC/LVS/antenna/slew/cap/setup/hold violations):
+
+1. **1-clock indexed dispatch & shared 16-rule masked Byte-Class TCAM (`gate == 3`):** Evaluates byte register `S` against 16 priority-encoded `(val, mask, class)` rules in parallel with the SRAM read, jumping directly into an aligned 4-, 8-, or 16-entry dispatch table (`tcam4`, `tcam8`, `tcam16`) or slicing `S` directly (`S[7:4]`, `S[3:0]`, `S[hi:lo]`) in **1 clock** — eliminating multi-clock compare trees on opcodes and bit-fields.
+2. **8.33 ns dual-edge input sampling (`in_b_half` / `P2.half` + `edge_b`):** A 3-stage falling-edge input synchroniser in `src/project.v` captures `pins_half` on `negedge clk` (8.33 ns ahead of `posedge clk`), giving 120 MHz effective edge resolution on a 60 MHz clock. Powers the 3-point deadband DPLL in `eth10_rx.fsm` passing IEEE 802.3 ±13.5 ns jitter + ±400 ppm drift.
+3. **4th per-machine input pin (`in_d`):** Reclaims condition 12 (`rx3`) as a 4th physical input pin when configured with 4 `in` bindings, letting SPI targets (`SCK`, `MOSI`, `CS`) monitor hardware `nRESET` on `P4` directly in silicon.
+4. **32-entry Port-3 hardware pin-change trace buffer (`src/proteus_trace.v`):** Passive on-chip logic analyzer active whenever `running == 1`. Logs `{delta[7:0], pins[7:0]}` on every masked pin transition (with `0xFF` heartbeats, programmable pin mask, and arm-on-trigger) over Host Port 3.
+5. **Host-read strobe guard (`src/project.v`):** Ignores stray `rd_strobe` edges while `HAS_BYTE == 0`, preventing host nibble desynchronisation.
+

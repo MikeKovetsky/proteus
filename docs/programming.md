@@ -428,3 +428,11 @@ compare it.
 6. With several machines, every count is in turns.
 7. A script runs it on the model against a decoder written from the spec, at the far end's slowest and fastest
    clock, and the script fails when the program is broken on purpose.
+
+## 13. Using RTL v2 features in new protocols
+
+1. **Opcode & bit-field dispatch in 1 clock:** Replace multi-line `S==...` compare chains with top-level `tcam VAL/MASK -> CLASS` rules and `dispatch tcam4` / `tcam8` / `tcam16` or `dispatch S[7:4]` (see [usb_ls_rx.fsm](../bakeoff/cand_table/programs/usb_ls_rx.fsm), [learn/host/clone_spi.py](../learn/host/clone_spi.py), and [examples/qubx_risk_gate/risk_gate.fsm](../examples/qubx_risk_gate/risk_gate.fsm)).
+2. **Hardware `nRESET` / Kill-Switch on a 4th input:** Bind a 4th pin in `in` (e.g. `in SCK=P0, MOSI=P1, CS=P3, NRST=P4`) when a machine does not need `rx3`; check `!NRST` on critical branches to react within 1 turn.
+3. **Sub-clock edge tracking (8.33 ns):** Use `P2.half` and `edge_b` when recovering jittery 10 Mbit/s line clocks (see the 3-point deadband DPLL in [eth10_rx.fsm](../bakeoff/cand_table/programs/eth10_rx.fsm)).
+4. **On-chip logic analyzer:** Arm Port 3 (`0x03`, `mask`, `0x02`) before triggering a transaction, then stop (`0x00`) and drain `{pins, delta}` pairs to measure exact cycle-accurate wire-to-wire timing without an external logic analyzer.
+

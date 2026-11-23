@@ -1,0 +1,94 @@
+// =============================================================================
+// Proteus — Sipeed Tang Nano 9K (GW1NR-LV9QN88PC6/I5) Physical Constraints
+// =============================================================================
+// Voltage domain safety:
+//   - ALL 24 Tiny Tapeout pins + ext_rst_n are placed strictly on 3.3V Bank 1/2
+//     headers (LVCMOS33), safe to wire directly to Raspberry Pi Pico 2, W25Q32,
+//     and LM75A.
+//   - Onboard LEDs and pushbuttons S1/S2 reside on 1.8V Bank 3 (LVCMOS18).
+//   - Bank 3 expansion pins 79..86 (1.8V), HDMI pins 68..75, and TF card pins
+//     36..39 are intentionally left unused to avoid voltage/bus conflicts.
+// =============================================================================
+
+// --- 27 MHz onboard crystal (Bank 1, 3.3V) ---
+IO_LOC  "clk_27m" 52;
+IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
+// --- Onboard buttons (Bank 3, 1.8V, active-low) ---
+IO_LOC  "btn_rst_n" 4;
+IO_PORT "btn_rst_n" IO_TYPE=LVCMOS18 PULL_MODE=UP;
+
+IO_LOC  "btn_kill_n" 3;
+IO_PORT "btn_kill_n" IO_TYPE=LVCMOS18 PULL_MODE=UP;
+
+// --- Optional external 3.3V reset from Pico 2 (Bank 1, pulled up internally) ---
+IO_LOC  "ext_rst_n" 63;
+IO_PORT "ext_rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// --- 6 onboard LEDs (Bank 3, 1.8V, active-low) ---
+IO_LOC  "led[0]" 10;
+IO_PORT "led[0]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led[1]" 11;
+IO_PORT "led[1]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led[2]" 13;
+IO_PORT "led[2]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led[3]" 14;
+IO_PORT "led[3]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led[4]" 15;
+IO_PORT "led[4]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led[5]" 16;
+IO_PORT "led[5]" IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+
+// --- Protocol Bidirectional Pins P0..P7 (Bank 2, 3.3V, contiguous header block) ---
+IO_LOC  "uio[0]" 25;
+IO_PORT "uio[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[1]" 26;
+IO_PORT "uio[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[2]" 27;
+IO_PORT "uio[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[3]" 28;
+IO_PORT "uio[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[4]" 29;
+IO_PORT "uio[4]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[5]" 30;
+IO_PORT "uio[5]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[6]" 31;
+IO_PORT "uio[6]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uio[7]" 32;
+IO_PORT "uio[7]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+// --- Host Nibble Link Inputs ui_in[7:0] (Bank 2 + Bank 1, 3.3V) ---
+IO_LOC  "ui_in[0]" 33;
+IO_PORT "ui_in[0]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[1]" 34;
+IO_PORT "ui_in[1]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[2]" 35;
+IO_PORT "ui_in[2]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[3]" 40;
+IO_PORT "ui_in[3]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[4]" 41;
+IO_PORT "ui_in[4]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[5]" 42;
+IO_PORT "ui_in[5]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[6]" 48;
+IO_PORT "ui_in[6]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC  "ui_in[7]" 49;
+IO_PORT "ui_in[7]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// --- Host Nibble Link Outputs uo_out[7:0] (Bank 1, 3.3V) ---
+IO_LOC  "uo_out[0]" 51;
+IO_PORT "uo_out[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[1]" 53;
+IO_PORT "uo_out[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[2]" 54;
+IO_PORT "uo_out[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[3]" 55;
+IO_PORT "uo_out[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[4]" 56;
+IO_PORT "uo_out[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[5]" 57;
+IO_PORT "uo_out[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[6]" 76;
+IO_PORT "uo_out[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "uo_out[7]" 77;
+IO_PORT "uo_out[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;

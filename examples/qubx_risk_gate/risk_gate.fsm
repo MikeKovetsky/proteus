@@ -1,0 +1,215 @@
+# SPDX-FileCopyrightText: © 2026 Mike Kovetsky
+# SPDX-License-Identifier: Apache-2.0
+#
+# Proteus Inline Pre-Trade Hardware Risk Gate & 16.6 ns Kill-Switch (RTL v2)
+# ==========================================================================
+# Zero RTL changes — runs on unmodified tt_um_mikekovetsky_proteus silicon!
+#
+# Two concurrent state machines share the 60 MHz SRAM table (each stepping at
+# 30 MHz = 33.3 ns/turn; 13.5 MHz/turn on the 27 MHz Tang Nano 9K FPGA):
+#
+#   Machine 0 (risk_gate):
+#     - Receives 4-byte binary Mini-OUCH order frames on P0 (RX, 3 Mbaud @ 60 MHz):
+#         [0] OPCODE: 'O' (0x4F) NewOrder  -> TCAM class 1 (Rate-Limited + Fat-Finger + Kill-Switch)
+#                     'X' (0x58) Cancel    -> TCAM class 2 (Bypasses Rate-Limiter! Kill-Switch only)
+#                     'H' (0x48) Heartbeat -> TCAM class 3 (Bypasses Rate-Limiter! Kill-Switch only)
+#                     other                -> TCAM miss    (Dropped immediately as BAD_OPCODE)
+#         [1] SYM_ID: Instrument ID (0..255)
+#         [2] PRICE:  Encoded limit price tick (0..255)
+#         [3] QTY:    Order size (bit 7 == 1 => QTY >= 128 => Fat-Finger rejected in 1 clock!)
+#     - Enforces a hardware token-bucket rate limiter (J = MAX_BURST NewOrders per window).
+#     - Monitors physical KILL_N on P4 (active-low red breadboard wire / Tang Nano 9K S2):
+#         * Blocks incoming frames immediately if KILL_N == 0.
+#         * Aborts IN-FLIGHT TX mid-frame on the very next turn if KILL_N drops!
+#     - Forwards approved 4-byte frames directly onto P1 (TX, 3 Mbaud) with 0 ns jitter
+#       and zero host CPU involvement.
+#     - Emits a 1-byte hardware audit event on Host Channel 1 for every frame:
+#         0xA0  PASS_NEW_ORDER   (forwarded on P1)
+#         0xA1  PASS_CANCEL      (forwarded on P1; bypassed rate limit)
+#         0xA2  PASS_HEARTBEAT   (forwarded on P1; bypassed rate limit)
+#         0xE1  DROP_RATE_LIMIT  (ALERT_RL pulsed on P2)
+#         0xE2  DROP_KILL_SWITCH (ALERT_KILL driven on P3)
+#         0xE3  DROP_BAD_OPCODE  (TCAM miss)
+#         0xE4  DROP_FAT_FINGER  (QTY >= 128 caught by S[7:4] dispatch)
+#
+#   Machine 1 (rl_timer):
+#     - Dedicated hardware token-bucket window clock using its own 16-bit timer T.
+#     - Asserts shared semaphore pin P5 (RL_TOK = 1) once per WINDOW turns; Machine 0
+#       refills J = MAX_BURST and clears P5 = 0 atomically on its next order check.
+#
+# Pins:
+#   P0  RX_IN       (in)   3 Mbaud UART binary order wire from Qubx / Pico 2
+#   P1  TX_OUT      (out)  3 Mbaud UART binary order wire to Exchange / OME (idle high)
+#   P2  ALERT_RL    (out)  High while hardware rate-limit is throttling NewOrders
+#   P3  ALERT_KILL  (out)  High while physical hardware KILL_N (P4) is asserted (0)
+#   P4  KILL_N      (in)   Physical red kill-switch jumper wire (1 = Armed, 0 = KILLED)
+#   P5  RL_TOK      (i/o)  Inter-machine token-bucket refill semaphore
+
+const BIT       = 10     # 10 turns/bit = 20 clocks/bit = 3.000 Mbaud @ 60 MHz (1.35 Mbaud @ 27 MHz)
+const MAX_BURST = 3      # Max NewOrders allowed per rate-limit window before hardware throttle
+const RL_WINDOW = 12000  # 12000 turns = 24000 clks = 400 us @ 60 MHz (889 us @ 27 MHz)
+
+# 1-clock masked Byte-Class TCAM opcode dispatch
+tcam 0x4F/0xFF -> 1      # 'O' = NewOrder
+tcam 0x58/0xFF -> 2      # 'X' = Cancel (safety-critical: bypasses rate limit!)
+tcam 0x48/0xFF -> 3      # 'H' = Heartbeat
+
+machine risk_gate
+    in    RX=P0, RL_TOK=P5, KILL_N=P4
+    out   TX=P1, ALERT_RL=P2, ALERT_KILL=P3, RL_CLR=P5
+    order lsb
+
+# Initialize outputs: TX idle high, alerts low, burst bucket full.
+init:   TX=1, ALERT_RL=0
+        ALERT_KILL=0, J=MAX_BURST
+
+# Idle: wait for start bit on RX (P0 falling low), while continuously reflecting KILL_N on P3
+# and servicing token-bucket refills from rl_timer (P5).
+idle:   TX=1, wait => !KILL_N: kill_idle | !RX: got_start
+kill_idle:
+        TX=1, ALERT_KILL=1
+        wait => KILL_N: kill_clear | !RX: got_start
+kill_clear:
+        ALERT_KILL=0 => idle
+
+# Byte 0 (OPCODE) arrived — receive it using rx_mid (start bit already detected).
+got_start:
+        call rx_after_start
+        => !KILL_N: drop_kill_b0
+        # 1-clock masked TCAM dispatch on OPCODE in S!
+        dispatch tcam4 => drop_badop | 1: op_new | 2: op_cancel | 3: op_hb
+
+# ---- Class 1: 'O' (0x4F) NewOrder (Rate-Limited + Fat-Finger + Kill-Switch) ----
+op_new:
+        # Check inter-machine token refill semaphore P5 first.
+        => RL_TOK: refill_new | check_tok
+refill_new:
+        RL_CLR=0, J=MAX_BURST
+check_tok:
+        => jz: drop_rl_b0
+        # Receive Byte 1 (SYM_ID), Byte 2 (PRICE), Byte 3 (QTY)
+        call rx_byte
+        N=S                                    # Nlo = SYM_ID
+        call rx_byte
+        Nhi=S                                  # Nhi = PRICE
+        call rx_byte
+        R=S                                    # R   = QTY
+        => !KILL_N: drop_kill_done
+        # 1-clock Fat-Finger Guard: reject QTY >= 128 (top nibble 8..F)
+        dispatch S[7:4] => new_ok | 8: drop_ff | 9: drop_ff | 10: drop_ff | 11: drop_ff | 12: drop_ff | 13: drop_ff | 14: drop_ff | 15: drop_ff
+new_ok:
+        ALERT_RL=0, J-=1
+        push1=0xA0                             # Audit: PASS_NEW_ORDER
+        S=0x4F
+        call tx_byte                           # Forward Byte 0 ('O')
+        => tx_payload
+
+# ---- Class 2: 'X' (0x58) Cancel (Safety-critical: bypasses rate limit!) ----
+op_cancel:
+        call rx_byte
+        N=S
+        call rx_byte
+        Nhi=S
+        call rx_byte
+        R=S
+        => !KILL_N: drop_kill_done
+        push1=0xA1                             # Audit: PASS_CANCEL
+        S=0x58
+        call tx_byte                           # Forward Byte 0 ('X')
+        => tx_payload
+
+# ---- Class 3: 'H' (0x48) Heartbeat (Bypasses rate limit) ----
+op_hb:
+        call rx_byte
+        N=S
+        call rx_byte
+        Nhi=S
+        call rx_byte
+        R=S
+        => !KILL_N: drop_kill_done
+        push1=0xA2                             # Audit: PASS_HEARTBEAT
+        S=0x48
+        call tx_byte                           # Forward Byte 0 ('H')
+
+# Shared 3-byte payload forwarder (SYM_ID, PRICE, QTY)
+tx_payload:
+        S=Nlo
+        call tx_byte                           # Forward Byte 1 (SYM_ID)
+        S=Nhi
+        call tx_byte                           # Forward Byte 2 (PRICE)
+        S=R
+        call tx_byte                           # Forward Byte 3 (QTY)
+        => idle
+
+# ---- Drop Handlers (drain remaining payload bytes so UART framing stays locked) ----
+drop_rl_b0:
+        ALERT_RL=1, push1=0xE1                 # Audit: DROP_RATE_LIMIT
+        call rx_byte
+        call rx_byte
+        call rx_byte
+        => idle
+
+drop_kill_b0:
+        TX=1, ALERT_KILL=1
+        push1=0xE2                             # Audit: DROP_KILL_SWITCH
+        call rx_byte
+        call rx_byte
+        call rx_byte
+        => idle
+
+drop_kill_done:
+        TX=1, ALERT_KILL=1
+        push1=0xE2                             # Audit: DROP_KILL_SWITCH
+        => idle
+
+drop_badop:
+        push1=0xE3                             # Audit: DROP_BAD_OPCODE
+        call rx_byte
+        call rx_byte
+        call rx_byte
+        => idle
+
+drop_ff:
+        push1=0xE4                             # Audit: DROP_FAT_FINGER
+        => idle
+
+# ---- Shared UART 8N1 Receive Subroutines (3 Mbaud @ 60 MHz, 10 turns/bit) ----
+rx_byte:
+        wait !RX
+rx_after_start:
+        K=8
+        hold BIT + BIT/2 - 3                   # Center of data bit 0
+rx_bit: shift RX, K-=1
+        => kz: rx_stop
+        hold BIT - 2 => rx_bit
+rx_stop:
+        hold BIT - 2                           # Center of stop bit
+        ret
+
+# ---- Shared UART 8N1 Transmit Subroutine with Per-Bit Hardware KILL_N Abort ----
+# Checks KILL_N on EVERY bit cell; if P4 drops mid-frame, TX immediately idles high
+# and aborts the remainder of the order within 1 turn (33.3 ns @ 60 MHz).
+tx_byte:
+        K=8 => !KILL_N: tx_aborted
+        TX=0, T=BIT-2
+        wait => !KILL_N: tx_aborted | tz: tx_bit
+tx_bit: TX=d, shift, K-=1, T=BIT-3
+        wait => !KILL_N: tx_aborted | tz: tx_chk
+tx_chk: => kz: tx_stop | tx_bit
+tx_stop:
+        TX=1, T=BIT-3
+        wait => !KILL_N: tx_aborted | tz: tx_done
+tx_done:
+        ret
+tx_aborted:
+        TX=1, ALERT_KILL=1
+        push1=0xE2                             # Audit: DROP_KILL_SWITCH (mid-TX abort!)
+        => idle
+
+# ---- Machine 1: Hardware Token-Bucket Rate-Limit Window Clock ----
+machine rl_timer
+    out RL_TOK=P5
+
+rl_loop:
+        hold RL_WINDOW
+        RL_TOK=1 => rl_loop

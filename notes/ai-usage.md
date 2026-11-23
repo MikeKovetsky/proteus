@@ -270,3 +270,18 @@ A dated log, written as the work happens. The verification write-up's AI section
     balanced shards across CPU cores with duplicate/missing-test checks and merges JUnit XML into
     `test/results.xml`. Updated `.github/workflows/test.yaml` to run `make parallel`. Verified all 130/130
     RTL pin tests pass in 17.4 s under parallel Verilator and cleanly under parallel Icarus.
+55. **Tang Nano 9K FPGA bitstream, Pico 2 firmware, and Proteus × Qubx Hardware Risk Gate.** On Mike's direction
+    after ordering a budget Sipeed Tang Nano 9K + Pico 2 + W25Q32 + LM75A breadboard kit, Antigravity (Gemini)
+    built `fpga/tang_nano_9k/` wrapping unmodified `src/` RTL v2 with a Gowin BSRAM drop-in (`sram_gowin.v`),
+    verified 3.3V Bank 1/2 pin constraints (`tang_nano_9k.cst`), 6 pulse-stretched telemetry LEDs + S2 physical
+    kill override, a clean open-source Gowin bitstream (`yosys` + `nextpnr-himbaechel` + `gowin_pack`: PASS at
+    27.00 MHz crystal, `Fmax = 28.75 MHz`, 43% LUT4, 35% DFF, 8/26 BSRAM), `WIRING.md`, and MicroPython Pico 2
+    host firmware (`pico2_host.py`, 2/2 unit tests). In parallel, built `examples/qubx_risk_gate/` — a 2-machine
+    RTL v2 inline pre-trade risk gate (`risk_gate.fsm`, 127/512 SRAM entries, 1-clock TCAM + fat-finger guard +
+    hardware token-bucket rate limiter with Cancel bypass + physical `P4` kill-switch + Port-3 waveform zoom),
+    Verilator C++ driver, Qubx-compatible `OrderGate` bridge (Verilator + `--serial` Pico 2), automated suite
+    (4/4 PASS in 0.08s: 150.0 ns NewOrder / 83.3 ns Cancel, 0.0 ns jitter, 100.0 ns mid-TX kill cutoff), and
+    interactive Judge Mode TUI (`make -C examples/qubx_risk_gate demo`). Updated `README.md` with Mike's live
+    TUI screenshot and annotated die image, updated `docs/{architecture,isa,programming}.md` for RTL v2, and
+    drafted `WRITEUP.md`. Zero lines of `src/` RTL modified; all 130/130 RTL pin tests remain green.
+

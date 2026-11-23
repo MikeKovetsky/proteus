@@ -696,3 +696,46 @@ The demo board's RP2350 loads an image through the host pins:
 [info.md](info.md#loading-a-program) the loader's rules: a new program needs a reset, and the chip loses its
 program when it is deselected. The `Host` class in [test/host_link.py](../test/host_link.py) does all of
 this against the RTL, and is the reference for host firmware.
+
+## 8. RTL v2 extensions
+
+All RTL v1 images remain 100% valid on RTL v2 silicon. Programs that use any feature below emit a v2 image header with optional TCAM rules and per-machine `in_d` / dual-edge flags.
+
+### 8.1 16-rule masked Byte-Class TCAM & 1-clock indexed dispatch (`gate == 3`)
+
+Top-level TCAM rules are declared before `machine` blocks in priority order (first match wins, up to 16 rules, class 1..15; miss = class 0):
+
+```text
+tcam 0x4F/0xFF -> 1      # exact match
+tcam 0x80/0xF0 -> 2      # masked range 0x80..0x8F
+```
+
+Any state may dispatch in **1 clock** into an aligned block using `gate == 3`:
+
+```text
+dispatch tcam4  => default_lbl | 1: lbl1 | 2: lbl2 | 3: lbl3
+dispatch tcam8  => default_lbl | 1: lbl1 | ... | 7: lbl7
+dispatch tcam16 => default_lbl | 1: lbl1 | ... | 15: lbl15
+dispatch S[7:4] => default_lbl | 0xA: nib_a
+dispatch S[3:0] => default_lbl | 0: zero
+dispatch S[1:0] => default_lbl | 2: two
+```
+
+### 8.2 4th physical input pin (`in_d`) & dual-edge sampling (`in_b_half` / `edge_b`)
+
+- Listing a 4th pin in `in A=P0, B=P1, C=P3, D=P4` sets `in_d_en = 1` for that machine, reclaiming condition 12 (`rx3`) as physical input `D`.
+- Dual-edge sampling exposes `P2.half` (sampled on `negedge clk`, 8.33 ns earlier than `posedge clk`) and `edge_b` (edge detector on input B) for 120 MHz effective edge resolution on a 60 MHz clock (used by `eth10_rx.fsm`).
+
+### 8.3 Port-3 hardware pin-change trace buffer & read-strobe guard
+
+Once `running == 1` (`uo_out[6] == 1`), Host Port 3 (`ui_in[5:4] == 2'd3`) controls the 32-entry hardware trace buffer (`src/proteus_trace.v`):
+
+| Port-3 write command | Action |
+|---|---|
+| `0x00` | Stop recording (captured events remain readable) |
+| `0x01` | Clear buffer and start recording immediately |
+| `0x02` | Clear buffer and arm trigger (starts on first change of `pins & mask`) |
+| `0x03` followed by `MASK` | Set 8-bit pin watch mask (resets to `0xFF`) |
+
+Each captured event reads back on Port 3 as two bytes: `pins[7:0]` first, then `delta[7:0]` (clocks since previous event; `0xFF` heartbeat if 255 clocks elapse without change). Stray `rd_strobe` edges while `HAS_BYTE == 0` are ignored by the v2 host-read strobe guard.
+
