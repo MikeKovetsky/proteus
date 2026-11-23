@@ -2,16 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The table of a learned SPI target, mode 0. The host writes it from the model, and from nothing else.
 
-    out 0 MISO=P2    in A SCK=P0, B MOSI=P1, C CS=P3
+    out 0 MISO=P2    in A SCK=P0, B MOSI=P1, C CS=P3, D nRESET=P4
 
 A state is entered at an entry that puts the first bit of its answer on MISO, if SCK is low already, and calls
 one subroutine that every state shares. The subroutine puts the first bit out once SCK is low if the entry could
 not, takes seven bits in, puts the other seven out and waits for the eighth rising edge. It returns with J = 1, or
 with J = 0 when CS rose first. The state it returns to takes the last bit and, on J = 1, decides on the whole
 byte: with a chain of compares, one for each byte value that does not do what most do, where that chain is short
-enough for the rate; or else with a tree of tests on the byte's bits, most significant first, where each test
-reads one bit, catches one byte value whole and shifts the next bit up. Chains share their ends and take fewer
-entries. A tree decides in at most eight tests, however many byte values matter.
+enough for the rate; else with RTL v2's 1-clock masked TCAM dispatch when the states that need it share at most
+15 non-default classes covered by at most 16 masked rules; or else with a tree of tests on the byte's bits, most
+significant first, where each test reads one bit, catches one byte value whole and shifts the next bit up. Chains
+share their ends and take fewer entries. TCAM decides in 1 clock (serving up to 6 MHz). A tree decides in at most
+eight tests, however many byte values matter.
 
 The time from a byte's last rising edge to the next answer's first bit is AFTER clocks and one a test, and the
 first bit needs SCK low for LOW clocks. `period` turns that into the fastest rate, with a clock to spare.
@@ -19,8 +21,7 @@ first bit needs SCK low for LOW clocks. `period` turns that into the fastest rat
 S is cleared where the machine waits for CS, so a waiting machine's registers hang on its state and little
 else. The judge in learn/lab can then visit every one of them.
 
-All three inputs are taken, so this clone cannot also watch nRESET: a table machine has three inputs, and an SPI
-target needs SCK, MOSI and CS. Resetting it is loading it again."""
+The fourth input D (RTL v2) watches nRESET on P4 while waiting for CS (and when halted), returning to state 0."""
 
 from .bus import Refused
 from .spi import DESELECT, HIGH, SELECT
@@ -28,8 +29,9 @@ from . import table as T
 
 OUTS = (2, 0, 0, 0)
 INS = (0, 1, 3)
+IN_D = 4
 MISO = 0
-SCK, CS = T.A, T.C
+SCK, CS, NRESET = T.A, T.C, T.D_IN
 J1 = 0x1000
 K7 = 0x700
 CLOCK_KHZ = 60000
@@ -109,16 +111,116 @@ def sends(model, q):
     return 0
 
 
-def generate(bus, model):
+# Precomputed mask lookup for 8-bit TCAM cube compression (256 masks, sorted by care-bit count ascending).
+_MASKS_BY_WEIGHT = tuple(sorted(range(256), key=lambda m: (bin(m).count("1"), m)))
+_CUBE_CACHE = {}
+
+
+def _cube_bits(val, mask):
+    key = (val, mask)
+    bits = _CUBE_CACHE.get(key)
+    if bits is None:
+        bits = 0
+        for x in range(256):
+            if (x & mask) == val:
+                bits |= 1 << x
+        _CUBE_CACHE[key] = bits
+    return bits
+
+
+def compile_tcam(states):
+    """Assign each byte 0..255 a TCAM class 0..15 across `states` = [(q, f, left), ...] and cover classes 1..C
+    with at most T.MAX_TCAM priority-ordered masked rules (val, mask, cls). Returns (rules, byte_to_cls, n_cls)
+    or None if >15 non-default classes or >T.MAX_TCAM rules."""
+    sig_bytes = {}
+    for x in range(256):
+        sig = tuple(f[x] for _, f, _ in states)
+        sig_bytes.setdefault(sig, []).append(x)
+    if len(sig_bytes) <= 1 or len(sig_bytes) - 1 > 15:
+        return None
+    # Most common signature is class 0 (TCAM miss default); order remaining classes smallest-first so narrow
+    # exceptions take priority and become don't-cares for broader masked rules.
+    ordered = sorted(sig_bytes.items(), key=lambda kv: (-len(kv[1]), kv[1][0]))
+    default_sig = ordered[0][0]
+    others = sorted(ordered[1:], key=lambda kv: (len(kv[1]), kv[1][0]))
+    cls_of_sig = {default_sig: 0}
+    byte_to_cls = [0] * 256
+    class_bits = {}
+    for idx, (sig, xs) in enumerate(others, 1):
+        cls_of_sig[sig] = idx
+        bits = 0
+        for x in xs:
+            byte_to_cls[x] = idx
+            bits |= 1 << x
+        class_bits[idx] = (xs, bits)
+
+    rules = []
+    dont_care = 0  # bytes already matched by higher-priority rules
+    for cls in range(1, len(others) + 1):
+        xs, need = class_bits[cls]
+        if len(xs) == 1:
+            rules.append((xs[0], 0xFF, cls))
+            dont_care |= need
+            if len(rules) > T.MAX_TCAM:
+                return None
+            continue
+        allowed = need | dont_care
+        uncovered = need
+        while uncovered:
+            best = None  # (covered_count, -care_bits, -val, val, mask, bits)
+            rem_xs = [x for x in xs if (uncovered >> x) & 1]
+            seen_cubes = set()
+            for x in rem_xs:
+                for mask in _MASKS_BY_WEIGHT:
+                    val = x & mask
+                    ckey = (val, mask)
+                    if ckey in seen_cubes:
+                        continue
+                    seen_cubes.add(ckey)
+                    cbits = _cube_bits(val, mask)
+                    if cbits & ~allowed:
+                        continue
+                    cov = bin(cbits & uncovered).count("1")
+                    cand = (cov, -bin(mask).count("1"), -val, val, mask, cbits)
+                    if best is None or cand > best:
+                        best = cand
+                    if (cbits & uncovered) == uncovered:
+                        break  # single cube covers everything left for this class
+                if best is not None and (best[5] & uncovered) == uncovered:
+                    break
+            _, _, _, val, mask, cbits = best
+            rules.append((val, mask, cls))
+            if len(rules) > T.MAX_TCAM:
+                return None
+            uncovered &= ~cbits
+            dont_care |= cbits
+
+    # Exact verification over all 256 bytes.
+    for x in range(256):
+        got = 0
+        for val, mask, cls in rules:
+            if (x & mask) == (val & mask):
+                got = cls
+                break
+        if got != byte_to_cls[x]:
+            return None
+    return rules, byte_to_cls, len(others)
+
+
+def _build(bus, model, use_tcam=True):
     t = T.Table()
     gap, entry, root, pre = {}, {}, {}, {}
     for q in range(model.n):  # state 0 waits for CS, so the table starts with it
         if model.phases[q] == HIGH:
-            gap[q] = t.node(pin=(MISO, T.RELEASE), dst=T.TO_S, kj=T.J_LOAD, imm=J1)
+            gap[q] = t.node(dst=T.LINK)
+    boot = gap[0]
+    wait_cs = t.node(pin=(MISO, T.RELEASE), dst=T.TO_S, kj=T.J_LOAD, imm=J1)
+    wait_ret = t.node(nop=T.RETURN)
+    t.when(wait_cs, (NRESET, CS), (boot, wait_ret, boot, wait_cs))
     trap = t.node(pin=(MISO, T.RELEASE), dst=T.PUSH2, imm=0xEE)  # an input the host was told not to learn
     halt = t.node()
     t.go(trap, halt)
-    t.go(halt, halt)
+    t.when(halt, (NRESET,), (boot, halt))
 
     # the subroutine, entered with the answer in S and K = 7, and its first bit on MISO if SCK was low already
     first = t.node(pin=(MISO, T.DATA), gate=T.GATE_UNLESS)
@@ -128,7 +230,8 @@ def generate(bus, model):
     put = t.node(pin=(MISO, T.DATA), gate=T.GATE_UNLESS)
     last = t.node(pin=(MISO, T.RELEASE), gate=T.GATE_IF)
     done = t.node(nop=T.RETURN)
-    out = t.node(pin=(MISO, T.RELEASE), kj=T.J_LOAD, nop=T.RETURN)
+    out = t.node(pin=(MISO, T.RELEASE), kj=T.J_LOAD)
+    t.when(out, (NRESET,), (boot, done))
     t.when(first, (SCK, CS), (rise, first, out, out))  # the first bit, once SCK is low
     t.when(rise, (CS, SCK), (rise, out, take, out))    # SCK rose: take the bit
     t.go(take, edge)
@@ -151,17 +254,20 @@ def generate(bus, model):
         t.nodes[entry[q]].back = root[q]
 
     # A state decides on its byte with a chain of compares where the chain is short enough for the rate, as
-    # chains share their ends and take fewer entries, and with the tree on its bits where it is not.
+    # chains share their ends and take fewer entries; otherwise with 1-clock TCAM dispatch when the slow states
+    # fit in 16 masked rules; otherwise with a decision tree on the byte's bits.
     allowed = 0
     while period(allowed + 1) <= CLOCK_KHZ // bus.serve:
         allowed += 1
     tree, chains = Tree(t), T.Chains(t)
     deepest = 0
+    need_tcam = []
     for q in range(model.n):
         row = model.rows[q]
         if q in gap:
             to = row.get(SELECT)
-            t.when(gap[q], (CS,), (entry[to[0]] if to else trap, gap[q]))
+            t.go(gap[q], wait_cs)
+            t.nodes[gap[q]].back = entry[to[0]] if to else trap
             continue
         to = row.get(DESELECT)
         left = gap[to[0]] if to else trap
@@ -179,23 +285,60 @@ def generate(bus, model):
 
             chains.want(cases, common, then)
             continue
-        head, depth = tree.node(f, list(range(256)), 0)
-        deepest = max(deepest, depth)
-        t.when(root[q], (T.JZ,), (head, left))
-    chains.build()
+        need_tcam.append((q, f, left))
 
+    rules = None
+    if need_tcam:
+        compiled = compile_tcam(need_tcam) if use_tcam else None
+        if compiled is not None:
+            rules, byte_to_cls, n_cls = compiled
+            if n_cls <= 3:
+                mode, cb, size = T.DISP_TCAM16, 1, 4
+            elif n_cls <= 7:
+                mode, cb, size = T.DISP_TCAM8, 0, 8
+            else:
+                mode, cb, size = T.DISP_TCAM16, 0, 16
+            # Representative byte for each class 0..n_cls
+            rep = {}
+            for x, c in enumerate(byte_to_cls):
+                if c not in rep:
+                    rep[c] = x
+            for q, f, left in need_tcam:
+                succ = [f[rep[c]] if c in rep else None for c in range(size)]
+                head = t.node(dst=T.TO_S)
+                t.dispatch(head, mode, cb, succ)
+                t.when(root[q], (T.JZ,), (head, left))
+            deepest = max(deepest, 1)
+        else:
+            for q, f, left in need_tcam:
+                head, depth = tree.node(f, list(range(256)), 0)
+                deepest = max(deepest, depth)
+                t.when(root[q], (T.JZ,), (head, left))
+
+    chains.build()
+    return t, deepest, rules
+
+
+def generate(bus, model):
+    t, deepest, rules = _build(bus, model, use_tcam=True)
+    packed = t.pack()
+    if rules is not None and packed.top > T.DEPTH:
+        # Rare case: many distinct TCAM jump tables overflowed 512 entries; retry with Tree.
+        t2, deepest2, _ = _build(bus, model, use_tcam=False)
+        packed2 = t2.pack()
+        if packed2.top < packed.top:
+            t, deepest, rules, packed = t2, deepest2, None, packed2
     if CLOCK_KHZ // bus.serve < period(deepest):
         raise Refused("too fast", "a clone that decides a byte in %d tests serves SPI up to %d kHz, not %d"
                       % (deepest, most_khz(deepest), bus.serve))
-    packed = t.pack()
     return {
         "entries": packed.top,
         "chain": deepest,
-        "image": packed.image(OUTS, INS) if packed.top <= T.DEPTH else None,
+        "image": packed.image(OUTS, INS, in_d=IN_D, tcam=rules) if packed.top <= T.DEPTH else None,
         "differs": [
             "MISO, its release and the answer to CS follow the pins through the chip's synchroniser and one or "
             "more entries, where the device had its own delay",
             "a deselect shorter than %d clocks can be missed" % (deepest + 3),
-            "the clone has no input left for nRESET: to reset it, load it again",
+            "nRESET on P4 resets the clone whenever CS is high (or halted)",
         ],
     }

@@ -142,11 +142,22 @@ def traffic(part, count=TRAFFIC, seed=1):
 
 def broken(image, byte, compared):
     """The image with one byte of one kind of entry wrong, in every copy of it: a byte it sends (a load of S with
-    K), or a byte it compares. A compare tests S == imm in either condition. In the SPI copy's decision tree S has
-    been shifted up k places by then, so the compare holds the byte shifted too. Flipping its lowest bit makes it
-    miss the byte."""
+    K), or a byte it compares (in a v2 TCAM rule or a compare entry). A compare tests S == imm in either condition.
+    In the SPI copy's decision tree S has been shifted up k places by then, so the compare holds the byte shifted
+    too. Flipping a compared bit makes it miss the byte."""
     data, changed = bytearray(image), 0
-    start = 1 + 16 * image[0] + 2
+    has_tcam = bool(image[0] & 0x80)
+    nm = image[0] & 0x7F
+    tcam_at = 1 + 16 * nm
+    tcam_n = image[tcam_at] if has_tcam else 0
+    if compared and has_tcam:
+        for i in range(tcam_n):
+            pos = tcam_at + 1 + 3 * i
+            val, mask, cls = data[pos], data[pos + 1], data[pos + 2]
+            if cls != 0 and mask != 0 and (byte & mask) == (val & mask):
+                data[pos] ^= mask & -mask
+                changed += 1
+    start = tcam_at + (1 + 3 * tcam_n if has_tcam else 0) + 2
     shifted = set((byte << k) & 0xFF for k in range(8)) - {0}
     for at in range(start, len(data), 8):
         a = int.from_bytes(data[at:at + 4], "little")
@@ -178,7 +189,7 @@ class Pair:
             sys.path.append(str(ROOT))  # the simulator's Python gets this process's path
         self.runner = get_runner("icarus")
         sources = [PAIR / "tb_pair.v"] + [ROOT / "src" / name for name in (
-            "project.v", "protoemu_core.v", "protoemu_fifo.v", "protoemu_table.v")]
+            "project.v", "protoemu_core.v", "protoemu_fifo.v", "protoemu_table.v", "protoemu_trace.v")]
         sources += sorted((ROOT / "test" / "ihp_sram").glob("*.v"))
         self.runner.build(sources=sources, hdl_toplevel="tb_pair", build_dir=self.work / "build",
                           defines={"FUNCTIONAL": 1}, always=True, timescale=("1ns", "1ps"),

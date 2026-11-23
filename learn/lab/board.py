@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 BUILD = ROOT / "learn" / "build"
 SOURCES = (
     "test/lint/waivers.vlt", "src/project.v", "src/protoemu_core.v", "src/protoemu_fifo.v", "src/protoemu_table.v",
+    "src/protoemu_trace.v",
 )
 OPTIONS = (
     "--cc", "--exe", "--build", "-O3", "--savable", "--no-timing", "--x-initial", "unique",

@@ -17,14 +17,17 @@ A field's encoding is docs/isa.md, section 2. test/learn checks it against the r
 
 DEPTH = 512
 SEARCH = 4096  # placement may run past the table, to say how large a machine that does not fit is
+MAX_TCAM = 16
 
 NEVER, A, B, C, EDGE, TZ, KZ, JZ, NZ, D, CRC, RX0, RX3, TX1, TX2, EQUAL = range(16)
+D_IN = RX3  # v2: cond 12 selects 4th input D when in_d_en=1
 LOW, HIGH, RELEASE, DATA, NDATA, TOGGLE, OPEN_DRAIN = range(1, 8)
 TO_S, TO_R, TO_N, TO_NHI, PUSH1, PUSH2, LINK = range(1, 8)
 DIN_0, DIN_1, DIN_A, DIN_B = range(4)
 RETURN = 3
 J_LOAD, K_DEC, K_LOAD = 2, 3, 6
-GATE_IF, GATE_UNLESS = 1, 2
+GATE_IF, GATE_UNLESS, GATE_DISPATCH = 1, 2, 3
+DISP_SLICE2, DISP_NIBBLE, DISP_TCAM8, DISP_TCAM16 = range(4)
 PLACES = ((0, 3), (0, 1), (0, 2), (1, 3), (2, 3))  # the five, the one that others can share most easily first
 
 
@@ -33,6 +36,7 @@ class Node:
         self.word_a = word_a
         self.word_b = word_b
         self.gated = gated  # its condition gates the pins, so it has to stay cA
+        self.dispatch = None  # v2: (mode, cb) when gate == GATE_DISPATCH
         self.conds = ()
         self.succ = ()
         self.back = None    # for a call: the node to return to
@@ -62,6 +66,16 @@ class Table:
         self.nodes[node].succ = tuple(succ)
         return node
 
+    def dispatch(self, node, mode, cb, succ):
+        """v2: 1-clock indexed / TCAM dispatch (gate == 3, pin ops off). len(succ) is 4, 8 or 16."""
+        n = self.nodes[node]
+        n.word_a = (n.word_a & ~(3 << 27)) | (GATE_DISPATCH << 27)
+        n.gated = False
+        n.dispatch = (mode, cb)
+        n.conds = ()
+        n.succ = tuple(succ)
+        return node
+
     def call(self, target, back):
         node = self.go(self.node(dst=LINK), target)
         self.nodes[node].back = back
@@ -70,6 +84,8 @@ class Table:
     # ---- sharing
 
     def simplify(self, node):
+        if node.dispatch is not None:
+            return
         conds, succ = node.conds, node.succ
         if len(conds) == 2:
             if succ[0] == succ[2] and succ[1] == succ[3]:
@@ -96,7 +112,7 @@ class Table:
             group, ids = {}, {}
             for at in order:
                 node = self.nodes[at]
-                key = (node.word_a, node.word_b, node.conds, len(node.succ), node.back is None)
+                key = (node.word_a, node.word_b, node.conds, node.dispatch, len(node.succ), node.back is None)
                 if key not in ids:
                     ids[key] = len(ids)
                 group[at] = ids[key]
@@ -123,6 +139,7 @@ class Table:
                 done.add(group[at])
                 old = self.nodes[at]
                 node = Node(old.word_a, old.word_b, old.gated)
+                node.dispatch = old.dispatch
                 node.conds = old.conds
                 node.succ = tuple([None if to is None else group[to] for to in old.succ])
                 node.back = None if old.back is None else group[old.back]
@@ -136,33 +153,42 @@ class Table:
 
     def pack(self):
         self.share()
-        fours, twos, ones = [], [], []
+        disps, fours, twos, ones = [], [], [], []
         known = set()
         use = [0] * len(self.nodes)
         for node in self.nodes:
-            key = (node.succ, node.gated)
+            is_disp = node.dispatch is not None
+            key = (node.succ, node.gated, is_disp)
             if node.succ and key not in known:
                 known.add(key)
-                (ones if len(node.succ) == 1 else twos if len(node.succ) == 2 else fours).append(key)
+                if is_disp:
+                    disps.append(key)
+                elif len(node.succ) == 1:
+                    ones.append(key)
+                elif len(node.succ) == 2:
+                    twos.append(key)
+                else:
+                    fours.append(key)
                 for to in node.succ:
                     if to is not None:
                         use[to] += 1
             if node.back is not None:
-                key = ((node.back,), False)
+                key = ((node.back,), False, False)
                 if key not in known:
                     known.add(key)
                     ones.append(key)
+        disps.sort(key=lambda k: -len(k[0]))
         hubs = sorted(range(len(twos)), key=lambda i: (-use[twos[i][0][0]] - use[twos[i][0][1]], i))
         orders = (list(range(len(twos))), hubs, list(range(len(twos) - 1, -1, -1)))
         best = None
         for order in orders:
-            packed = self.place(fours, [twos[i] for i in order], ones)
+            packed = self.place(disps, fours, [twos[i] for i in order], ones)
             if best is None or packed.top < best.top:
                 best = packed
         return best
 
-    def place(self, fours, twos, ones):
-        return Placement(self.nodes).fill(fours, twos, ones)
+    def place(self, disps, fours, twos, ones):
+        return Placement(self.nodes).fill(disps, fours, twos, ones)
 
 
 class Placement:
@@ -196,9 +222,31 @@ class Placement:
             addr += 1
         return addr
 
-    def fill(self, fours, twos, ones):
+    def fill(self, disps, fours, twos, ones):
+        for key in disps:
+            succ, _gated, _is_disp = key
+            size = len(succ)
+            best = (999, 0)
+            for base in range(0, SEARCH, size):
+                total = 0
+                ok = True
+                for k in range(size):
+                    c = self.cost(base + k, succ[k])
+                    if c >= 9:
+                        ok = False
+                        break
+                    total += c
+                if ok and total < best[0]:
+                    best = (total, base)
+                    if total == 0 or base >= self.top:
+                        break
+            base = best[1]
+            for k in range(size):
+                self.put(base + k, succ[k])
+            self.where_to[key] = (base, 0)
+
         for key in fours:
-            succ, gated = key
+            succ, gated, _is_disp = key
             best = (99, 0, False)
             orders = ((False, succ),) if gated else ((False, succ), (True, (succ[0], succ[2], succ[1], succ[3])))
             for base in range(0, SEARCH, 4):
@@ -247,7 +295,7 @@ class Placement:
 
     def near(self, key):
         """The cheapest place for a pair beside a copy of either half: at most one new entry."""
-        (first, second), gated = key
+        (first, second), gated, _is_disp = key
         best = None
         for side in (0, 1):
             have, other = (first, second) if side == 0 else (second, first)
@@ -264,7 +312,7 @@ class Placement:
         return best
 
     def anywhere(self, key):
-        (first, second), gated = key
+        (first, second), gated, _is_disp = key
         part = None
         for block in range(0, SEARCH, 4):
             used = 0
@@ -293,8 +341,12 @@ class Placement:
             node = self.nodes[index]
             a, b = node.word_a, node.word_b
             first = second = 0
-            if node.succ:
-                base, how = self.where_to[(node.succ, node.gated)]
+            if node.dispatch is not None:
+                base, _ = self.where_to[(node.succ, node.gated, True)]
+                a |= base
+                first, second = node.dispatch
+            elif node.succ:
+                base, how = self.where_to[(node.succ, node.gated, False)]
                 a |= base
                 if len(node.succ) == 4:
                     first, second = node.conds
@@ -310,11 +362,25 @@ class Placement:
             out.append((a | first << 9 | second << 13, b))
         return out
 
-    def image(self, outs, ins, msb=1):
-        head = [outs[0] | outs[1] << 3, outs[2] | outs[3] << 3, ins[0] | ins[1] << 3, ins[2] | msb << 3]
+    def image(self, outs, ins, msb=1, in_d=None, tcam=None):
+        in_d_en = 1 if in_d is not None else 0
+        in_d_pin = (in_d & 7) if in_d is not None else 0
+        head = [
+            outs[0] | outs[1] << 3,
+            outs[2] | outs[3] << 3,
+            ins[0] | ins[1] << 3 | in_d_en << 6,
+            ins[2] | msb << 3 | in_d_pin << 4,
+        ]
         if self.top > DEPTH:
             raise ValueError("%d entries do not fit in %d" % (self.top, DEPTH))
-        data = bytearray([1] + head + [0] * 12)
+        has_tcam = bool(tcam)
+        data = bytearray([1 | (0x80 if has_tcam else 0)] + head + [0] * 12)
+        if has_tcam:
+            data.append(len(tcam))
+            for val, mask, cls in tcam:
+                data.append(val & 0xFF)
+                data.append(mask & 0xFF)
+                data.append(cls & 0x0F)
         words = self.words()
         data.append(len(words) & 0xFF)
         data.append(len(words) >> 8)

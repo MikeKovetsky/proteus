@@ -236,5 +236,17 @@ A dated log, written as the work happens. The verification write-up's AI section
     Verilator lint clean, Yosys generic R4 async-reset check and IHP slow-corner timing estimate pass (2,105 flops,
     9.53 ns decision loop), 68 of 68 compiler tests, 14 of 14 bake-off benches, 50 of 50 flow tests, 323 of 323
     lockstep traces (3,050,238 clocks), 21 of 21 lockstep mutants killed, and 130 of 130 pin-level cocotb tests
-    on RTL (122 existing + 8 v2 tests), plus `gap_eth10_link_pulses` and `gap_eth10_rx_jitter` passing. Pushed to
-    GitHub Actions for GDS/precheck/gate-level verification.
+    on RTL (122 existing + 8 v2 tests), plus `gap_eth10_link_pulses` and `gap_eth10_rx_jitter` passing.
+51. **RTL v2 `learn` upgrade, independent third-party protocol oracle, and GDS slew fix (branch `rtl-v2`).**
+    Merged `learn-on-main` into `rtl-v2` and upgraded `learn/host/table.py` and `learn/host/clone_spi.py` to use
+    RTL v2's 16-rule masked TCAM (1-clock dispatch, `depth = 1`) and 4th input `P4` (`nRESET`) on SPI clones,
+    enabling Flash to serve at 5 MHz and 6 MHz while honoring hardware `nRESET` from every state (`judge.clone`
+    now tests `reset()` on both SPI and I2C). Added `test/oracle/` verifying UART (115.2k, 921.6k), I2C (400k,
+    100k, plain read, NACK), SPI controllers (modes 0–3), and the 5 MHz v2 TCAM SPI target against unmodified
+    external open-source VIPs (`cocotbext-uart` 0.1.4, `cocotbext-i2c` 0.1.2, `cocotbext-spi` 0.6.2; 6 of 6 pass)
+    and wired it into `.github/workflows/test.yaml`. First `rtl-v2` GDS build (run 45093165556 on `85369b2`)
+    achieved 28.8% effective utilization, 0 routing DRC errors, 0 LVS errors, 0 antenna violations, 0 max-cap
+    violations, and 0 setup/hold violations in all three corners (+0.559 ns slow setup slack, +0.101 ns fast hold
+    slack), failing only on 2 long-wire `sg13cmos5l_nor3_1` loader nets exceeding 2.507 ns max slew (4.61 ns and
+    2.515 ns) because IHP CMOS5L leaves `LAYERS_RC` unset; fixed in `src/config.json` with
+    `DESIGN_REPAIR_MAX_WIRE_LENGTH: 250` and `EXTRA_EXCLUDED_CELLS: ["sg13cmos5l_nor3_1", "sg13cmos5l_nor4_1"]`.

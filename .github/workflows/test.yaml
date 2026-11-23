@@ -34,6 +34,14 @@ jobs:
           # make will return success even if the tests fail, so check results.xml for failed tests
           python -m cocotb_tools.check_results results.xml
 
+      - name: Run independent third-party protocol oracle tests (cocotbext)
+        run: |
+          pip install --no-deps cocotbext-uart==0.1.4 cocotbext-i2c==0.1.2 cocotbext-spi==0.6.2
+          cd test/oracle
+          make clean
+          make
+          python -m cocotb_tools.check_results results.xml
+
       - name: Test Summary
         uses: test-summary/action@v2.4
         with:

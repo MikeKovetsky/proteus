@@ -13,4 +13,6 @@ test/results.xml
 test/gate_level_netlist.v
 test/lockstep/build/
 test/synth/build/
+test/oracle/sim_build/
+test/oracle/results.xml
 __pycache__/

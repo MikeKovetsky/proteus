@@ -87,7 +87,7 @@ class Generators(unittest.TestCase):
         """Without its margin, the bound is exact for a controller on the chip's own clock, as the judge's is, and
         one clock faster the judge finds a fault: AFTER and LOW are what the RTL takes, and MARGIN is spare. The
         first device's limit is its decision, the second's is SCK's low half."""
-        for table, depth in ((cloning.scrambled("spi", 2, 22, 21), 4), (families.device("spi modes", 6), 1)):
+        for table, depth in ((cloning.scrambled("spi", 2, 20, 19), 4), (families.device("spi modes", 6), 1)):
             made, result = cloning.generate(table, 5000)
             self.assertEqual(made["chain"], depth, table.name)
             least = max(clone_spi.AFTER + depth, 2 * clone_spi.LOW)
@@ -113,6 +113,7 @@ class Generators(unittest.TestCase):
         for module, name, wrong, bus in (
             (clone_spi, "K7", 0x600, "spi"), (clone_spi, "J1", 0, "spi"), (T, "EQUAL", T.EDGE, "spi"),
             (T, "DIN_B", T.DIN_A, "spi"), (T, "DATA", T.NDATA, "spi"), (T, "RELEASE", 0, "spi"),
+            (clone_spi, "NRESET", T.TX1, "spi"),  # deaf to nRESET: only the judge's reset symbol finds it
             (clone_i2c, "K7", 0x600, "i2c"), (clone_i2c, "K8", 0x900, "i2c"), (clone_i2c, "K1", 0, "i2c"),
             (clone_i2c, "HOLD", 90, "i2c"), (T, "OPEN_DRAIN", T.DATA, "i2c"), (T, "DIN_B", T.DIN_A, "i2c"),
             (clone_i2c, "NRESET", T.TX1, "i2c"),  # deaf to nRESET: only the judge's reset symbol finds it
@@ -131,12 +132,20 @@ class Generators(unittest.TestCase):
             self.assertEqual(judged(table, serve)[1]["verdict"], judge.EXACT, table.name)
 
     def test_the_first_probes_own_two_largest_machines_fit(self):
-        for raw, entries in ((64, 316), (100, 473)):
+        for raw, entries in ((64, 316), (100, 480)):
             table = cloning.probes_machine(raw)
             made, result = cloning.generate(table, 2000, [0x5A, 0xA5, judge.SELECT])
             self.assertEqual(made["entries"], entries)
             with board.Board("spi") as on:
                 self.assertEqual(judge.judge(on, table, result, [2000])["verdict"], judge.EXACT)
+
+    def test_v2_flash_serves_at_5mhz_and_6mhz_with_tcam(self):
+        """With RTL v2's 1-clock TCAM dispatch and P4 nRESET, Flash serves at 5 MHz and 6 MHz."""
+        for serve in (5000, 6000):
+            made, report = judged(devices.flash(), serve)
+            self.assertEqual(report["verdict"], judge.EXACT, (serve, report))
+            self.assertLessEqual(made["entries"], T.DEPTH)
+            self.assertTrue(made["image"][0] & 0x80, "expected v2 TCAM header at %d kHz" % serve)
 
     def test_the_larger_sizes_of_the_first_probe_fit(self):
         for raw, states in ((64, 52), (100, 86)):

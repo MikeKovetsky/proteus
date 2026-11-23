@@ -366,7 +366,7 @@ def clone(board, image, minimal, khz, pairs=PAIRS):
     start = (minimal.start, board.save())
     parent = {start: None}
     todo = deque([start])
-    steps, resets = 0, board.bus == "i2c"
+    steps, resets = 0, True
     complete = True
     while todo:
         key = todo.popleft()
